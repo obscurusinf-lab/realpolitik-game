@@ -440,7 +440,7 @@ export default function App({ gameId, playerName, onNewGame }) {
     try {
       const result = await skipTurn(gameId);
       setEndTurnResult({
-        narrative: "Вы решили не предпринимать активных действий в этом ходу. Инициатива восстанавливается.",
+        narrative: result.narrative || "Президент бездействует. Страна теряет темп.",
         statDeltasPreview: result.statDeltas || {},
         actionMode: "decree",
       });

@@ -374,20 +374,31 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       const turnNumber = game.current_turn + 1;
       const currentStats = game.stats || {};
-      const { INITIATIVE_MAX } = require("../rules/rules-engine");
+      const { INITIATIVE_MAX, INITIATIVE_SKIP_REGEN, applyTurn } = require("../rules/rules-engine");
 
-      // Бонусная регенерация при пропуске: +45 вместо обычных +25
+      // Применяем null_action через rules-engine — штрафы к статам + бонусная регенерация инициативы
+      const { newStats, statDeltas } = applyTurn({
+        state: { stats: currentStats, relations: game.relations || [] },
+        gmClassification: { action_type: "null_action", severity: 2, affected_relations: [] },
+        gameId,
+        turnNumber,
+        actionMode: "skip",
+      });
+
+      // Пропуск: инициатива не тратится, а восстанавливается на INITIATIVE_SKIP_REGEN
       const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
-      const newInit = Math.min(INITIATIVE_MAX, currentInit + 45);
-      const newStats = { ...currentStats, initiative: newInit };
+      newStats.initiative = Math.min(INITIATIVE_MAX, currentInit + INITIATIVE_SKIP_REGEN);
+      statDeltas.initiative = newStats.initiative - currentInit;
+
+      const narrative = "Президент бездействует. Страна теряет темп — рейтинг и экономика проседают.";
 
       await client.query(
         `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [gameId, turnNumber, "[Пропуск хода]", "decree",
-          JSON.stringify({ action_type: "null_action", severity: 1 }),
-          JSON.stringify({ initiative: newInit - currentInit }),
-          "[]", "Президент взял паузу. Инициатива восстановлена.", null]
+          JSON.stringify({ action_type: "null_action", severity: 2 }),
+          JSON.stringify(statDeltas),
+          "[]", narrative, null]
       );
       await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
       await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
@@ -395,8 +406,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       return reply.send({
         turnNumber,
-        narrative: "Президент взял паузу. Советники используют время для анализа обстановки.",
-        statDeltas: { initiative: newInit - currentInit },
+        narrative,
+        statDeltas,
         skipped: true,
       });
     } catch (err) {
