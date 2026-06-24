@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { createGame, createUser, fetchLeaderboard } from "./api";
+import { createGame, createUser, fetchLeaderboard, fetchAdminStats } from "./api";
 
 const COUNTRIES = [
   {
@@ -239,6 +239,111 @@ function saveSessions(sessions) {
 
 const STAT_LABELS = { stability: "Стабильность", economy: "Экономика", military: "Армия", diplomacy: "Дипломатия", approval: "Рейтинг" };
 
+const COUNTRY_FLAG_MAP = { RU: "🇷🇺", US: "🇺🇸", CN: "🇨🇳", UA: "🇺🇦", DE: "🇩🇪", TR: "🇹🇷" };
+
+function AdminPanel({ onClose }) {
+  const [step, setStep] = useState("auth"); // "auth" | "stats"
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState(null);
+
+  async function handleAuth() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchAdminStats(password);
+      setStats(data);
+      setStep("stats");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const overlay = {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+    zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center",
+    fontFamily: "'PT Serif',Georgia,serif",
+  };
+  const panel = {
+    background: "#14181f", border: "1px solid #9c8347", borderRadius: 8,
+    padding: "28px 28px 24px", width: "min(90vw, 640px)", maxHeight: "85vh",
+    overflowY: "auto", color: "#ece7d8", position: "relative",
+  };
+
+  return (
+    <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={panel}>
+        <button onClick={onClose} style={{ position: "absolute", top: 12, right: 14, background: "none", border: "none", color: "#5a6070", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+
+        {step === "auth" && (
+          <>
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 16 }}>АДМИНИСТРАТИВНЫЙ ДОСТУП</div>
+            <div className="doc-font" style={{ fontSize: 15, marginBottom: 16 }}>Введите пароль для просмотра статистики</div>
+            <input
+              autoFocus
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleAuth()}
+              placeholder="Пароль…"
+              style={{ width: "100%", background: "#1f2733", border: "1px solid #3a4156", borderRadius: 4, padding: "10px 12px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 14, outline: "none", marginBottom: 12 }}
+            />
+            {error && <div style={{ color: "#e09090", fontSize: 13, marginBottom: 10 }}>{error}</div>}
+            <button
+              onClick={handleAuth}
+              disabled={loading || !password}
+              style={{ background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "10px 20px", fontFamily: "'PT Serif',serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+            >
+              {loading ? "Проверка…" : "Войти →"}
+            </button>
+          </>
+        )}
+
+        {step === "stats" && stats && (
+          <>
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 20 }}>СТАТИСТИКА · REALPOLITIK</div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 24 }}>
+              {[
+                { label: "Всего игроков", value: stats.users.total, sub: `+${stats.users.today} сегодня` },
+                { label: "Всего партий", value: stats.games.total, sub: `${stats.games.active} активных` },
+                { label: "Всего ходов", value: stats.turns.total, sub: "сделано игроками" },
+              ].map(({ label, value, sub }) => (
+                <div key={label} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 12px", textAlign: "center" }}>
+                  <div className="mono-font" style={{ fontSize: 24, fontWeight: 700, color: "#9c8347" }}>{value}</div>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#ece7d8", marginTop: 4 }}>{label}</div>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>{sub}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 10 }}>ВСЕ ИГРОКИ (последние 50)</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {stats.players.map((p, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 12px" }}>
+                  <div style={{ fontSize: 18, flexShrink: 0 }}>{COUNTRY_FLAG_MAP[p.country_id] || "🌐"}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.display_name}</div>
+                    <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>
+                      {new Date(p.created_at).toLocaleString("ru-RU")} · ход {p.current_turn}
+                    </div>
+                  </div>
+                  {p.score != null && (
+                    <div className="mono-font" style={{ fontSize: 14, fontWeight: 700, color: "#9c8347", flexShrink: 0 }}>{p.score} очк.</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LeaderboardPage({ onBack }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -315,6 +420,18 @@ function Root() {
   const [game, setGame] = useState(null);
   const [sessions, setSessions] = useState(loadSessions);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.ctrlKey && e.shiftKey && e.code === "KeyA") {
+        e.preventDefault();
+        setShowAdmin(v => !v);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   function handleStart(id, playerName, countryId) {
     const entry = { id, playerName, countryId: countryId || "RU", createdAt: new Date().toISOString() };
@@ -339,9 +456,17 @@ function Root() {
     setGame(null);
   }
 
-  if (game) return <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} />;
-  if (showLeaderboard) return <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
-  return <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onLeaderboard={() => setShowLeaderboard(true)} />;
+  let screen;
+  if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} />;
+  else if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
+  else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onLeaderboard={() => setShowLeaderboard(true)} />;
+
+  return (
+    <>
+      {screen}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+    </>
+  );
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<Root />);

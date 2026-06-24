@@ -68,6 +68,34 @@ async function buildServer() {
   await registerSuggestionRoutes(fastify, { db, callClaudeApi });
   await registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore });
 
+  // --- Admin stats (защищён паролем через заголовок) ---
+  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "realpolitik-admin";
+  fastify.get("/admin/stats", async (request, reply) => {
+    if (request.headers["x-admin-password"] !== ADMIN_PASSWORD) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+    const [usersRes, gamesRes, turnsRes, topPlayersRes] = await Promise.all([
+      db.query(`SELECT COUNT(*) AS total, COUNT(CASE WHEN created_at > now() - interval '24 hours' THEN 1 END) AS today FROM users`),
+      db.query(`SELECT COUNT(*) AS total, COUNT(CASE WHEN status = 'active' THEN 1 END) AS active FROM games`),
+      db.query(`SELECT COUNT(*) AS total FROM turns`),
+      db.query(`
+        SELECT u.display_name, g.country_id, g.current_turn, g.created_at,
+               ls.score
+        FROM games g
+        JOIN users u ON u.id = g.owner_user_id
+        LEFT JOIN leaderboard_snap ls ON ls.game_id = g.id AND ls.turn_n = g.current_turn
+        ORDER BY g.created_at DESC
+        LIMIT 50
+      `),
+    ]);
+    return reply.send({
+      users: usersRes.rows[0],
+      games: gamesRes.rows[0],
+      turns: turnsRes.rows[0],
+      players: topPlayersRes.rows,
+    });
+  });
+
   // Грейсфул-шатдаун
   const shutdown = async () => {
     fastify.log.info("Shutting down…");

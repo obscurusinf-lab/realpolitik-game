@@ -118,3 +118,12 @@ export async function fetchLeaderboard(countryId) {
   if (!res.ok) throw new Error(`fetchLeaderboard failed: ${res.status}`);
   return res.json();
 }
+
+export async function fetchAdminStats(password) {
+  const res = await fetch(`${API_BASE}/admin/stats`, {
+    headers: { "x-admin-password": password },
+  });
+  if (res.status === 403) throw new Error("Неверный пароль");
+  if (!res.ok) throw new Error(`fetchAdminStats failed: ${res.status}`);
+  return res.json();
+}
