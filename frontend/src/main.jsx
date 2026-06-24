@@ -153,11 +153,25 @@ function NewsVideoPanel() {
   );
 }
 
-function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClearAll, onLeaderboard }) {
+function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClearAll, onLeaderboard, onAdminOpen }) {
   const [playerName, setPlayerName] = useState("");
   const [selectedCountry, setSelectedCountry] = useState("RU");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(null);
+  const [tapCount, setTapCount] = useState(0);
+  const tapTimer = React.useRef(null);
+
+  function handleSecretTap() {
+    const next = tapCount + 1;
+    setTapCount(next);
+    clearTimeout(tapTimer.current);
+    if (next >= 5) {
+      setTapCount(0);
+      onAdminOpen?.();
+    } else {
+      tapTimer.current = setTimeout(() => setTapCount(0), 1500);
+    }
+  }
 
   async function handleStart() {
     if (!playerName.trim()) { setError("Введите ваше имя"); return; }
@@ -323,8 +337,12 @@ function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClea
           ЗАЛА СЛАВЫ — ТОП ПРЕЗИДЕНТОВ
         </button>
 
-        <div className="mono-font" style={{ textAlign: "center", fontSize: 9, color: "#2a3040", marginTop: 18, letterSpacing: "0.08em" }}>
-          ДАННЫЕ НА ИЮНЬ 2026 · ВСЕ СОВПАДЕНИЯ СЛУЧАЙНЫ
+        <div
+          className="mono-font"
+          onClick={handleSecretTap}
+          style={{ textAlign: "center", fontSize: 9, color: "#2a3040", marginTop: 18, letterSpacing: "0.08em", userSelect: "none", cursor: "default" }}
+        >
+          ДАННЫЕ НА ИЮНЬ 2026 · ВСЕ СОВПАДЕНИЯ СЛУЧАЙНЫ{tapCount > 0 ? ` ·` + "·".repeat(tapCount) : ""}
         </div>
         </div>{/* end flex:1 left column */}
 
@@ -688,6 +706,7 @@ function Root() {
   const [showAdmin, setShowAdmin] = useState(false);
 
   useEffect(() => {
+    // Desktop: Ctrl+Shift+A
     function onKey(e) {
       if (e.ctrlKey && e.shiftKey && e.code === "KeyA") {
         e.preventDefault();
@@ -695,6 +714,10 @@ function Root() {
       }
     }
     window.addEventListener("keydown", onKey);
+    // URL param: ?admin (для мобильного)
+    if (new URLSearchParams(window.location.search).has("admin")) {
+      setShowAdmin(true);
+    }
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
@@ -731,7 +754,7 @@ function Root() {
   let screen;
   if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} />;
   else if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
-  else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onClearAll={handleClearAll} onLeaderboard={() => setShowLeaderboard(true)} />;
+  else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onClearAll={handleClearAll} onLeaderboard={() => setShowLeaderboard(true)} onAdminOpen={() => setShowAdmin(true)} />;
 
   return (
     <>
