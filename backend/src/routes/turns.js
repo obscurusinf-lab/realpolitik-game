@@ -228,16 +228,18 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
 
+      // Для тайных операций — без публичных комментариев, только внутренний брифинг
+      const isSecret = pendingActionMode === "intel";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           gameId,
           turnNumber,
-          gmClassification.policy_update?.is_new_policy ? "decree" : "news",
-          "Брифинг штаба",
-          gmClassification.narrative,
-          JSON.stringify(gmClassification.newsfeed_reactions || []),
+          isSecret ? "news" : (gmClassification.policy_update?.is_new_policy ? "decree" : "news"),
+          isSecret ? "Служба внешней разведки" : "Брифинг штаба",
+          isSecret ? `[СЕКРЕТНО] ${gmClassification.narrative}` : gmClassification.narrative,
+          isSecret ? "[]" : JSON.stringify(gmClassification.newsfeed_reactions || []),
         ]
       );
 
