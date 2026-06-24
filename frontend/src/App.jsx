@@ -1,7 +1,145 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor } from "./api";
+
+// ---------- EndTurnScreen ----------
+function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
+  const [phase, setPhase] = useState(0); // 0=action, 1=stats, 2=world, 3=done
+  const [worldItems, setWorldItems] = useState([]);
+  const [polling, setPolling] = useState(true);
+  const [newState, setNewState] = useState(null);
+  const pollRef = useRef(null);
+
+  // Показываем фазы с задержкой
+  useEffect(() => {
+    const t1 = setTimeout(() => setPhase(1), 1200);
+    const t2 = setTimeout(() => setPhase(2), 2400);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+
+  // Polling game state пока не появятся world reactions
+  useEffect(() => {
+    let attempts = 0;
+    const maxAttempts = 12;
+    async function poll() {
+      try {
+        const s = await fetchGameState(gameId);
+        setNewState(s);
+        const reactions = (s.newsfeed || []).filter(n => n.item_type === "reaction" && n.turn_n === (prevState?.turn ?? 0) + 1);
+        if (reactions.length > 0 || attempts >= maxAttempts) {
+          setWorldItems(reactions);
+          setPolling(false);
+          setPhase(3);
+          clearInterval(pollRef.current);
+        }
+      } catch {}
+      attempts++;
+    }
+    poll();
+    pollRef.current = setInterval(poll, 2500);
+    return () => clearInterval(pollRef.current);
+  }, [gameId]);
+
+  const ACTION_MODE_LABEL = { decree: "📜 УКАЗ", intel: "🕵️ РАЗВЕДЫВАТЕЛЬНАЯ ОПЕРАЦИЯ", military: "⚔️ ВОЕННАЯ ОПЕРАЦИЯ" };
+  const statLabel = { stability: "Стабильность", economy: "Экономика", military: "Армия", diplomacy: "Дипломатия", approval: "Рейтинг" };
+
+  const statDeltas = turnResult?.statDeltasPreview || {};
+  const prevStats = prevState?.stats || {};
+
+  const overlayStyle = {
+    position: "fixed", inset: 0, background: "#0a0d12", zIndex: 8000,
+    fontFamily: "'PT Serif',Georgia,serif", color: "#ece7d8",
+    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+    overflowY: "auto", padding: "32px 16px 48px",
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <style>{`
+        @keyframes fadeIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+        .et-fade { animation: fadeIn 0.5s ease forwards; }
+        @keyframes pulse { 0%,100% { opacity:.6 } 50% { opacity:1 } }
+        .et-pulse { animation: pulse 1.2s infinite; }
+      `}</style>
+
+      <div style={{ maxWidth: 560, width: "100%" }}>
+        {/* Шапка */}
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 6, textAlign: "center" }}>СВОДКА ХОДА · ХОД {(prevState?.turn ?? 0) + 1}</div>
+        <div className="doc-font" style={{ fontSize: 22, fontWeight: 700, textAlign: "center", marginBottom: 28, letterSpacing: "0.02em" }}>РЕЗУЛЬТАТЫ ХОДА</div>
+
+        {/* Фаза 1: твоё действие */}
+        <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 6, padding: "16px 18px", marginBottom: 14 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 8, letterSpacing: "0.1em" }}>{ACTION_MODE_LABEL[turnResult?.actionMode] || "📜 УКАЗ"}</div>
+          <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6 }}>{turnResult?.narrative}</div>
+        </div>
+
+        {/* Фаза 2: изменения статов */}
+        {phase >= 1 && (
+          <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 18px", marginBottom: 14 }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.1em" }}>ИЗМЕНЕНИЯ ПОКАЗАТЕЛЕЙ</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {Object.entries(statLabel).map(([k, label]) => {
+                const d = statDeltas[k] ?? 0;
+                const prev = prevStats[k] ?? 50;
+                const next = Math.max(0, Math.min(100, prev + d));
+                const color = d > 0 ? "#7fae93" : d < 0 ? "#e09090" : "#5a6070";
+                return (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1f2733", padding: "6px 10px", borderRadius: 4 }}>
+                    <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
+                    <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>
+                      {prev} → {next} {d !== 0 && `(${d > 0 ? "+" : ""}${d})`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Фаза 3: мировые события */}
+        {phase >= 2 && (
+          <div className="et-fade">
+            <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.1em" }}>РЕАКЦИЯ МИРА</div>
+            {polling && (
+              <div className="mono-font et-pulse" style={{ fontSize: 11, color: "#5a6070", textAlign: "center", padding: "20px 0" }}>
+                Анализируем реакцию мировых держав…
+              </div>
+            )}
+            {worldItems.map((item, i) => (
+              <div key={i} className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: "3px solid #3a4a60", borderRadius: 6, padding: "12px 16px", marginBottom: 8 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 4 }}>{item.source?.toUpperCase()}</div>
+                <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55 }}>{item.text}</div>
+              </div>
+            ))}
+            {!polling && worldItems.length === 0 && (
+              <div className="doc-font" style={{ fontSize: 13, color: "#5a6070", textAlign: "center", padding: "16px 0" }}>Мировые державы хранят молчание.</div>
+            )}
+          </div>
+        )}
+
+        {/* Кнопка "Следующий ход" */}
+        {phase >= 2 && !polling && (
+          <div className="et-fade" style={{ marginTop: 24, textAlign: "center" }}>
+            <button
+              onClick={() => onDone(newState)}
+              style={{ background: "#9c8347", color: "#0a0d12", border: "none", borderRadius: 6, padding: "14px 36px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
+            >
+              Следующий ход →
+            </button>
+          </div>
+        )}
+        {phase >= 2 && polling && (
+          <div style={{ marginTop: 24, textAlign: "center" }}>
+            <button onClick={() => onDone(newState)} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 6, padding: "10px 24px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer" }}>
+              Пропустить →
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ---------- Modal ----------
 function Modal({ title, children, onClose }) {
@@ -212,6 +350,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [previewing, setPreviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [turnError, setTurnError] = useState(null);
+  const [endTurnResult, setEndTurnResult] = useState(null); // {narrative, statDeltasPreview, actionMode}
 
   const [advisors, setAdvisors] = useState(null);
   const [consulting, setConsulting] = useState(false);
@@ -261,18 +400,29 @@ export default function App({ gameId, playerName, onNewGame }) {
     setTurnError(null);
     try {
       await confirmTurn(gameId);
+      // Показываем экран итогов хода вместо немедленного обновления
+      setEndTurnResult({
+        narrative: preview?.narrative,
+        statDeltasPreview: preview?.statDeltasPreview,
+        actionMode,
+      });
       setPreview(null);
       setDraftInput("");
-      await loadState();
+      setActionMode("decree");
     } catch (err) {
       setTurnError(err.message);
-      // Если confirm упал из-за рассинхрона (409), preview уже не валиден — сбрасываем
       if (err.message.includes("Call /turns/preview")) {
         setPreview(null);
       }
     } finally {
       setConfirming(false);
     }
+  }
+
+  function handleEndTurnDone(newState) {
+    if (newState) setState(newState);
+    else loadState();
+    setEndTurnResult(null);
   }
 
   async function handleCancel() {
@@ -312,6 +462,10 @@ export default function App({ gameId, playerName, onNewGame }) {
 
   if (!loaded) return <CenteredMessage text="Загрузка партии…" />;
   if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
+
+  if (endTurnResult) {
+    return <EndTurnScreen prevState={state} turnResult={endTurnResult} gameId={gameId} onDone={handleEndTurnDone} />;
+  }
 
   const tabs = [
     { id: "overview", label: "Обстановка", icon: Globe2 },
