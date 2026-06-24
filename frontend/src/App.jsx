@@ -1264,42 +1264,36 @@ function resolveCoords(spot) {
   return null;
 }
 
-const NEWS_VIDEO_IDS = [
-  "r14dKJOFxG0", "cMf1V7IPVCE", "6Q2ooQMCN6U", "5VEmpb1Ado4",
-  "kBH8ze_vROE", "1rXz3VBHYNM", "E3aMkORtVDg", "9aXRGDXUq8Q",
-  "2PsbrC_pEY4", "6gJVvCmJvQY", "Q2DFT3BXQKY", "Fb9NiEBYFMo",
-  "t7ATl4KCkJ4", "H0Vv5OqoJgw", "Ul-wNtV6gvY", "3d1vBzHRBbc",
-  "vWzJWIBrJqQ", "ofsJPaEdgZ4", "7Cp5gDx-FLs", "xexk8yHE8_U",
+// Плейлисты надёжных новостных каналов — YouTube сам ротирует видео внутри
+const NEWS_PLAYLISTS = [
+  { label: "DW News",        list: "PLT5Zkef_by5YVPr20VxLDSt_2-l3YBZWA" },
+  { label: "Al Jazeera",     list: "PLYFnWml2aKlXqFM-XzUBJA8_8lWW-XVVL" },
+  { label: "Euronews",       list: "PL8BC757B93D3BCEC7" },
+  { label: "France 24 EN",   list: "PLGGMeqr4pGRi0YFc6x44V4VeaJETCa7CO" },
+  { label: "CGTN",           list: "PLkEWMEMJSmfTIOXBFnMmFHlUAHOBNqCmo" },
 ];
-function shuffleArr(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
-  return a;
-}
 function NewsVideoPanel() {
-  const [queue, setQueue] = useState(() => shuffleArr(NEWS_VIDEO_IDS));
-  const [idx, setIdx] = useState(0);
-  function nextVideo() {
-    setIdx(i => {
-      if (i + 1 >= queue.length) { setQueue(shuffleArr(NEWS_VIDEO_IDS)); return 0; }
-      return i + 1;
-    });
-  }
-  const videoId = queue[idx];
-  const src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=1&rel=0&modestbranding=1`;
+  const [plIdx, setPlIdx] = useState(0);
+  const pl = NEWS_PLAYLISTS[plIdx];
+  const src = `https://www.youtube-nocookie.com/embed/?listType=playlist&list=${pl.list}&autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&playsinline=1`;
+  function next() { setPlIdx(i => (i + 1) % NEWS_PLAYLISTS.length); }
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.1em", color: "#a8313a" }}>МИРОВЫЕ НОВОСТИ — В ПРЯМОМ ЭФИРЕ</div>
-        <button onClick={nextVideo} style={{ background: "none", border: "1px solid #d8d2bf", borderRadius: 3, color: "#8c6b3a", fontFamily: "monospace", fontSize: 9, padding: "2px 8px", cursor: "pointer", letterSpacing: "0.06em" }}>
-          СЛЕДУЮЩИЙ ▶
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.1em", color: "#a8313a" }}>
+          МИРОВЫЕ НОВОСТИ · {pl.label.toUpperCase()}
+        </div>
+        <button onClick={next} style={{ background: "none", border: "1px solid #d8d2bf", borderRadius: 3, color: "#8c6b3a", fontFamily: "monospace", fontSize: 9, padding: "2px 8px", cursor: "pointer" }}>
+          КАНАЛ ▶
         </button>
       </div>
-      <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#0d1118", borderRadius: 4, overflow: "hidden", border: "1px solid #d8d2bf" }}>
+      <div style={{ width: "100%", height: 180, background: "#0d1118", borderRadius: 4, overflow: "hidden", border: "1px solid #d8d2bf" }}>
         <iframe
-          key={videoId}
+          key={pl.list}
           src={src}
-          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+          width="100%"
+          height="180"
+          style={{ border: "none", display: "block" }}
           allow="autoplay; encrypted-media"
           allowFullScreen
         />

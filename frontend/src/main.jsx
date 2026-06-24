@@ -89,65 +89,44 @@ const DIFFICULTY_COLOR = {
   "Легко":   "#4a6b5c",
 };
 
-// Подборка геополитических видео с YouTube (без повторов — шаффл)
-const NEWS_VIDEO_IDS = [
-  "r14dKJOFxG0", "cMf1V7IPVCE", "6Q2ooQMCN6U", "5VEmpb1Ado4",
-  "kBH8ze_vROE", "1rXz3VBHYNM", "E3aMkORtVDg", "9aXRGDXUq8Q",
-  "2PsbrC_pEY4", "6gJVvCmJvQY", "Q2DFT3BXQKY", "Fb9NiEBYFMo",
-  "t7ATl4KCkJ4", "H0Vv5OqoJgw", "Ul-wNtV6gvY", "3d1vBzHRBbc",
-  "vWzJWIBrJqQ", "ofsJPaEdgZ4", "7Cp5gDx-FLs", "xexk8yHE8_U",
+const NEWS_PLAYLISTS_START = [
+  { label: "DW News",        list: "PLT5Zkef_by5YVPr20VxLDSt_2-l3YBZWA" },
+  { label: "Al Jazeera",     list: "PLYFnWml2aKlXqFM-XzUBJA8_8lWW-XVVL" },
+  { label: "Euronews",       list: "PL8BC757B93D3BCEC7" },
+  { label: "France 24",      list: "PLGGMeqr4pGRi0YFc6x44V4VeaJETCa7CO" },
+  { label: "CGTN",           list: "PLkEWMEMJSmfTIOXBFnMmFHlUAHOBNqCmo" },
 ];
 
-function shuffled(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 function NewsVideoPanel() {
-  const [queue, setQueue] = useState(() => shuffled(NEWS_VIDEO_IDS));
-  const [idx, setIdx] = useState(0);
-  const iframeRef = React.useRef(null);
-
-  function nextVideo() {
-    setIdx(i => {
-      if (i + 1 >= queue.length) {
-        setQueue(shuffled(NEWS_VIDEO_IDS));
-        return 0;
-      }
-      return i + 1;
-    });
-  }
-
-  const videoId = queue[idx];
-  const src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&rel=0&modestbranding=1&enablejsapi=1`;
-
+  const [plIdx, setPlIdx] = useState(0);
+  const pl = NEWS_PLAYLISTS_START[plIdx];
+  const src = `https://www.youtube-nocookie.com/embed/?listType=playlist&list=${pl.list}&autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&playsinline=1`;
+  function next() { setPlIdx(i => (i + 1) % NEWS_PLAYLISTS_START.length); }
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 4 }}>МИРОВЫЕ НОВОСТИ — В ПРЯМОМ ЭФИРЕ</div>
-      <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#0d1118", borderRadius: 6, overflow: "hidden", border: "1px solid #2a3040" }}>
-        <iframe
-          ref={iframeRef}
-          key={videoId}
-          src={src}
-          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
-          allow="autoplay; encrypted-media"
-          allowFullScreen
-          onError={nextVideo}
-        />
-      </div>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347" }}>
+          МИРОВЫЕ НОВОСТИ · {pl.label.toUpperCase()}
+        </div>
         <button
-          onClick={nextVideo}
-          style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, padding: "4px 10px", cursor: "pointer", letterSpacing: "0.06em" }}
+          onClick={next}
+          style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, padding: "3px 8px", cursor: "pointer" }}
           onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}
         >
-          СЛЕДУЮЩИЙ СЮЖЕТ ▶
+          КАНАЛ ▶
         </button>
+      </div>
+      <div style={{ width: "100%", height: 200, background: "#0d1118", borderRadius: 6, overflow: "hidden", border: "1px solid #2a3040" }}>
+        <iframe
+          key={pl.list}
+          src={src}
+          width="100%"
+          height="200"
+          style={{ border: "none", display: "block" }}
+          allow="autoplay; encrypted-media"
+          allowFullScreen
+        />
       </div>
     </div>
   );
