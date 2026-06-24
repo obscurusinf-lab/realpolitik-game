@@ -1,0 +1,19 @@
+{
+  "name": "geopolitics-game-backend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/db/seed/seed.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "dotenv": "^16.4.7",
+    "fastify": "^4.28.1",
+    "@fastify/cors": "^9.0.1",
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.1"
+  }
+}
