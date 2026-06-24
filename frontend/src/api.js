@@ -56,6 +56,16 @@ export async function fetchLog(gameId) {
   return res.json();
 }
 
+export async function createUser(displayName) {
+  const res = await fetch(`${API_BASE}/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName }),
+  });
+  if (!res.ok) throw new Error("Не удалось создать пользователя");
+  return res.json();
+}
+
 export async function createGame(countryId, userId) {
   const res = await fetch(`${API_BASE}/games`, {
     method: "POST",

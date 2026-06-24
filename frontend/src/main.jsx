@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { createGame } from "./api";
+import { createGame, createUser } from "./api";
 
 const COUNTRIES = [
   {
@@ -69,14 +69,7 @@ function StartScreen({ onStart, sessions = [], onResume, onDeleteSession }) {
     setStarting(true);
     setError(null);
     try {
-      // Всегда создаём нового пользователя — не кешируем между сессиями
-      const res = await fetch("/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: playerName.trim() }),
-      });
-      if (!res.ok) throw new Error("Не удалось создать пользователя");
-      const { id: userId } = await res.json();
+      const { id: userId } = await createUser(playerName.trim());
 
       const { gameId } = await createGame(selectedCountry, userId);
       onStart(gameId, playerName.trim(), selectedCountry);
