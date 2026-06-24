@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
@@ -433,6 +433,25 @@ export default function App({ gameId, playerName, onNewGame }) {
     }
   }
 
+  async function handleSkipTurn() {
+    if (confirming) return;
+    setConfirming(true);
+    setTurnError(null);
+    try {
+      const result = await skipTurn(gameId);
+      setEndTurnResult({
+        narrative: "Вы решили не предпринимать активных действий в этом ходу. Инициатива восстанавливается.",
+        statDeltasPreview: result.statDeltas || {},
+        actionMode: "decree",
+      });
+      setDraftInput("");
+    } catch (err) {
+      setTurnError(err.message);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
   async function handleLoadSuggestions() {
     if (loadingSuggestions) return;
     setLoadingSuggestions(true);
@@ -612,9 +631,9 @@ export default function App({ gameId, playerName, onNewGame }) {
           {/* Инициатива */}
           {(() => {
             const initiative = state?.stats?.initiative ?? 100;
-            const COST = { decree: 30, intel: 15, military: 25 };
+            const COST = { decree: 40, intel: 20, military: 55 };
             const cost = COST[actionMode];
-            const regen = 20;
+            const regen = 25;
             const after = Math.min(100, initiative + regen) - cost;
             const color = after < 0 ? "#e09090" : after < 20 ? "#9c8347" : "#7fae93";
             return (
@@ -632,9 +651,9 @@ export default function App({ gameId, playerName, onNewGame }) {
           {/* Тип действия */}
           <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
             {[
-              { id: "decree",   label: "📜 Указ",        cost: 30, tip: "Официальное решение. Публично, мощно, дорого." },
-              { id: "intel",    label: "🕵️ Разведка",    cost: 15, tip: "Тайная операция. Компромат, агентура, провокации." },
-              { id: "military", label: "⚔️ Военная оп.", cost: 25, tip: "Прямое применение силы или угроза." },
+              { id: "decree",   label: "📜 Указ",        cost: 40, tip: "Официальное решение. Публично, мощно, дорого." },
+              { id: "intel",    label: "🕵️ Разведка",    cost: 20, tip: "Тайная операция. Компромат, агентура, провокации." },
+              { id: "military", label: "⚔️ Военная оп.", cost: 55, tip: "Прямое применение силы или угроза. Очень дорого!" },
             ].map(({ id, label, cost, tip }) => (
               <button
                 key={id}
@@ -684,6 +703,18 @@ export default function App({ gameId, playerName, onNewGame }) {
                 {loadingSuggestions ? "Загрузка…" : "💡 Подсказки"}
               </button>
             </div>
+          </div>
+
+          {/* Завершить ход без действия */}
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+            <button
+              onClick={handleSkipTurn}
+              disabled={confirming}
+              title="Пропустить ход — инициатива +45"
+              style={{ ...btnStyle("#1f2733", "#5a6070"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+            >
+              {confirming ? "…" : "⏭ Завершить ход (пропустить +45 инициативы)"}
+            </button>
           </div>
         </div>
       )}

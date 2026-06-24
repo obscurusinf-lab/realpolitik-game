@@ -112,6 +112,15 @@ export async function consultAdvisors(gameId, playerDraft) {
   return res.json();
 }
 
+export async function skipTurn(gameId) {
+  const res = await fetch(`${API_BASE}/games/${gameId}/turns/skip`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `skipTurn failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchLeaderboard(countryId) {
   const params = countryId ? `?countryId=${countryId}` : "";
   const res = await fetch(`${API_BASE}/leaderboard${params}`);

@@ -361,6 +361,52 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     await pendingTurnStore.clear(gameId);
     return reply.send({ cancelled: true });
   });
+
+  // ---------- SKIP (пропустить ход) ----------
+  // Быстрый ход без ИИ: null_action + бонусная регенерация инициативы
+  fastify.post("/games/:gameId/turns/skip", async (request, reply) => {
+    const { gameId } = request.params;
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const turnNumber = game.current_turn + 1;
+      const currentStats = game.stats || {};
+      const { INITIATIVE_MAX } = require("../rules/rules-engine");
+
+      // Бонусная регенерация при пропуске: +45 вместо обычных +25
+      const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
+      const newInit = Math.min(INITIATIVE_MAX, currentInit + 45);
+      const newStats = { ...currentStats, initiative: newInit };
+
+      await client.query(
+        `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [gameId, turnNumber, "[Пропуск хода]", "decree",
+          JSON.stringify({ action_type: "null_action", severity: 1 }),
+          JSON.stringify({ initiative: newInit - currentInit }),
+          "[]", "Президент взял паузу. Инициатива восстановлена.", null]
+      );
+      await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+      await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
+      await client.query("COMMIT");
+
+      return reply.send({
+        turnNumber,
+        narrative: "Президент взял паузу. Советники используют время для анализа обстановки.",
+        statDeltas: { initiative: newInit - currentInit },
+        skipped: true,
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Skip failed" });
+    } finally {
+      client.release();
+    }
+  });
 }
 
 module.exports = { registerTurnRoutes };

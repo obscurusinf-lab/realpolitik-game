@@ -19,12 +19,16 @@ const MAX_DELTA_PER_TURN = {
 };
 
 // Стоимость инициативы по режиму действия
+// Военные операции дорогие — нельзя воевать каждый ход
+// Разведка дёшевая — можно вести постоянно
+// Указ средний — публичная власть, расходует политический капитал
 const INITIATIVE_COST = {
-  decree:   30,
-  intel:    15,
-  military: 25,
+  decree:   40,
+  intel:    20,
+  military: 55,
 };
-const INITIATIVE_REGEN_PER_TURN = 20;
+const INITIATIVE_REGEN_PER_TURN = 25; // обычная регенерация
+const INITIATIVE_SKIP_REGEN = 45;     // бонус за пропуск хода
 const INITIATIVE_MAX = 100;
 
 const MAX_RELATION_DELTA_DIRECT = 8;
