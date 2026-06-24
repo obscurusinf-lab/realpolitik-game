@@ -220,6 +220,18 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         ]
       );
 
+      // Записываем снапшот для лидерборда (score = среднее ключевых показателей)
+      const scoreKeys = ["stability", "economy", "military", "diplomacy", "approval"];
+      const scoreVals = scoreKeys.map(k => newStats[k] ?? 50);
+      const score = Math.round(scoreVals.reduce((a, b) => a + b, 0) / scoreVals.length);
+      const scoreBreakdown = Object.fromEntries(scoreKeys.map(k => [k, newStats[k] ?? 50]));
+      await client.query(
+        `INSERT INTO leaderboard_snap (game_id, turn_n, score, score_breakdown)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT DO NOTHING`,
+        [gameId, turnNumber, score, JSON.stringify(scoreBreakdown)]
+      );
+
       await client.query("COMMIT");
       await pendingTurnStore.clear(gameId);
 
