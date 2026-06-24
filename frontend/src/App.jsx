@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn } from "./api";
@@ -1264,6 +1264,50 @@ function resolveCoords(spot) {
   return null;
 }
 
+const NEWS_VIDEO_IDS = [
+  "r14dKJOFxG0", "cMf1V7IPVCE", "6Q2ooQMCN6U", "5VEmpb1Ado4",
+  "kBH8ze_vROE", "1rXz3VBHYNM", "E3aMkORtVDg", "9aXRGDXUq8Q",
+  "2PsbrC_pEY4", "6gJVvCmJvQY", "Q2DFT3BXQKY", "Fb9NiEBYFMo",
+  "t7ATl4KCkJ4", "H0Vv5OqoJgw", "Ul-wNtV6gvY", "3d1vBzHRBbc",
+  "vWzJWIBrJqQ", "ofsJPaEdgZ4", "7Cp5gDx-FLs", "xexk8yHE8_U",
+];
+function shuffleArr(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function NewsVideoPanel() {
+  const [queue, setQueue] = useState(() => shuffleArr(NEWS_VIDEO_IDS));
+  const [idx, setIdx] = useState(0);
+  function nextVideo() {
+    setIdx(i => {
+      if (i + 1 >= queue.length) { setQueue(shuffleArr(NEWS_VIDEO_IDS)); return 0; }
+      return i + 1;
+    });
+  }
+  const videoId = queue[idx];
+  const src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=1&rel=0&modestbranding=1`;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.1em", color: "#a8313a" }}>МИРОВЫЕ НОВОСТИ — В ПРЯМОМ ЭФИРЕ</div>
+        <button onClick={nextVideo} style={{ background: "none", border: "1px solid #d8d2bf", borderRadius: 3, color: "#8c6b3a", fontFamily: "monospace", fontSize: 9, padding: "2px 8px", cursor: "pointer", letterSpacing: "0.06em" }}>
+          СЛЕДУЮЩИЙ ▶
+        </button>
+      </div>
+      <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#0d1118", borderRadius: 4, overflow: "hidden", border: "1px solid #d8d2bf" }}>
+        <iframe
+          key={videoId}
+          src={src}
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+          allow="autoplay; encrypted-media"
+          allowFullScreen
+        />
+      </div>
+    </div>
+  );
+}
+
 function OverviewTab({ state }) {
   const [modal, setModal] = useState(null);
   const hotspots = state.overview?.hotspots ?? [];
@@ -1283,6 +1327,8 @@ function OverviewTab({ state }) {
           </div>
         </Modal>
       )}
+
+      <NewsVideoPanel />
 
       <div style={{ borderLeft: "3px solid #a8313a", paddingLeft: 12, marginBottom: 14 }}>
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8313a", marginBottom: 4 }}>
