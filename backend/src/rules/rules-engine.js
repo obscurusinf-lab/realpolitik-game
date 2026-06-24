@@ -18,6 +18,15 @@ const MAX_DELTA_PER_TURN = {
   approval: 5,
 };
 
+// Стоимость инициативы по режиму действия
+const INITIATIVE_COST = {
+  decree:   30,
+  intel:    15,
+  military: 25,
+};
+const INITIATIVE_REGEN_PER_TURN = 20;
+const INITIATIVE_MAX = 100;
+
 const MAX_RELATION_DELTA_DIRECT = 8;
 const MAX_RELATION_DELTA_SPILLOVER = 3;
 
@@ -90,12 +99,19 @@ function applyClamped(currentValue, delta) {
  * Основная функция: берёт текущий state, классификацию от ИИ,
  * возвращает новый state + объект дельт (для отображения игроку).
  */
-function applyTurn({ state, gmClassification, gameId, turnNumber }) {
+function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "decree" }) {
   const { action_type, severity } = gmClassification;
   const seed = `${gameId}:${turnNumber}:${action_type}`;
 
   const statDeltas = {};
   const newStats = { ...state.stats };
+
+  // Инициатива: регенерация → трата
+  const currentInitiative = typeof newStats.initiative === "number" ? newStats.initiative : INITIATIVE_MAX;
+  const regenedInitiative = Math.min(INITIATIVE_MAX, currentInitiative + INITIATIVE_REGEN_PER_TURN);
+  const cost = INITIATIVE_COST[actionMode] ?? INITIATIVE_COST.decree;
+  newStats.initiative = Math.max(0, regenedInitiative - cost);
+  statDeltas.initiative = newStats.initiative - currentInitiative;
 
   for (const stat of Object.keys(MAX_DELTA_PER_TURN)) {
     const delta = computeStatDelta({ category: action_type, stat, severity, seed });
@@ -152,6 +168,9 @@ function computeDelayedEffectDelta({ category, stat, gameId, turnNumber, effectI
 module.exports = {
   RULES_TABLE,
   MAX_DELTA_PER_TURN,
+  INITIATIVE_COST,
+  INITIATIVE_REGEN_PER_TURN,
+  INITIATIVE_MAX,
   MAX_RELATION_DELTA_DIRECT,
   MAX_RELATION_DELTA_SPILLOVER,
   computeStatDelta,

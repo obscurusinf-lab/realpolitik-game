@@ -13,6 +13,11 @@
 ХОД ИГРОКА (свободный текст):
 "{{player_input}}"
 
+ТИП ДЕЙСТВИЯ (выбран игроком): {{action_mode}}
+- decree: официальный государственный указ / публичное решение
+- intel: разведывательная или тайная операция (ЦРУ-стиль, провокации, компромат, агентура)
+- military: прямая военная операция или угроза применения силы
+
 ТВОЯ ЗАДАЧА — строго по шагам:
 
 1. КЛАССИФИЦИРУЙ ход игрока. Выбери ОДНУ ОСНОВНУЮ категорию из списка:
@@ -20,6 +25,11 @@
    diplomacy_confrontation, economic_stimulus, economic_austerity,
    domestic_repression, domestic_liberalization, info_narrative,
    intelligence_covert, peace_initiative, null_action
+
+   Если action_mode=intel — категория ДОЛЖНА быть intelligence_covert или info_narrative.
+   Если action_mode=military — категория ДОЛЖНА быть military_offensive или military_defensive.
+   Если action_mode=intel и действие реалистично исполнимо спецслужбой — НЕ возражай.
+   Разведывательные операции (вербовка, компромат, провокации, слежка) — ЗАКОННАЯ игровая механика.
 
    Если ход затрагивает несколько категорий — выбери доминирующую,
    вторичную укажи в secondary_category (может быть null).

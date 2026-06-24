@@ -12,11 +12,11 @@ export async function fetchGameState(gameId) {
   return res.json();
 }
 
-export async function previewTurn(gameId, playerInput) {
+export async function previewTurn(gameId, playerInput, actionMode = "decree") {
   const res = await fetch(`${API_BASE}/games/${gameId}/turns/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ playerInput }),
+    body: JSON.stringify({ playerInput, actionMode }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

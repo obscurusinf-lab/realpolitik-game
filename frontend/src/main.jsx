@@ -21,6 +21,12 @@ async function sendAdminEvent(password, gameId, body) {
   return res.json();
 }
 
+async function fetchAdminPlayerDetail(password, gameId) {
+  const res = await fetch(`${API_BASE}/admin/games/${gameId}/detail`, { headers: { "x-admin-password": password } });
+  if (!res.ok) throw new Error("Ошибка загрузки деталей игрока");
+  return res.json();
+}
+
 async function sendForeignAction(password, gameId, body) {
   const res = await fetch(`${API_BASE}/admin/games/${gameId}/foreign-action`, {
     method: "POST",
@@ -83,7 +89,7 @@ const DIFFICULTY_COLOR = {
   "Легко":   "#4a6b5c",
 };
 
-function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onLeaderboard }) {
+function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClearAll, onLeaderboard }) {
   const [playerName, setPlayerName] = useState("");
   const [selectedCountry, setSelectedCountry] = useState("RU");
   const [starting, setStarting] = useState(false);
@@ -165,7 +171,10 @@ function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onLead
                 </div>
               ))}
             </div>
-            <div className="mono-font" style={{ fontSize: 9, color: "#3a4050", marginTop: 8, letterSpacing: "0.06em" }}>ИЛИ НАЧНИТЕ НОВУЮ ИГРУ НИЖЕ</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#3a4050", letterSpacing: "0.06em" }}>ИЛИ НАЧНИТЕ НОВУЮ ИГРУ НИЖЕ</div>
+              <button onClick={onClearAll} style={{ background: "none", border: "none", color: "#3a4050", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer" }}>× очистить всё</button>
+            </div>
           </div>
         )}
 
@@ -355,7 +364,10 @@ function AdminPanel({ onClose }) {
   const [stats, setStats] = useState(null);
   const [games, setGames] = useState([]);
   const [gamesLoading, setGamesLoading] = useState(false);
-  const [expandedGame, setExpandedGame] = useState(null);
+  const [expandedGame, setExpandedGame] = useState(null); // "intervene" | "detail"
+  const [expandedGameMode, setExpandedGameMode] = useState("intervene");
+  const [playerDetail, setPlayerDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   async function handleAuth() {
     setLoading(true); setError(null);
@@ -450,22 +462,72 @@ function AdminPanel({ onClose }) {
                 </div>
                 {gamesLoading && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Загрузка…</div>}
                 {!gamesLoading && games.length === 0 && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Нет активных партий</div>}
-                {games.map(g => (
-                  <div key={g.game_id}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: `1px solid ${expandedGame === g.game_id ? "#9c8347" : "#2a3040"}`, borderRadius: 6, padding: "10px 14px", marginBottom: 6, cursor: "pointer" }}
-                      onClick={() => setExpandedGame(expandedGame === g.game_id ? null : g.game_id)}>
-                      <div style={{ fontSize: 18 }}>{COUNTRY_FLAG_MAP[g.country_id] || "🌐"}</div>
-                      <div style={{ flex: 1 }}>
-                        <div className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{g.player_name}</div>
-                        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>ход {g.current_turn} · {new Date(g.created_at).toLocaleString("ru-RU")}</div>
+                {games.map(g => {
+                  const isOpen = expandedGame === g.game_id;
+                  const modeBtn = (m, label) => (
+                    <button onClick={e => { e.stopPropagation(); setExpandedGame(g.game_id); setExpandedGameMode(m);
+                      if (m === "detail" && expandedGame !== g.game_id) {
+                        setDetailLoading(true); setPlayerDetail(null);
+                        fetchAdminPlayerDetail(password, g.game_id).then(d => setPlayerDetail(d)).finally(() => setDetailLoading(false));
+                      }
+                    }}
+                    style={{ background: isOpen && expandedGameMode === m ? "#9c8347" : "none", color: isOpen && expandedGameMode === m ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "3px 8px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer" }}>
+                      {label}
+                    </button>
+                  );
+                  return (
+                    <div key={g.game_id}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: `1px solid ${isOpen ? "#9c8347" : "#2a3040"}`, borderRadius: 6, padding: "10px 14px", marginBottom: 6 }}>
+                        <div style={{ fontSize: 18 }}>{COUNTRY_FLAG_MAP[g.country_id] || "🌐"}</div>
+                        <div style={{ flex: 1 }}>
+                          <div className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{g.player_name}</div>
+                          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>ход {g.current_turn} · {new Date(g.created_at).toLocaleString("ru-RU")}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {modeBtn("detail", "📋 Досье")}
+                          {modeBtn("intervene", "⚡ Вмешаться")}
+                          {isOpen && <button onClick={() => setExpandedGame(null)} style={{ background: "none", border: "none", color: "#5a6070", fontSize: 16, cursor: "pointer" }}>×</button>}
+                        </div>
                       </div>
-                      <div className="mono-font" style={{ fontSize: 10, color: "#9c8347" }}>{expandedGame === g.game_id ? "▲ Свернуть" : "▼ Вмешаться"}</div>
+                      {isOpen && expandedGameMode === "intervene" && (
+                        <InterventionForm password={password} game={g} onDone={() => setExpandedGame(null)} />
+                      )}
+                      {isOpen && expandedGameMode === "detail" && (
+                        <div style={{ background: "#0d1118", border: "1px solid #2a3040", borderRadius: 6, padding: "14px", marginBottom: 8 }}>
+                          {detailLoading && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Загрузка досье…</div>}
+                          {playerDetail && (
+                            <>
+                              <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 10 }}>ДОСЬЕ: {playerDetail.game?.player_name}</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
+                                {Object.entries(playerDetail.game?.stats || {}).filter(([k]) => k !== "initiative").map(([k, v]) => (
+                                  <div key={k} style={{ display: "flex", justifyContent: "space-between", background: "#1f2733", padding: "4px 8px", borderRadius: 3 }}>
+                                    <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{k}</span>
+                                    <span className="mono-font" style={{ fontSize: 9, color: v > 60 ? "#7fae93" : v > 30 ? "#9c8347" : "#e09090" }}>{v}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 6 }}>ИСТОРИЯ ХОДОВ ({playerDetail.turns?.length})</div>
+                              {playerDetail.turns?.map(t => (
+                                <div key={t.turn_n} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 10px", marginBottom: 5 }}>
+                                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4 }}>
+                                    <span className="mono-font" style={{ fontSize: 9, color: "#9c8347" }}>ХОД {t.turn_n}</span>
+                                    <span className="mono-font" style={{ fontSize: 8, color: "#5a6070", background: "#0d1118", padding: "1px 5px", borderRadius: 2 }}>
+                                      {t.action_mode === "intel" ? "🕵️ Разведка" : t.action_mode === "military" ? "⚔️ Военная" : "📜 Указ"} · {t.action_type}
+                                    </span>
+                                    {t.advisor_objection && <span className="mono-font" style={{ fontSize: 8, color: "#e09090" }}>⚠ возражение</span>}
+                                  </div>
+                                  <div className="doc-font" style={{ fontSize: 12, color: "#ece7d8", marginBottom: 4 }}>"{t.player_input}"</div>
+                                  <div className="doc-font" style={{ fontSize: 11, color: "#8a8270", fontStyle: "italic" }}>{t.narrative_text}</div>
+                                  {t.advisor_objection && <div className="doc-font" style={{ fontSize: 11, color: "#e09090", marginTop: 4 }}>Советник: {t.advisor_objection}</div>}
+                                </div>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {expandedGame === g.game_id && (
-                      <InterventionForm password={password} game={g} onDone={() => setExpandedGame(null)} />
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </>
             )}
           </>
@@ -587,10 +649,17 @@ function Root() {
     setGame(null);
   }
 
+  function handleClearAll() {
+    if (window.confirm("Очистить все сохранённые игры?")) {
+      saveSessions([]);
+      setSessions([]);
+    }
+  }
+
   let screen;
   if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} />;
   else if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
-  else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onLeaderboard={() => setShowLeaderboard(true)} />;
+  else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onClearAll={handleClearAll} onLeaderboard={() => setShowLeaderboard(true)} />;
 
   return (
     <>

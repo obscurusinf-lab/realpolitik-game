@@ -52,6 +52,10 @@ async function buildServer() {
   await db.query("SELECT 1");
   fastify.log.info("Postgres connected");
 
+  // Миграции (идемпотентные)
+  await db.query(`ALTER TABLE turns ADD COLUMN IF NOT EXISTS action_mode TEXT NOT NULL DEFAULT 'decree'`);
+  await db.query(`ALTER TABLE game_state ADD COLUMN IF NOT EXISTS initiative INT NOT NULL DEFAULT 100`);
+
   // --- Redis ---
   if (!process.env.REDIS_URL) {
     throw new Error("REDIS_URL env var is required");

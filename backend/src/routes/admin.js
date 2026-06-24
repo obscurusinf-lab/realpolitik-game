@@ -136,6 +136,37 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     return reply.send({ ok: true, queued: true, preview: parsed });
   });
 
+  // GET /admin/games/:gameId/detail — полная история ходов игрока
+  fastify.get("/admin/games/:gameId/detail", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const { gameId } = request.params;
+    const [gameRes, turnsRes, newsfeedRes] = await Promise.all([
+      db.query(`
+        SELECT g.id, g.country_id, g.current_turn, g.status, g.created_at,
+               u.display_name AS player_name, gs.stats, gs.relations, gs.policies
+        FROM games g
+        JOIN users u ON u.id = g.owner_user_id
+        JOIN game_state gs ON gs.game_id = g.id
+        WHERE g.id = $1
+      `, [gameId]),
+      db.query(`
+        SELECT turn_n, player_input, action_mode, narrative_text, advisor_objection,
+               stat_deltas, gm_classification->>'action_type' AS action_type, created_at
+        FROM turns WHERE game_id = $1 ORDER BY turn_n ASC
+      `, [gameId]),
+      db.query(`
+        SELECT turn_n, item_type, source, text, created_at
+        FROM newsfeed_items WHERE game_id = $1 ORDER BY turn_n DESC, created_at DESC LIMIT 30
+      `, [gameId]),
+    ]);
+    if (gameRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
+    return reply.send({
+      game: gameRes.rows[0],
+      turns: turnsRes.rows,
+      newsfeed: newsfeedRes.rows,
+    });
+  });
+
   // GET /admin/games/:gameId/pending — посмотреть что в очереди
   fastify.get("/admin/games/:gameId/pending", async (request, reply) => {
     if (!checkAuth(request, reply)) return;

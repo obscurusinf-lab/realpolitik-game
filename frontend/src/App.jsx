@@ -207,6 +207,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [loadError, setLoadError] = useState(null);
 
   const [draftInput, setDraftInput] = useState("");
+  const [actionMode, setActionMode] = useState("decree");
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -245,7 +246,7 @@ export default function App({ gameId, playerName, onNewGame }) {
     setPreviewing(true);
     setTurnError(null);
     try {
-      const result = await previewTurn(gameId, draftInput);
+      const result = await previewTurn(gameId, draftInput, actionMode);
       setPreview(result);
     } catch (err) {
       setTurnError(err.message);
@@ -454,11 +455,60 @@ export default function App({ gameId, playerName, onNewGame }) {
             </div>
           )}
 
+          {/* Инициатива */}
+          {(() => {
+            const initiative = state?.stats?.initiative ?? 100;
+            const COST = { decree: 30, intel: 15, military: 25 };
+            const cost = COST[actionMode];
+            const regen = 20;
+            const after = Math.min(100, initiative + regen) - cost;
+            const color = after < 0 ? "#e09090" : after < 20 ? "#9c8347" : "#7fae93";
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", flexShrink: 0 }}>ИНИЦИАТИВА</div>
+                <div style={{ flex: 1, height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${initiative}%`, height: "100%", background: initiative > 50 ? "#7fae93" : initiative > 25 ? "#9c8347" : "#e09090", transition: "width 0.3s", borderRadius: 2 }} />
+                </div>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{initiative}</div>
+                <div className="mono-font" style={{ fontSize: 9, color }}>→ {Math.max(0, after)} (-{cost}+{regen})</div>
+              </div>
+            );
+          })()}
+
+          {/* Тип действия */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            {[
+              { id: "decree",   label: "📜 Указ",        cost: 30, tip: "Официальное решение. Публично, мощно, дорого." },
+              { id: "intel",    label: "🕵️ Разведка",    cost: 15, tip: "Тайная операция. Компромат, агентура, провокации." },
+              { id: "military", label: "⚔️ Военная оп.", cost: 25, tip: "Прямое применение силы или угроза." },
+            ].map(({ id, label, cost, tip }) => (
+              <button
+                key={id}
+                onClick={() => setActionMode(id)}
+                title={tip}
+                style={{
+                  background: actionMode === id ? "#1f2733" : "transparent",
+                  border: `1px solid ${actionMode === id ? "#9c8347" : "#2a3040"}`,
+                  color: actionMode === id ? "#9c8347" : "#5a6070",
+                  borderRadius: 4, padding: "4px 10px",
+                  fontFamily: "'JetBrains Mono',monospace", fontSize: 10,
+                  cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                }}
+              >
+                {label} <span style={{ color: "#5a6070" }}>-{cost}</span>
+              </button>
+            ))}
+          </div>
+
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
             <textarea
               value={draftInput}
               onChange={(e) => setDraftInput(e.target.value)}
-              placeholder="Опишите ваше решение как президента…"
+              placeholder={
+                actionMode === "intel" ? "Опишите разведывательную или тайную операцию…"
+                : actionMode === "military" ? "Опишите военную операцию или приказ…"
+                : "Опишите ваше решение как президента…"
+              }
               rows={2}
               disabled={previewing}
               style={{ flex: 1, resize: "none", background: "#ece7d8", color: "#262420", border: "1px solid #3a4156", borderRadius: 4, padding: "8px 10px", fontFamily: "'PT Serif',serif", fontSize: 13.5 }}

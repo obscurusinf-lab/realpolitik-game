@@ -41,10 +41,26 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
   // ---------- PREVIEW ----------
   fastify.post("/games/:gameId/turns/preview", async (request, reply) => {
     const { gameId } = request.params;
-    const { playerInput } = request.body;
+    const { playerInput, actionMode = "decree" } = request.body;
 
     if (!playerInput || typeof playerInput !== "string" || playerInput.trim().length === 0) {
       return reply.code(400).send({ error: "playerInput is required" });
+    }
+    if (!["decree", "intel", "military"].includes(actionMode)) {
+      return reply.code(400).send({ error: "actionMode must be decree|intel|military" });
+    }
+
+    // Проверяем хватает ли инициативы
+    const { INITIATIVE_COST, INITIATIVE_REGEN_PER_TURN, INITIATIVE_MAX } = require("../rules/rules-engine");
+    const initiativeCheck = await db.query(`SELECT gs.stats FROM game_state gs WHERE gs.game_id = $1`, [gameId]);
+    if (initiativeCheck.rowCount > 0) {
+      const currentStats = initiativeCheck.rows[0].stats;
+      const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
+      const regenedInit = Math.min(INITIATIVE_MAX, currentInit + INITIATIVE_REGEN_PER_TURN);
+      const cost = INITIATIVE_COST[actionMode];
+      if (regenedInit < cost) {
+        return reply.code(400).send({ error: `Недостаточно инициативы. Нужно ${cost}, доступно ~${regenedInit}. Подождите следующего хода.` });
+      }
     }
 
     // Только чтение — без FOR UPDATE, не открываем долгую транзакцию на время вызова ИИ
@@ -83,6 +99,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         activePolicies: game.policies,
         delayedEffects: remainingEffects,
         playerInput,
+        actionMode,
       },
       callClaudeApi,
     });
@@ -94,6 +111,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       gmClassification,
       gameId,
       turnNumber: nextTurnNumber,
+      actionMode,
     });
 
     await pendingTurnStore.save(gameId, {
@@ -101,6 +119,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       turnNumber: nextTurnNumber,
       statsAfterDelayed,
       remainingEffects,
+      actionMode,
     });
 
     return reply.send({
@@ -144,13 +163,14 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         });
       }
 
-      const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects } = pending;
+      const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, actionMode: pendingActionMode = "decree" } = pending;
 
       const { newStats, newRelations, statDeltas, relationDeltas } = applyTurn({
         state: { stats: statsAfterDelayed, relations: game.relations },
         gmClassification,
         gameId,
         turnNumber,
+        actionMode: pendingActionMode,
       });
 
       const newDelayedEffects = (gmClassification.delayed_effects || []).map((e, idx) => {
@@ -171,12 +191,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const updatedDelayedEffects = [...remainingEffects, ...newDelayedEffects];
 
       await client.query(
-        `INSERT INTO turns (game_id, turn_n, player_input, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           gameId,
           turnNumber,
           request.body?.playerInput || "(см. gm_classification)",
+          pendingActionMode,
           JSON.stringify(gmClassification),
           JSON.stringify(statDeltas),
           JSON.stringify(relationDeltas),
