@@ -89,45 +89,59 @@ const DIFFICULTY_COLOR = {
   "Легко":   "#4a6b5c",
 };
 
-const NEWS_PLAYLISTS_START = [
-  { label: "DW News",        list: "PLT5Zkef_by5YVPr20VxLDSt_2-l3YBZWA" },
-  { label: "Al Jazeera",     list: "PLYFnWml2aKlXqFM-XzUBJA8_8lWW-XVVL" },
-  { label: "Euronews",       list: "PL8BC757B93D3BCEC7" },
-  { label: "France 24",      list: "PLGGMeqr4pGRi0YFc6x44V4VeaJETCa7CO" },
-  { label: "CGTN",           list: "PLkEWMEMJSmfTIOXBFnMmFHlUAHOBNqCmo" },
+const START_HEADLINES = [
+  { src: "Reuters", text: "Экстренное заседание СБ ООН: ситуация на границе признана критической" },
+  { src: "AP", text: "Министры G7 встретились на фоне эскалации — итоги переговоров засекречены" },
+  { src: "Al Jazeera", text: "Беспилотники зафиксированы в 40 км от столицы — армия в готовности" },
+  { src: "Bloomberg", text: "Мировые рынки падают: инвесторы уходят в защитные активы" },
+  { src: "DW", text: "Германия приостанавливает экспорт вооружений на фоне нестабильности" },
+  { src: "Euronews", text: "ЕС готовит новый пакет санкций — голосование на следующей неделе" },
+  { src: "CNN", text: "Перехвачены переговоры о переброске войск к северной границе" },
+  { src: "BBC", text: "Нефть достигла двухлетнего максимума из-за угрозы блокады Ормузского пролива" },
+  { src: "ТАСС", text: "МИД вызвал послов западных стран для объяснений по военным учениям" },
+  { src: "Politico", text: "Конгресс расколот: законопроект о военной помощи заблокирован" },
+  { src: "AFP", text: "ООН открыла гуманитарный коридор — эвакуация мирного населения началась" },
+  { src: "Sky News", text: "Кибератака парализовала инфраструктуру трёх государств — следы ведут к APT" },
 ];
 
 function NewsVideoPanel() {
-  const [plIdx, setPlIdx] = useState(0);
-  const pl = NEWS_PLAYLISTS_START[plIdx];
-  const src = `https://www.youtube-nocookie.com/embed/?listType=playlist&list=${pl.list}&autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&playsinline=1`;
-  function next() { setPlIdx(i => (i + 1) % NEWS_PLAYLISTS_START.length); }
+  const [idx, setIdx] = useState(0);
+  const [fade, setFade] = useState(true);
+  useEffect(() => {
+    const t = setInterval(() => {
+      setFade(false);
+      setTimeout(() => { setIdx(i => (i + 1) % START_HEADLINES.length); setFade(true); }, 400);
+    }, 4000);
+    return () => clearInterval(t);
+  }, []);
+  const item = START_HEADLINES[idx];
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347" }}>
-          МИРОВЫЕ НОВОСТИ · {pl.label.toUpperCase()}
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, border: "1px solid #2a3040", borderRadius: 6, overflow: "hidden" }}>
+      <div style={{ background: "#a8313a", padding: "5px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ff6060", display: "inline-block", animation: "pulse-red 1s infinite" }} />
+        <span className="mono-font" style={{ fontSize: 9, color: "#fff", letterSpacing: "0.14em", fontWeight: 700 }}>LIVE · МИРОВЫЕ НОВОСТИ</span>
+        <style>{`@keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
+      </div>
+      <div style={{ background: "#0d1118", padding: "14px 14px 10px", minHeight: 80, transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
+        <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 6 }}>{item.src.toUpperCase()}</div>
+        <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.5, color: "#ece7d8", fontWeight: 700 }}>{item.text}</div>
+      </div>
+      <div style={{ background: "#07090d", padding: "5px 0", overflow: "hidden" }}>
+        <div style={{ display: "flex", animation: "ticker-s 20s linear infinite", whiteSpace: "nowrap" }}>
+          {[...START_HEADLINES, ...START_HEADLINES].map((h, i) => (
+            <span key={i} className="mono-font" style={{ fontSize: 9, color: "#5a6070", paddingRight: 36 }}>
+              <span style={{ color: "#9c8347", marginRight: 6 }}>{h.src}</span>{h.text}
+            </span>
+          ))}
         </div>
-        <button
-          onClick={next}
-          style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, padding: "3px 8px", cursor: "pointer" }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}
-        >
-          КАНАЛ ▶
-        </button>
+        <style>{`@keyframes ticker-s { from{transform:translateX(0)} to{transform:translateX(-50%)} }`}</style>
       </div>
-      <div style={{ width: "100%", height: 200, background: "#0d1118", borderRadius: 6, overflow: "hidden", border: "1px solid #2a3040" }}>
-        <iframe
-          key={pl.list}
-          src={src}
-          width="100%"
-          height="200"
-          style={{ border: "none", display: "block" }}
-          allow="autoplay; encrypted-media"
-          allowFullScreen
-        />
-      </div>
+      {START_HEADLINES.slice(1, 3).map((h, i) => (
+        <div key={i} style={{ background: i % 2 === 0 ? "#0d1118" : "#0a0d14", padding: "6px 14px", borderTop: "1px solid #1a1f2c", display: "flex", gap: 8 }}>
+          <span className="mono-font" style={{ fontSize: 8, color: "#4a5060", flexShrink: 0 }}>{h.src}</span>
+          <span className="doc-font" style={{ fontSize: 11, color: "#6a7080", lineHeight: 1.4 }}>{h.text.slice(0, 80)}{h.text.length > 80 ? "…" : ""}</span>
+        </div>
+      ))}
     </div>
   );
 }

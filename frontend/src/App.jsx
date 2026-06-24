@@ -1264,43 +1264,94 @@ function resolveCoords(spot) {
   return null;
 }
 
-// Плейлисты надёжных новостных каналов — YouTube сам ротирует видео внутри
-const NEWS_PLAYLISTS = [
-  { label: "DW News",        list: "PLT5Zkef_by5YVPr20VxLDSt_2-l3YBZWA" },
-  { label: "Al Jazeera",     list: "PLYFnWml2aKlXqFM-XzUBJA8_8lWW-XVVL" },
-  { label: "Euronews",       list: "PL8BC757B93D3BCEC7" },
-  { label: "France 24 EN",   list: "PLGGMeqr4pGRi0YFc6x44V4VeaJETCa7CO" },
-  { label: "CGTN",           list: "PLkEWMEMJSmfTIOXBFnMmFHlUAHOBNqCmo" },
+const LIVE_HEADLINES = [
+  { src: "Reuters", text: "Экстренное заседание Совета Безопасности ООН: ситуация на границе признана критической" },
+  { src: "AP", text: "Министры иностранных дел G7 экстренно встретились на фоне эскалации конфликта" },
+  { src: "Al Jazeera", text: "Беспилотники зафиксированы в 40 км от столицы — армия переведена в режим повышенной готовности" },
+  { src: "Bloomberg", text: "Мировые рынки падают: инвесторы уходят в защитные активы после заявлений Пентагона" },
+  { src: "DW", text: "Германия приостанавливает экспорт оружия в связи с нарастающей нестабильностью в регионе" },
+  { src: "Euronews", text: "ЕС готовит новый пакет санкций — голосование запланировано на следующей неделе" },
+  { src: "ТАСС", text: "МИД России вызвал послов западных стран для объяснений по поводу военных учений" },
+  { src: "CNN", text: "Спецслужбы США: перехвачены переговоры о переброске войск к северной границе" },
+  { src: "France 24", text: "Переговоры зашли в тупик — делегация покинула зал заседаний без подписания соглашения" },
+  { src: "BBC", text: "Нефтяные котировки достигли двухлетнего максимума на фоне угрозы блокады Ормузского пролива" },
+  { src: "Reuters", text: "Китай призвал к немедленному прекращению огня и готов выступить посредником" },
+  { src: "Politico", text: "Конгресс США раскололся: законопроект о военной помощи заблокирован оппозицией" },
+  { src: "CGTN", text: "Пекин и Москва подписали декларацию о стратегическом партнёрстве в сфере безопасности" },
+  { src: "AFP", text: "Гуманитарный коридор открыт — ООН координирует эвакуацию мирного населения из зоны конфликта" },
+  { src: "Sky News", text: "Кибератака парализовала инфраструктуру трёх государств — следы ведут к APT-группировке" },
+  { src: "NHK", text: "Токио заявил о готовности пересмотреть оборонный бюджет в свете угроз региональной стабильности" },
+  { src: "Al Arabiya", text: "Саудовская Аравия отказала в транзите военных грузов — переговоры продолжаются" },
+  { src: "WSJ", text: "Санкции привели к отключению крупнейших банков от SWIFT — курс валюты рухнул на 18%" },
+  { src: "Axios", text: "Источники в Белом доме: президент подписал закрытый указ о введении особого режима" },
+  { src: "Le Monde", text: "Франция предложила план мирного урегулирования — реакция сторон пока неизвестна" },
 ];
-function NewsVideoPanel() {
-  const [plIdx, setPlIdx] = useState(0);
-  const pl = NEWS_PLAYLISTS[plIdx];
-  const src = `https://www.youtube-nocookie.com/embed/?listType=playlist&list=${pl.list}&autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&playsinline=1`;
-  function next() { setPlIdx(i => (i + 1) % NEWS_PLAYLISTS.length); }
+
+function NewsLiveFeed() {
+  const [visibleIdx, setVisibleIdx] = useState(0);
+  const [fade, setFade] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFade(false);
+      setTimeout(() => {
+        setVisibleIdx(i => (i + 1) % LIVE_HEADLINES.length);
+        setFade(true);
+      }, 400);
+    }, 4500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const item = LIVE_HEADLINES[visibleIdx];
+  const next = LIVE_HEADLINES[(visibleIdx + 1) % LIVE_HEADLINES.length];
+  const prev = LIVE_HEADLINES[(visibleIdx - 1 + LIVE_HEADLINES.length) % LIVE_HEADLINES.length];
+
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.1em", color: "#a8313a" }}>
-          МИРОВЫЕ НОВОСТИ · {pl.label.toUpperCase()}
-        </div>
-        <button onClick={next} style={{ background: "none", border: "1px solid #d8d2bf", borderRadius: 3, color: "#8c6b3a", fontFamily: "monospace", fontSize: 9, padding: "2px 8px", cursor: "pointer" }}>
-          КАНАЛ ▶
-        </button>
+    <div style={{ marginBottom: 14, background: "#f0ebe0", border: "1px solid #c8c2af", borderRadius: 4, overflow: "hidden" }}>
+      {/* Шапка ленты */}
+      <div style={{ background: "#a8313a", padding: "4px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ff6060", display: "inline-block", animation: "pulse-red 1s infinite" }} />
+        <span className="mono-font" style={{ fontSize: 9, color: "#fff", letterSpacing: "0.14em", fontWeight: 700 }}>LIVE · МИРОВЫЕ НОВОСТИ</span>
+        <style>{`@keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
       </div>
-      <div style={{ width: "100%", height: 180, background: "#0d1118", borderRadius: 4, overflow: "hidden", border: "1px solid #d8d2bf" }}>
-        <iframe
-          key={pl.list}
-          src={src}
-          width="100%"
-          height="180"
-          style={{ border: "none", display: "block" }}
-          allow="autoplay; encrypted-media"
-          allowFullScreen
-        />
+
+      {/* Главная новость */}
+      <div style={{ padding: "10px 12px 8px", minHeight: 64, transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
+        <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 4 }}>{item.src.toUpperCase()}</div>
+        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700 }}>{item.text}</div>
+      </div>
+
+      {/* Бегущая строка */}
+      <div style={{ background: "#1e1c18", padding: "5px 0", overflow: "hidden", position: "relative" }}>
+        <div style={{
+          display: "flex", gap: 0,
+          animation: "ticker 18s linear infinite",
+          whiteSpace: "nowrap",
+        }}>
+          {[...LIVE_HEADLINES, ...LIVE_HEADLINES].map((h, i) => (
+            <span key={i} className="mono-font" style={{ fontSize: 9, color: "#9c8347", paddingRight: 40 }}>
+              <span style={{ color: "#a8313a", marginRight: 6 }}>{h.src}</span>{h.text}
+            </span>
+          ))}
+        </div>
+        <style>{`@keyframes ticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }`}</style>
+      </div>
+
+      {/* Следующие заголовки */}
+      <div style={{ borderTop: "1px solid #d8d2bf" }}>
+        {[next, prev].map((h, i) => (
+          <div key={i} style={{ padding: "5px 12px", borderBottom: i === 0 ? "1px solid #e8e2cf" : "none", display: "flex", gap: 8, alignItems: "baseline" }}>
+            <span className="mono-font" style={{ fontSize: 8, color: "#8c6b3a", flexShrink: 0 }}>{h.src}</span>
+            <span className="doc-font" style={{ fontSize: 11.5, color: "#3a362e", lineHeight: 1.4 }}>{h.text.length > 90 ? h.text.slice(0, 90) + "…" : h.text}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
+
+// Алиас для совместимости с вызовами в OverviewTab
+function NewsVideoPanel() { return <NewsLiveFeed />; }
 
 function OverviewTab({ state }) {
   const [modal, setModal] = useState(null);
