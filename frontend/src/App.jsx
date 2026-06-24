@@ -485,7 +485,7 @@ export default function App({ gameId, playerName, onNewGame }) {
       )}
 
       <div className="mono-font" style={{ textAlign: "center", fontSize: 10, letterSpacing: "0.1em", color: "#5a5f6e", padding: "10px 0 16px", background: "#1a1f2c" }}>
-        ГЕЙММАСТЕР: CLAUDE SONNET 4.6 · ПАНЕЛЬ ОБНОВЛЯЕТСЯ ПО ХОДАМ
+        ПАНЕЛЬ ОБНОВЛЯЕТСЯ ПО ХОДАМ
       </div>
     </div>
   );
