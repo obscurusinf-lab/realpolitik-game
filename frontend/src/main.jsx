@@ -3,6 +3,34 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { createGame, createUser, fetchLeaderboard, fetchAdminStats } from "./api";
 
+const API_BASE = import.meta.env.VITE_API_BASE || "https://realpolitik-game-production.up.railway.app";
+
+async function fetchAdminGames(password) {
+  const res = await fetch(`${API_BASE}/admin/games`, { headers: { "x-admin-password": password } });
+  if (!res.ok) throw new Error("Ошибка загрузки партий");
+  return res.json();
+}
+
+async function sendAdminEvent(password, gameId, body) {
+  const res = await fetch(`${API_BASE}/admin/games/${gameId}/event`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-password": password },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Ошибка отправки события");
+  return res.json();
+}
+
+async function sendForeignAction(password, gameId, body) {
+  const res = await fetch(`${API_BASE}/admin/games/${gameId}/foreign-action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-password": password },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Ошибка отправки действия");
+  return res.json();
+}
+
 const COUNTRIES = [
   {
     id: "RU",
@@ -241,37 +269,120 @@ const STAT_LABELS = { stability: "Стабильность", economy: "Экон�
 
 const COUNTRY_FLAG_MAP = { RU: "🇷🇺", US: "🇺🇸", CN: "🇨🇳", UA: "🇺🇦", DE: "🇩🇪", TR: "🇹🇷" };
 
+function InterventionForm({ password, game, onDone }) {
+  const [mode, setMode] = useState("event"); // "event" | "foreign"
+  const [text, setText] = useState("");
+  const [source, setSource] = useState("");
+  const [country, setCountry] = useState("");
+  const [action, setAction] = useState("");
+  const [secret, setSecret] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const inp = { width: "100%", background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 10px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 13, outline: "none", marginBottom: 8 };
+  const btnStyle = (active) => ({ background: active ? "#9c8347" : "#1f2733", color: active ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "5px 14px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", marginRight: 6 });
+
+  async function send() {
+    setSending(true); setError(null); setResult(null);
+    try {
+      let res;
+      if (mode === "event") {
+        res = await sendAdminEvent(password, game.game_id, { text, source: source || "Внешний источник", secret });
+        setResult("Событие поставлено в очередь. Сработает при следующем ходе игрока.");
+      } else {
+        res = await sendForeignAction(password, game.game_id, { country, action, secret });
+        setResult(`ИИ сгенерировал последствия. Preview: "${res.preview?.narrative?.slice(0, 120)}…"`);
+      }
+      setText(""); setSource(""); setCountry(""); setAction("");
+    } catch (e) { setError(e.message); }
+    finally { setSending(false); }
+  }
+
+  return (
+    <div style={{ background: "#0d1118", border: "1px solid #2a3040", borderRadius: 6, padding: "14px", marginTop: 8 }}>
+      <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 10 }}>
+        ВМЕШАТЕЛЬСТВО В ПАРТИЮ: {game.player_name} ({game.country_id}) · ХОД {game.current_turn}
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <button style={btnStyle(mode === "event")} onClick={() => setMode("event")}>Событие</button>
+        <button style={btnStyle(mode === "foreign")} onClick={() => setMode("foreign")}>Ход страны</button>
+      </div>
+
+      {mode === "event" && (
+        <>
+          <input style={inp} placeholder="Источник (напр. «ЦРУ», «Reuters»)…" value={source} onChange={e => setSource(e.target.value)} />
+          <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Текст события (появится в ленте новостей)…" value={text} onChange={e => setText(e.target.value)} />
+        </>
+      )}
+
+      {mode === "foreign" && (
+        <>
+          <input style={inp} placeholder="Страна-агент (напр. «США», «Китай»)…" value={country} onChange={e => setCountry(e.target.value)} />
+          <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Что делает эта страна (ИИ сгенерирует последствия и текст)…" value={action} onChange={e => setAction(e.target.value)} />
+        </>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={secret} onChange={e => setSecret(e.target.checked)} />
+          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Скрытое (влияет на статы, но не появляется в ленте)</span>
+        </label>
+      </div>
+
+      {error && <div style={{ color: "#e09090", fontSize: 12, marginBottom: 8 }}>{error}</div>}
+      {result && <div style={{ color: "#7fae93", fontSize: 12, marginBottom: 8 }}>{result}</div>}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={send} disabled={sending || (mode === "event" ? !text : !country || !action)}
+          style={{ background: "#a8313a", color: "#ece7d8", border: "none", borderRadius: 4, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+          {sending ? "Отправка…" : "Внедрить →"}
+        </button>
+        <button onClick={onDone} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 12px", color: "#5a6070", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AdminPanel({ onClose }) {
-  const [step, setStep] = useState("auth"); // "auth" | "stats"
+  const [step, setStep] = useState("auth");
+  const [tab, setTab] = useState("stats");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState(null);
+  const [games, setGames] = useState([]);
+  const [gamesLoading, setGamesLoading] = useState(false);
+  const [expandedGame, setExpandedGame] = useState(null);
 
   async function handleAuth() {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const data = await fetchAdminStats(password);
       setStats(data);
-      setStep("stats");
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+      setStep("main");
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }
 
-  const overlay = {
-    position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-    zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center",
-    fontFamily: "'PT Serif',Georgia,serif",
-  };
-  const panel = {
-    background: "#14181f", border: "1px solid #9c8347", borderRadius: 8,
-    padding: "28px 28px 24px", width: "min(90vw, 640px)", maxHeight: "85vh",
-    overflowY: "auto", color: "#ece7d8", position: "relative",
-  };
+  async function loadGames() {
+    setGamesLoading(true);
+    try {
+      const data = await fetchAdminGames(password);
+      setGames(data.games || []);
+    } catch (e) { setError(e.message); }
+    finally { setGamesLoading(false); }
+  }
+
+  useEffect(() => {
+    if (step === "main" && tab === "games") loadGames();
+  }, [step, tab]);
+
+  const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',Georgia,serif" };
+  const panel = { background: "#14181f", border: "1px solid #9c8347", borderRadius: 8, padding: "24px 24px 20px", width: "min(95vw, 700px)", maxHeight: "88vh", overflowY: "auto", color: "#ece7d8", position: "relative" };
+  const tabBtn = (t) => ({ background: tab === t ? "#9c8347" : "none", color: tab === t ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "5px 14px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", marginRight: 6 });
 
   return (
     <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -280,63 +391,83 @@ function AdminPanel({ onClose }) {
 
         {step === "auth" && (
           <>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 16 }}>АДМИНИСТРАТИВНЫЙ ДОСТУП</div>
-            <div className="doc-font" style={{ fontSize: 15, marginBottom: 16 }}>Введите пароль для просмотра статистики</div>
-            <input
-              autoFocus
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleAuth()}
-              placeholder="Пароль…"
-              style={{ width: "100%", background: "#1f2733", border: "1px solid #3a4156", borderRadius: 4, padding: "10px 12px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 14, outline: "none", marginBottom: 12 }}
-            />
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 16 }}>КОМАНДНЫЙ ЦЕНТР · ДОСТУП ОГРАНИЧЕН</div>
+            <div className="doc-font" style={{ fontSize: 15, marginBottom: 16 }}>Введите пароль геймастера</div>
+            <input autoFocus type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAuth()}
+              placeholder="Пароль…" style={{ width: "100%", background: "#1f2733", border: "1px solid #3a4156", borderRadius: 4, padding: "10px 12px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 14, outline: "none", marginBottom: 12 }} />
             {error && <div style={{ color: "#e09090", fontSize: 13, marginBottom: 10 }}>{error}</div>}
-            <button
-              onClick={handleAuth}
-              disabled={loading || !password}
-              style={{ background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "10px 20px", fontFamily: "'PT Serif',serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
-            >
+            <button onClick={handleAuth} disabled={loading || !password}
+              style={{ background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "10px 20px", fontFamily: "'PT Serif',serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
               {loading ? "Проверка…" : "Войти →"}
             </button>
           </>
         )}
 
-        {step === "stats" && stats && (
+        {step === "main" && (
           <>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 20 }}>СТАТИСТИКА · REALPOLITIK</div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 24 }}>
-              {[
-                { label: "Всего игроков", value: stats.users.total, sub: `+${stats.users.today} сегодня` },
-                { label: "Всего партий", value: stats.games.total, sub: `${stats.games.active} активных` },
-                { label: "Всего ходов", value: stats.turns.total, sub: "сделано игроками" },
-              ].map(({ label, value, sub }) => (
-                <div key={label} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 12px", textAlign: "center" }}>
-                  <div className="mono-font" style={{ fontSize: 24, fontWeight: 700, color: "#9c8347" }}>{value}</div>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#ece7d8", marginTop: 4 }}>{label}</div>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>{sub}</div>
-                </div>
-              ))}
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 16 }}>КОМАНДНЫЙ ЦЕНТР ГЕЙМАСТЕРА</div>
+            <div style={{ marginBottom: 18 }}>
+              <button style={tabBtn("stats")} onClick={() => setTab("stats")}>Статистика</button>
+              <button style={tabBtn("games")} onClick={() => setTab("games")}>Вмешательство</button>
             </div>
 
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 10 }}>ВСЕ ИГРОКИ (последние 50)</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {stats.players.map((p, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 12px" }}>
-                  <div style={{ fontSize: 18, flexShrink: 0 }}>{COUNTRY_FLAG_MAP[p.country_id] || "🌐"}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.display_name}</div>
-                    <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>
-                      {new Date(p.created_at).toLocaleString("ru-RU")} · ход {p.current_turn}
+            {tab === "stats" && stats && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 20 }}>
+                  {[
+                    { label: "Игроков", value: stats.users.total, sub: `+${stats.users.today} сегодня` },
+                    { label: "Партий", value: stats.games.total, sub: `${stats.games.active} активных` },
+                    { label: "Ходов", value: stats.turns.total, sub: "всего" },
+                  ].map(({ label, value, sub }) => (
+                    <div key={label} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 12px", textAlign: "center" }}>
+                      <div className="mono-font" style={{ fontSize: 24, fontWeight: 700, color: "#9c8347" }}>{value}</div>
+                      <div className="mono-font" style={{ fontSize: 9, color: "#ece7d8", marginTop: 4 }}>{label}</div>
+                      <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>{sub}</div>
                     </div>
-                  </div>
-                  {p.score != null && (
-                    <div className="mono-font" style={{ fontSize: 14, fontWeight: 700, color: "#9c8347", flexShrink: 0 }}>{p.score} очк.</div>
-                  )}
+                  ))}
                 </div>
-              ))}
-            </div>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8 }}>ВСЕ ИГРОКИ</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {stats.players.map((p, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 12px" }}>
+                      <div style={{ fontSize: 16, flexShrink: 0 }}>{COUNTRY_FLAG_MAP[p.country_id] || "🌐"}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{p.display_name}</div>
+                        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{new Date(p.created_at).toLocaleString("ru-RU")} · ход {p.current_turn}</div>
+                      </div>
+                      {p.score != null && <div className="mono-font" style={{ fontSize: 13, fontWeight: 700, color: "#9c8347" }}>{p.score}</div>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {tab === "games" && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>АКТИВНЫЕ ПАРТИИ</div>
+                  <button onClick={loadGames} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "4px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer" }}>↻ Обновить</button>
+                </div>
+                {gamesLoading && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Загрузка…</div>}
+                {!gamesLoading && games.length === 0 && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Нет активных партий</div>}
+                {games.map(g => (
+                  <div key={g.game_id}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: `1px solid ${expandedGame === g.game_id ? "#9c8347" : "#2a3040"}`, borderRadius: 6, padding: "10px 14px", marginBottom: 6, cursor: "pointer" }}
+                      onClick={() => setExpandedGame(expandedGame === g.game_id ? null : g.game_id)}>
+                      <div style={{ fontSize: 18 }}>{COUNTRY_FLAG_MAP[g.country_id] || "🌐"}</div>
+                      <div style={{ flex: 1 }}>
+                        <div className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{g.player_name}</div>
+                        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>ход {g.current_turn} · {new Date(g.created_at).toLocaleString("ru-RU")}</div>
+                      </div>
+                      <div className="mono-font" style={{ fontSize: 10, color: "#9c8347" }}>{expandedGame === g.game_id ? "▲ Свернуть" : "▼ Вмешаться"}</div>
+                    </div>
+                    {expandedGame === g.game_id && (
+                      <InterventionForm password={password} game={g} onDone={() => setExpandedGame(null)} />
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
           </>
         )}
       </div>

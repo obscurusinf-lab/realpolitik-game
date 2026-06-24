@@ -25,7 +25,9 @@ const { registerUserRoutes } = require("./routes/users");
 const { registerAdvisorRoutes } = require("./routes/advisors");
 const { registerSuggestionRoutes } = require("./routes/suggestions");
 const { registerArgueRoute } = require("./routes/argue");
+const { registerAdminRoutes } = require("./routes/admin");
 const { createPendingTurnStore } = require("./db/pending-turns");
+const { createAdminEventStore } = require("./db/admin-events");
 const { callClaudeApi } = require("./ai/claude-client");
 
 async function buildServer() {
@@ -59,42 +61,16 @@ async function buildServer() {
   fastify.log.info("Redis client created");
 
   const pendingTurnStore = createPendingTurnStore(redis);
+  const adminEventStore = createAdminEventStore(redis);
 
   // --- Роуты ---
   await registerUserRoutes(fastify, { db });
   await registerGameRoutes(fastify, { db });
-  await registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore });
+  await registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore });
   await registerAdvisorRoutes(fastify, { db, callClaudeApi });
   await registerSuggestionRoutes(fastify, { db, callClaudeApi });
   await registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore });
-
-  // --- Admin stats (защищён паролем через заголовок) ---
-  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "realpolitik-admin";
-  fastify.get("/admin/stats", async (request, reply) => {
-    if (request.headers["x-admin-password"] !== ADMIN_PASSWORD) {
-      return reply.code(403).send({ error: "Forbidden" });
-    }
-    const [usersRes, gamesRes, turnsRes, topPlayersRes] = await Promise.all([
-      db.query(`SELECT COUNT(*) AS total, COUNT(CASE WHEN created_at > now() - interval '24 hours' THEN 1 END) AS today FROM users`),
-      db.query(`SELECT COUNT(*) AS total, COUNT(CASE WHEN status = 'active' THEN 1 END) AS active FROM games`),
-      db.query(`SELECT COUNT(*) AS total FROM turns`),
-      db.query(`
-        SELECT u.display_name, g.country_id, g.current_turn, g.created_at,
-               ls.score
-        FROM games g
-        JOIN users u ON u.id = g.owner_user_id
-        LEFT JOIN leaderboard_snap ls ON ls.game_id = g.id AND ls.turn_n = g.current_turn
-        ORDER BY g.created_at DESC
-        LIMIT 50
-      `),
-    ]);
-    return reply.send({
-      users: usersRes.rows[0],
-      games: gamesRes.rows[0],
-      turns: turnsRes.rows[0],
-      players: topPlayersRes.rows,
-    });
-  });
+  await registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore });
 
   // Грейсфул-шатдаун
   const shutdown = async () => {

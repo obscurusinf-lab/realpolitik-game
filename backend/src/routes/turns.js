@@ -25,7 +25,7 @@ const { classifyTurn } = require("../ai/gamemaster");
 const { applyTurn, computeDelayedEffectDelta } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
-async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore }) {
+async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore }) {
   async function loadGameForUpdate(client, gameId) {
     const res = await client.query(
       `SELECT g.*, gs.stats, gs.relations, gs.policies, gs.delayed_effects, gs.overview, c.name AS country_name
@@ -234,6 +234,39 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       await client.query("COMMIT");
       await pendingTurnStore.clear(gameId);
+
+      // Применяем события геймастера (если есть) — после основной транзакции
+      if (adminEventStore) {
+        const adminEvents = await adminEventStore.popAll(gameId);
+        for (const ev of adminEvents) {
+          try {
+            // Применяем stat deltas
+            if (ev.statDeltas && Object.keys(ev.statDeltas).length > 0) {
+              const statsRes = await db.query(`SELECT stats FROM game_state WHERE game_id = $1`, [gameId]);
+              if (statsRes.rowCount > 0) {
+                const currentStats = statsRes.rows[0].stats;
+                const patched = { ...currentStats };
+                for (const [k, v] of Object.entries(ev.statDeltas)) {
+                  if (typeof patched[k] === "number") {
+                    patched[k] = Math.min(100, Math.max(0, patched[k] + v));
+                  }
+                }
+                await db.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(patched), gameId]);
+              }
+            }
+            // Добавляем в ленту (если не secret)
+            if (!ev.secret) {
+              await db.query(
+                `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
+                 VALUES ($1, $2, 'reaction', $3, $4, '[]')`,
+                [gameId, turnNumber, ev.source || "Внешний источник", ev.text]
+              );
+            }
+          } catch (evErr) {
+            fastify.log.error({ evErr }, "Failed to apply admin event");
+          }
+        }
+      }
 
       // Запускаем обновление мира ПОСЛЕ транзакции — не блокирует ответ игроку.
       // Результат (новый overview + реакции стран) сохраняется в БД асинхронно
