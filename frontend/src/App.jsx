@@ -26,7 +26,7 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
       try {
         const s = await fetchGameState(gameId);
         setNewState(s);
-        const reactions = (s.newsfeed || []).filter(n => n.type === "reaction" && n.turn === (prevState?.turn ?? 0) + 1);
+        const reactions = (s.newsfeed || []).filter(n => (n.type === "reaction" || n.type === "nuclear_reaction") && n.turn === (prevState?.turn ?? 0) + 1);
         if (reactions.length > 0 || attempts >= maxAttempts) {
           setWorldItems(reactions);
           setPolling(false);
@@ -133,6 +133,116 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
           <div style={{ marginTop: 24, textAlign: "center" }}>
             <button onClick={() => onDone(newState, [])} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 6, padding: "10px 24px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer" }}>
               Пропустить →
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- NuclearAftermathScreen ----------
+const ESCALATION_COLOR = { 1: "#9c8347", 2: "#c84a30", 3: "#ff2020" };
+const ESCALATION_LABEL = { 1: "ОСУЖДЕНИЕ", 2: "УЛЬТИМАТУМ", 3: "☢ УГРОЗА ОТВЕТНОГО УДАРА" };
+
+function NuclearAftermathScreen({ reactions, onDone }) {
+  const [revealed, setRevealed] = useState(1);
+  const [done, setDone] = useState(false);
+
+  // Автоматически раскрываем реакции одну за другой
+  useEffect(() => {
+    if (revealed >= reactions.length) { setTimeout(() => setDone(true), 800); return; }
+    const delay = revealed < 4 ? 1200 : revealed < 8 ? 900 : 600;
+    const t = setTimeout(() => setRevealed(r => r + 1), delay);
+    return () => clearTimeout(t);
+  }, [revealed, reactions.length]);
+
+  const escalation3 = reactions.filter(r => r.escalation >= 3);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "#050005", zIndex: 8500,
+      fontFamily: "'PT Serif',Georgia,serif", color: "#ece7d8",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      overflowY: "auto", padding: "0 0 60px",
+    }}>
+      <style>{`
+        @keyframes nk-in { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+        .nk-item { animation: nk-in 0.5s ease forwards; }
+        @keyframes nk-flicker { 0%,100%{opacity:1} 48%{opacity:0.85} 50%{opacity:0.4} 52%{opacity:0.9} }
+        .nk-flicker { animation: nk-flicker 3s infinite; }
+        @keyframes nk-red { 0%,100%{background:#050005} 50%{background:#150005} }
+        .nk-bg { animation: nk-red 4s infinite; }
+      `}</style>
+
+      {/* Шапка */}
+      <div className="nk-bg" style={{ width: "100%", padding: "28px 20px 20px", textAlign: "center", borderBottom: "1px solid #3a0010", marginBottom: 0 }}>
+        <div className="nk-flicker" style={{ fontSize: 40, marginBottom: 8 }}>☢</div>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.3em", color: "#a8313a", marginBottom: 6 }}>
+          ГЛОБАЛЬНАЯ ЯДЕРНАЯ ТРЕВОГА · УРОВЕНЬ DEFCON 1
+        </div>
+        <div className="doc-font" style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.3, color: "#ff4040", maxWidth: 480, margin: "0 auto" }}>
+          МИР ПОГРУЖАЕТСЯ В ПУЧИНУ ХАОСА
+        </div>
+        <div className="doc-font" style={{ fontSize: 13, color: "#8a6060", marginTop: 8, fontStyle: "italic" }}>
+          Впервые с 1945 года ядерное оружие применено в боевых условиях
+        </div>
+      </div>
+
+      {/* Лента реакций */}
+      <div style={{ maxWidth: 580, width: "100%", padding: "20px 16px 0" }}>
+        {reactions.slice(0, revealed).map((r, i) => {
+          const esc = r.escalation || 1;
+          const color = ESCALATION_COLOR[esc] || "#9c8347";
+          return (
+            <div key={i} className="nk-item" style={{
+              background: esc === 3 ? "#1a0000" : "#0d0508",
+              border: `1px solid ${esc === 3 ? "#a8313a" : "#2a1020"}`,
+              borderLeft: `3px solid ${color}`,
+              borderRadius: 5, padding: "12px 14px", marginBottom: 10,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div className="mono-font" style={{ fontSize: 9, color, letterSpacing: "0.08em", fontWeight: 700 }}>
+                  {r.source?.toUpperCase()}
+                </div>
+                <div className="mono-font" style={{ fontSize: 8, color, opacity: 0.8, letterSpacing: "0.06em" }}>
+                  {ESCALATION_LABEL[esc]}
+                </div>
+              </div>
+              <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.6, color: esc === 3 ? "#ffb0b0" : "#d8c8c8" }}>
+                {r.text}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Индикатор загрузки следующей реакции */}
+        {!done && revealed < reactions.length && (
+          <div className="mono-font" style={{ fontSize: 10, color: "#5a2030", textAlign: "center", padding: "8px 0", letterSpacing: "0.1em" }}>
+            ПОСТУПАЮТ НОВЫЕ ДАННЫЕ…
+          </div>
+        )}
+
+        {/* Итоговое предупреждение если есть угрозы ответного удара */}
+        {done && escalation3.length > 0 && (
+          <div className="nk-item" style={{ background: "#1a0000", border: "2px solid #a8313a", borderRadius: 6, padding: "16px 18px", marginTop: 8, marginBottom: 16, textAlign: "center" }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", letterSpacing: "0.2em", marginBottom: 8 }}>
+              ☢ УГРОЗА ТОТАЛЬНОЙ ЯДЕРНОЙ ВОЙНЫ
+            </div>
+            <div className="doc-font" style={{ fontSize: 13.5, color: "#ffb0b0", lineHeight: 1.6 }}>
+              {escalation3.length} {escalation3.length === 1 ? "держава угрожает" : "держав угрожают"} ядерным ответным ударом.
+              Мир балансирует на грани взаимного гарантированного уничтожения.
+            </div>
+          </div>
+        )}
+
+        {done && (
+          <div className="nk-item" style={{ textAlign: "center", marginTop: 12 }}>
+            <button
+              onClick={onDone}
+              style={{ background: "#a8313a", color: "#fff", border: "none", borderRadius: 5, padding: "13px 36px", fontFamily: "'PT Serif',serif", fontSize: 15, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
+            >
+              Принять последствия →
             </button>
           </div>
         )}
@@ -538,6 +648,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [diplomaticReactions, setDiplomaticReactions] = useState(null); // реакции для ответа
   const [pendingNextState, setPendingNextState] = useState(null);
   const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
+  const [nuclearAftermath, setNuclearAftermath] = useState(null);
 
   const [advisors, setAdvisors] = useState(null);
   const [consulting, setConsulting] = useState(false);
@@ -617,7 +728,19 @@ export default function App({ gameId, playerName, onNewGame }) {
   }
 
   function handleEndTurnDone(newState, worldReactions) {
-    // Если есть значимые реакции мира — показываем дипломатический ответ
+    const nuclear = (worldReactions || []).filter(r => r.item_type === "nuclear_reaction" || r.type === "nuclear_reaction");
+    if (nuclear.length > 0) {
+      // Парсим escalation из reactions поля
+      const enriched = nuclear.map(r => {
+        const esc = Array.isArray(r.reactions) && r.reactions[0]?.escalation ? r.reactions[0].escalation : 1;
+        return { ...r, escalation: esc };
+      });
+      setPendingNextState(newState);
+      setNuclearAftermath(enriched);
+      setEndTurnResult(null);
+      return;
+    }
+    // Обычные значимые реакции — дипломатический ответ
     const notable = (worldReactions || []).filter(r => r.text && r.source);
     if (notable.length > 0) {
       setPendingNextState(newState);
@@ -701,6 +824,16 @@ export default function App({ gameId, playerName, onNewGame }) {
 
   if (showNuclearConfirm) {
     return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => setShowNuclearConfirm(false)} />;
+  }
+
+  if (nuclearAftermath) {
+    return <NuclearAftermathScreen
+      reactions={nuclearAftermath}
+      onDone={() => {
+        if (pendingNextState) setState(pendingNextState); else loadState();
+        setNuclearAftermath(null); setPendingNextState(null);
+      }}
+    />;
   }
 
   if (endTurnResult) {

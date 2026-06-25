@@ -9,6 +9,39 @@
  * результат сохраняется в БД и виден при следующем GET /games/:id.
  */
 
+function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, narrative }) {
+  return `Ты — система мирового моделирования. Только что произошло невообразимое: президент ${countryName} нанёс ядерный удар.
+
+ХОД ${turnNumber}. Приказ игрока: "${playerInput}"
+Нарратив: "${narrative}"
+
+Это ПЕРВОЕ применение ядерного оружия с 1945 года. Мир в шоке. Ты должен описать немедленную реакцию планеты — максимально реалистично, детально, апокалиптически.
+
+Сгенерируй:
+1. overview — описание нового мира, где сломана ядерная норма. Мрачно, исторически.
+2. world_reactions — МИНИМУМ 10 реакций от разных держав и организаций: США, НАТО, ООН, Китай, Великобритания, Франция, Германия, Израиль, Индия, Пакистан, страна-цель удара, папа римский / религиозные лидеры, финансовые рынки. Реакции должны нарастать: сначала шок и осуждение, потом ультиматумы, потом угрозы ядерного ответного удара. Тон — реалистичный, не пафосный, как реальные пресс-релизы и экстренные заявления.
+3. world_moves — 4-6 конкретных действий стран: экстренные военные меры, приведение ядерных сил в готовность, разрыв дипломатических отношений, экстренные заседания.
+
+Верни ТОЛЬКО валидный JSON без markdown:
+{
+  "overview": {
+    "headline": "заголовок — ёмко и страшно, 1-2 предложения",
+    "hotspots": [
+      {"region": "Эпицентр удара", "text": "подробно об ударе, жертвах, разрушениях", "lat": 0.0, "lon": 0.0},
+      {"region": "Мировая реакция", "text": "как реагирует мировое сообщество", "lat": 0.0, "lon": 0.0},
+      {"region": "Ядерная угроза", "text": "страны приводят свои арсеналы в готовность", "lat": 0.0, "lon": 0.0}
+    ]
+  },
+  "world_reactions": [
+    {"source": "страна или организация", "text": "реакция 1-3 предложения", "tone": "neg", "escalation": 1}
+  ],
+  "world_moves": [
+    {"country": "...", "action": "...", "impact": "...", "direction": "hostile"}
+  ]
+}
+Поле escalation в реакциях: 1=шок/осуждение, 2=ультиматум/санкции, 3=прямая угроза ядерного ответа.`;
+}
+
 function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrative, statDeltas, relationDeltas, currentStats, currentRelations, prevOverview }) {
   const deltaLines = Object.entries(statDeltas)
     .filter(([, d]) => d !== 0)
@@ -67,13 +100,16 @@ ${JSON.stringify(prevOverview)}
 }
 
 async function generateWorldUpdate({ params, callClaudeApi }) {
-  const prompt = buildWorldUpdatePrompt(params);
+  const isNuclear = params.actionType === "nuclear_strike";
+  const prompt = isNuclear
+    ? buildNuclearAftermathPrompt(params)
+    : buildWorldUpdatePrompt(params);
 
   let response;
   try {
     response = await callClaudeApi({
       model: "claude-sonnet-4-6",
-      max_tokens: 1000,
+      max_tokens: isNuclear ? 2500 : 1000,
       messages: [{ role: "user", content: prompt }],
     });
   } catch (err) {

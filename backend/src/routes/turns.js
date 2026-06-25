@@ -299,7 +299,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         params: {
           countryName: game.country_name,
           turnNumber,
-          playerInput: request.body?.playerInput || gmClassification.narrative,
+          actionType: gmClassification.action_type,
+          playerInput: request.body?.playerInput || pendingTurn.player_input || gmClassification.narrative,
           narrative: gmClassification.narrative,
           statDeltas,
           relationDeltas,
@@ -319,11 +320,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             );
           }
           // Добавляем реакции стран в ленту
-          for (const reaction of worldUpdate.world_reactions || []) {
+          const isNuclearUpdate = (worldUpdate.world_reactions || []).some(r => r.escalation);
+          const reactionItemType = isNuclearUpdate ? "nuclear_reaction" : "reaction";
+          const sortedReactions = isNuclearUpdate
+            ? [...(worldUpdate.world_reactions || [])].sort((a, b) => (a.escalation || 1) - (b.escalation || 1))
+            : (worldUpdate.world_reactions || []);
+          for (const reaction of sortedReactions) {
             await db.query(
               `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
-               VALUES ($1, $2, 'reaction', $3, $4, '[]')`,
-              [gameId, turnNumber, reaction.source, reaction.text]
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [gameId, turnNumber, reactionItemType, reaction.source, reaction.text,
+               reaction.escalation ? JSON.stringify([{ escalation: reaction.escalation }]) : "[]"]
             );
           }
           // Добавляем ходы других стран
