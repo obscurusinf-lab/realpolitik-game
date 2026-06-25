@@ -4,7 +4,7 @@ import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn } from "./api";
 
 // ---------- EndTurnScreen ----------
-function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
+function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   const [phase, setPhase] = useState(0); // 0=action, 1=stats, 2=world, 3=done
   const [worldItems, setWorldItems] = useState([]);
   const [polling, setPolling] = useState(true);
@@ -26,7 +26,8 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
       try {
         const s = await fetchGameState(gameId);
         setNewState(s);
-        const reactions = (s.newsfeed || []).filter(n => (n.type === "reaction" || n.type === "nuclear_reaction") && n.turn === (prevState?.turn ?? 0) + 1);
+        const baseTurn = fromTurn ?? (prevState?.turn ?? 0);
+        const reactions = (s.newsfeed || []).filter(n => (n.type === "reaction" || n.type === "nuclear_reaction") && n.turn > baseTurn);
         if (reactions.length > 0 || attempts >= maxAttempts) {
           setWorldItems(reactions);
           setPolling(false);
@@ -113,7 +114,7 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
               </div>
             ))}
             {!polling && worldItems.length === 0 && (
-              <div className="doc-font" style={{ fontSize: 13, color: "#5a6070", textAlign: "center", padding: "16px 0" }}>Мировые державы хранят молчание.</div>
+              <div className="doc-font" style={{ fontSize: 12, color: "#4a5060", textAlign: "center", padding: "16px 0", fontStyle: "italic" }}>Мировые реакции ещё формируются или отсутствуют.</div>
             )}
           </div>
         )}
@@ -545,6 +546,22 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
           )}
 
           {/* Поле ввода аргумента */}
+          {!arguing && !advisorReply && (
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <button
+                onClick={() => { setArguing(true); setAdvisorReply(null); }}
+                style={{ ...btnStyle("#5a2a2a", "#e09090"), fontSize: 12 }}
+              >
+                Возразить советнику
+              </button>
+              <button
+                onClick={onCancel}
+                style={{ ...btnStyle("#2a3040", "#8a8472"), fontSize: 12 }}
+              >
+                Согласиться (отменить решение)
+              </button>
+            </div>
+          )}
           {arguing ? (
             <div>
               <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.08em", marginBottom: 6 }}>ВАШ АРГУМЕНТ</div>
@@ -569,13 +586,6 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
                 </button>
               </div>
             </div>
-          ) : (
-            <button
-              onClick={() => { setArguing(true); setAdvisorReply(null); }}
-              style={{ ...btnStyle("#5a2a2a", "#e09090"), marginTop: 4, fontSize: 12 }}
-            >
-              Возразить советнику
-            </button>
           )}
         </div>
       )}
@@ -644,8 +654,10 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [previewing, setPreviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [turnError, setTurnError] = useState(null);
-  const [endTurnResult, setEndTurnResult] = useState(null); // {narrative, statDeltasPreview, actionMode}
-  const [diplomaticReactions, setDiplomaticReactions] = useState(null); // реакции для ответа
+  const [endTurnResult, setEndTurnResult] = useState(null);
+  const [lastActionResult, setLastActionResult] = useState(null); // результат последнего действия (не завершает ход)
+  const [sessionTurnStart, setSessionTurnStart] = useState(null); // ход в начале сессии действий
+  const [diplomaticReactions, setDiplomaticReactions] = useState(null);
   const [pendingNextState, setPendingNextState] = useState(null);
   const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
   const [nuclearAftermath, setNuclearAftermath] = useState(null);
@@ -661,6 +673,7 @@ export default function App({ gameId, playerName, onNewGame }) {
     try {
       const data = await fetchGameState(gameId);
       setState(data);
+      setSessionTurnStart(prev => prev ?? data.turn);
       setLoadError(null);
     } catch (err) {
       // Игра не найдена — сохранённый gameId устарел, предлагаем начать заново
@@ -708,8 +721,8 @@ export default function App({ gameId, playerName, onNewGame }) {
     setTurnError(null);
     try {
       await confirmTurn(gameId);
-      // Показываем экран итогов хода вместо немедленного обновления
-      setEndTurnResult({
+      // Сохраняем результат как баннер, не завершаем ход — игрок может действовать дальше
+      setLastActionResult({
         narrative: preview?.narrative,
         statDeltasPreview: preview?.statDeltasPreview,
         actionMode,
@@ -717,6 +730,7 @@ export default function App({ gameId, playerName, onNewGame }) {
       setPreview(null);
       setDraftInput("");
       setActionMode("decree");
+      await loadState(); // обновляем инициативу
     } catch (err) {
       setTurnError(err.message);
       if (err.message.includes("Call /turns/preview")) {
@@ -742,6 +756,7 @@ export default function App({ gameId, playerName, onNewGame }) {
     }
     // Обычные значимые реакции — дипломатический ответ
     const notable = (worldReactions || []).filter(r => r.text && r.source);
+    setSessionTurnStart(null); // сбрасываем — следующая сессия начнётся заново
     if (notable.length > 0) {
       setPendingNextState(newState);
       setDiplomaticReactions(notable);
@@ -792,6 +807,17 @@ export default function App({ gameId, playerName, onNewGame }) {
     }
   }
 
+  function handleEndTurn() {
+    if (lastActionResult) {
+      // Игрок уже совершил действия — показываем EndTurnScreen без нового skip-запроса
+      setEndTurnResult(lastActionResult);
+      setLastActionResult(null);
+    } else {
+      // Игрок пропускает ход — даём +45 инициативы
+      handleSkipTurn();
+    }
+  }
+
   async function handleLoadSuggestions() {
     if (loadingSuggestions) return;
     setLoadingSuggestions(true);
@@ -837,7 +863,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   }
 
   if (endTurnResult) {
-    return <EndTurnScreen prevState={state} turnResult={endTurnResult} gameId={gameId} onDone={handleEndTurnDone} />;
+    return <EndTurnScreen prevState={state} turnResult={endTurnResult} gameId={gameId} onDone={handleEndTurnDone} fromTurn={sessionTurnStart} />;
   }
 
   if (diplomaticReactions) {
@@ -945,6 +971,18 @@ export default function App({ gameId, playerName, onNewGame }) {
         <PreviewCard preview={preview} onConfirm={handleConfirmClick} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} />
       ) : (
         <div style={{ background: "#14181f", borderTop: "2px solid #9c8347", padding: "14px 16px" }}>
+
+          {/* Баннер последнего выполненного действия */}
+          {lastActionResult && (
+            <div style={{ background: "#0d1a10", border: "1px solid #2a4030", borderLeft: "3px solid #7fae93", borderRadius: 4, padding: "10px 12px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#7fae93", letterSpacing: "0.08em", marginBottom: 4 }}>✓ РЕШЕНИЕ ВЫПОЛНЕНО · МОЖЕТЕ ДЕЙСТВОВАТЬ ЕЩЁ</div>
+                <div className="doc-font" style={{ fontSize: 12.5, color: "#a0c090", lineHeight: 1.5 }}>{lastActionResult.narrative}</div>
+              </div>
+              <button onClick={() => setLastActionResult(null)} style={{ background: "none", border: "none", color: "#4a6050", cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0, padding: "0 0 0 4px" }}>×</button>
+            </div>
+          )}
+
           {/* Шаг 1 из 2 */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <StepBadge n={1} active />
@@ -1066,12 +1104,12 @@ export default function App({ gameId, playerName, onNewGame }) {
           {/* Завершить ход без действия */}
           <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
             <button
-              onClick={handleSkipTurn}
+              onClick={handleEndTurn}
               disabled={confirming}
-              title="Пропустить ход — инициатива +45"
-              style={{ ...btnStyle("#1f2733", "#5a6070"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+              title={lastActionResult ? "Завершить ход и увидеть реакцию мира" : "Пропустить ход — инициатива +45"}
+              style={{ ...btnStyle("#1f2733", lastActionResult ? "#9c8347" : "#5a6070"), border: `1px solid ${lastActionResult ? "#3a3020" : "#2a3040"}`, fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
             >
-              {confirming ? "…" : "⏭ Завершить ход (пропустить +45 инициативы)"}
+              {confirming ? "…" : lastActionResult ? "⏭ Завершить ход → реакция мира" : "⏭ Завершить ход (пропустить +45 инициативы)"}
             </button>
           </div>
         </div>
