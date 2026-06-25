@@ -128,6 +128,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       advisorObjection: gmClassification.advisor_objection,
       statDeltasPreview: statDeltas,
       relationDeltasPreview: relationDeltas,
+      gmActionType: gmClassification.action_type,
       requiresConfirmation: true,
     });
   });

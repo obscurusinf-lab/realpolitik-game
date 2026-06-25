@@ -18,6 +18,7 @@ const ALLOWED_CATEGORIES = [
   "info_narrative",
   "intelligence_covert",
   "peace_initiative",
+  "nuclear_strike",
   "null_action",
 ];
 

@@ -141,6 +141,87 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
   );
 }
 
+// ---------- NuclearConfirmScreen ----------
+function NuclearConfirmScreen({ onConfirm, onCancel }) {
+  const [code, setCode] = useState("");
+  const REQUIRED = "ПОДТВЕРЖДАЮ";
+  const ready = code.trim().toUpperCase() === REQUIRED;
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "#0d0000", zIndex: 9000,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      fontFamily: "'PT Serif',Georgia,serif", color: "#ece7d8", padding: "24px 20px",
+    }}>
+      <style>{`
+        @keyframes nuke-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(1.04)} }
+        .nuke-alert { animation: nuke-pulse 1.4s ease-in-out infinite; }
+      `}</style>
+
+      <div className="nuke-alert" style={{ fontSize: 48, marginBottom: 12 }}>☢</div>
+      <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.3em", color: "#a8313a", marginBottom: 8 }}>
+        УРОВЕНЬ УГРОЗЫ: МАКСИМАЛЬНЫЙ
+      </div>
+      <div className="doc-font" style={{ fontSize: 22, fontWeight: 700, marginBottom: 20, textAlign: "center", color: "#ff4040" }}>
+        ПРИМЕНЕНИЕ ЯДЕРНОГО ОРУЖИЯ
+      </div>
+
+      <div style={{ maxWidth: 440, background: "#1a0000", border: "1px solid #a8313a", borderRadius: 6, padding: "18px 20px", marginBottom: 24 }}>
+        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.7, color: "#d8c8c8" }}>
+          Вы отдаёте приказ о применении ядерного оружия. Это действие необратимо.
+          Сотни тысяч людей погибнут в течение минут. Международное сообщество немедленно
+          введёт санкции. Вероятен ядерный ответный удар. Страна станет изгоем на десятилетия.
+        </div>
+        <div style={{ marginTop: 14, padding: "10px 14px", background: "#2a0000", borderRadius: 4, borderLeft: "3px solid #a8313a" }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", letterSpacing: "0.08em", marginBottom: 4 }}>
+            СОВЕТНИК МИНИСТЕРСТВА ОБОРОНЫ:
+          </div>
+          <div className="doc-font" style={{ fontSize: 12.5, color: "#c0a8a8", fontStyle: "italic" }}>
+            «Господин президент, прошу вас ещё раз взвесить это решение. После нажатия кнопки обратного пути не будет.»
+          </div>
+        </div>
+      </div>
+
+      <div style={{ width: "100%", maxWidth: 380, marginBottom: 16 }}>
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em", marginBottom: 8 }}>
+          ДЛЯ ПОДТВЕРЖДЕНИЯ ВВЕДИТЕ: <span style={{ color: "#a8313a" }}>{REQUIRED}</span>
+        </div>
+        <input
+          value={code}
+          onChange={e => setCode(e.target.value)}
+          placeholder="Введите код подтверждения…"
+          autoFocus
+          style={{
+            width: "100%", background: "#1a0000", color: "#ff8080", border: `2px solid ${ready ? "#a8313a" : "#3a2020"}`,
+            borderRadius: 4, padding: "10px 14px", fontFamily: "'JetBrains Mono',monospace",
+            fontSize: 14, letterSpacing: "0.06em", outline: "none",
+          }}
+        />
+      </div>
+
+      <div style={{ display: "flex", gap: 12, width: "100%", maxWidth: 380 }}>
+        <button
+          onClick={onConfirm}
+          disabled={!ready}
+          style={{
+            flex: 1, background: ready ? "#a8313a" : "#3a1a1a", color: ready ? "#fff" : "#5a3030",
+            border: "none", borderRadius: 4, padding: "12px", fontFamily: "'PT Serif',serif",
+            fontSize: 15, fontWeight: 700, cursor: ready ? "pointer" : "not-allowed", letterSpacing: "0.04em",
+          }}
+        >
+          ☢ ПУСК
+        </button>
+        <button
+          onClick={onCancel}
+          style={{ flex: 1, background: "none", border: "1px solid #3a2020", borderRadius: 4, padding: "12px", fontFamily: "'PT Serif',serif", fontSize: 15, color: "#8a6060", cursor: "pointer" }}
+        >
+          Отменить
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ---------- DiplomaticResponseScreen ----------
 function DiplomaticResponseScreen({ reactions, onRespond, onSkip }) {
   const [idx, setIdx] = useState(0);
@@ -456,6 +537,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [endTurnResult, setEndTurnResult] = useState(null); // {narrative, statDeltasPreview, actionMode}
   const [diplomaticReactions, setDiplomaticReactions] = useState(null); // реакции для ответа
   const [pendingNextState, setPendingNextState] = useState(null);
+  const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
 
   const [advisors, setAdvisors] = useState(null);
   const [consulting, setConsulting] = useState(false);
@@ -499,8 +581,18 @@ export default function App({ gameId, playerName, onNewGame }) {
     }
   }
 
+  function handleConfirmClick() {
+    // Ядерный удар требует отдельного подтверждения
+    if (preview?.gmActionType === "nuclear_strike") {
+      setShowNuclearConfirm(true);
+    } else {
+      handleConfirm();
+    }
+  }
+
   async function handleConfirm() {
     if (confirming) return;
+    setShowNuclearConfirm(false);
     setConfirming(true);
     setTurnError(null);
     try {
@@ -606,6 +698,10 @@ export default function App({ gameId, playerName, onNewGame }) {
 
   if (!loaded) return <CenteredMessage text="Загрузка партии…" />;
   if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
+
+  if (showNuclearConfirm) {
+    return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => setShowNuclearConfirm(false)} />;
+  }
 
   if (endTurnResult) {
     return <EndTurnScreen prevState={state} turnResult={endTurnResult} gameId={gameId} onDone={handleEndTurnDone} />;
@@ -713,7 +809,7 @@ export default function App({ gameId, playerName, onNewGame }) {
       </div>
 
       {preview ? (
-        <PreviewCard preview={preview} onConfirm={handleConfirm} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} />
+        <PreviewCard preview={preview} onConfirm={handleConfirmClick} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} />
       ) : (
         <div style={{ background: "#14181f", borderTop: "2px solid #9c8347", padding: "14px 16px" }}>
           {/* Шаг 1 из 2 */}

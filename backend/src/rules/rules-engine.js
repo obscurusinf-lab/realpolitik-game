@@ -49,6 +49,9 @@ const RULES_TABLE = {
   intelligence_covert:       { economy: [0, 0],  military: [1, 3],  stability: [0, 0],  diplomacy: [-2, 0], approval: [0, 0] },
   peace_initiative:          { economy: [1, 2],  military: [-1, 0], stability: [1, 2],  diplomacy: [2, 4],  approval: [1, 3] },
   null_action:               { economy: [-1, 0], military: [-1, 0], stability: [0, 0],  diplomacy: [0, 0],  approval: [-1, 0] },
+  // Ядерный удар: катастрофические необратимые последствия — изоляция, крах экономики, внутренний хаос
+  // Значения намеренно превышают MAX_DELTA_PER_TURN — обрабатываются отдельно в applyTurn
+  nuclear_strike:            { economy: [-25, -20], military: [3, 8], stability: [-30, -25], diplomacy: [-40, -35], approval: [-20, -15] },
 };
 
 // Множители severity (середина диапазона — детерминированно, без рандома)
@@ -118,9 +121,19 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   statDeltas.initiative = newStats.initiative - currentInitiative;
 
   for (const stat of Object.keys(MAX_DELTA_PER_TURN)) {
-    const delta = computeStatDelta({ category: action_type, stat, severity, seed });
-    statDeltas[stat] = delta;
-    newStats[stat] = applyClamped(state.stats[stat], delta);
+    if (action_type === "nuclear_strike") {
+      // Ядерный удар: берём диапазон напрямую без ограничений MAX_DELTA
+      const range = RULES_TABLE.nuclear_strike[stat];
+      const jitter = (seededFraction(seed + stat) - 0.5) * 2; // небольшой разброс
+      const raw = range[0] + (range[1] - range[0]) * (0.5 + jitter * 0.15);
+      const delta = Math.round(Math.max(range[0], Math.min(range[1], raw)));
+      statDeltas[stat] = delta;
+      newStats[stat] = Math.max(0, Math.min(100, (state.stats[stat] ?? 50) + delta));
+    } else {
+      const delta = computeStatDelta({ category: action_type, stat, severity, seed });
+      statDeltas[stat] = delta;
+      newStats[stat] = applyClamped(state.stats[stat], delta);
+    }
   }
 
   // Отношения: прямое влияние + спилловер на связанные страны
