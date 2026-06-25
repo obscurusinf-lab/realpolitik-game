@@ -90,6 +90,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
     }
 
+    const effectiveActionMode = /ядерн|термоядер|nuclear|атомн.*удар/i.test(playerInput) ? "military" : actionMode;
+
     const gmClassification = await classifyTurn({
       params: {
         countryName: game.country_name,
@@ -99,10 +101,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         activePolicies: game.policies,
         delayedEffects: remainingEffects,
         playerInput,
-        actionMode,
+        actionMode: effectiveActionMode,
       },
       callClaudeApi,
     });
+
+    // Защита: если AI вернул null_action при явном упоминании ядерного оружия — форсируем nuclear_strike
+    const NUCLEAR_RE = /ядерн|термоядер|nuclear|атомн.*удар/i;
+    if (gmClassification.action_type === "null_action" && NUCLEAR_RE.test(playerInput)) {
+      gmClassification.action_type = "nuclear_strike";
+      gmClassification.severity = 3;
+      gmClassification.advisor_objection = gmClassification.advisor_objection ||
+        "Начальник Генерального штаба: Господин Президент, это решение необратимо. Применение ядерного оружия повлечёт немедленный международный ответ и, вероятно, ядерный удар по нашей территории.";
+      if (!gmClassification.narrative || gmClassification.narrative.includes("уточнение") || gmClassification.narrative.includes("не зафиксировано")) {
+        gmClassification.narrative = `Приказ о применении ядерного оружия зафиксирован. Штаб Верховного Главнокомандующего переведён в режим боевого дежурства. Мир стоит на пороге ядерной катастрофы впервые с 1945 года.`;
+      }
+    }
 
     // Считаем превью дельт ТЕМ ЖЕ rules-engine — то, что увидит игрок,
     // должно совпадать 1:1 с тем, что применится при confirm (тот же seed).
