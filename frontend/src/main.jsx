@@ -92,16 +92,55 @@ const DIFFICULTY_COLOR = {
 const START_HEADLINES = [
   { src: "Reuters", text: "Экстренное заседание СБ ООН: ситуация на границе признана критической" },
   { src: "AP", text: "Министры G7 встретились на фоне эскалации — итоги переговоров засекречены" },
-  { src: "Al Jazeera", text: "Беспилотники зафиксированы в 40 км от столицы — армия в готовности" },
-  { src: "Bloomberg", text: "Мировые рынки падают: инвесторы уходят в защитные активы" },
-  { src: "DW", text: "Германия приостанавливает экспорт вооружений на фоне нестабильности" },
-  { src: "Euronews", text: "ЕС готовит новый пакет санкций — голосование на следующей неделе" },
-  { src: "CNN", text: "Перехвачены переговоры о переброске войск к северной границе" },
+  { src: "Al Jazeera", text: "Беспилотники зафиксированы в 40 км от столицы — армия переведена в готовность" },
+  { src: "Bloomberg", text: "Мировые рынки падают: инвесторы уходят в защитные активы на фоне угроз" },
+  { src: "DW", text: "Германия приостанавливает экспорт вооружений на фоне региональной нестабильности" },
+  { src: "Euronews", text: "ЕС готовит новый пакет санкций — голосование запланировано на следующей неделе" },
+  { src: "CNN", text: "Источники: перехвачены переговоры о переброске войск к северной границе" },
   { src: "BBC", text: "Нефть достигла двухлетнего максимума из-за угрозы блокады Ормузского пролива" },
   { src: "ТАСС", text: "МИД вызвал послов западных стран для объяснений по военным учениям" },
-  { src: "Politico", text: "Конгресс расколот: законопроект о военной помощи заблокирован" },
+  { src: "Politico", text: "Конгресс расколот: законопроект о военной помощи заблокирован республиканцами" },
   { src: "AFP", text: "ООН открыла гуманитарный коридор — эвакуация мирного населения началась" },
-  { src: "Sky News", text: "Кибератака парализовала инфраструктуру трёх государств — следы ведут к APT" },
+  { src: "Sky News", text: "Кибератака парализовала инфраструктуру трёх государств — следы ведут к государственной группировке" },
+  { src: "WSJ", text: "Отключение от SWIFT: курс национальной валюты рухнул на 18% за сутки" },
+  { src: "Le Monde", text: "Франция предложила план мирного урегулирования — Москва и Вашингтон пока молчат" },
+  { src: "Axios", text: "Источники в Белом доме: президент подписал закрытый указ о введении особого режима" },
+  { src: "NHK", text: "Токио готов пересмотреть оборонный бюджет — региональные угрозы выросли" },
+  { src: "Al Arabiya", text: "Эр-Рияд отказал в транзите военных грузов — переговоры продолжаются" },
+  { src: "Financial Times", text: "Иностранные инвестиции рухнули на 40%: бизнес уходит из зоны конфликта" },
+  { src: "The Guardian", text: "Правозащитники зафиксировали нарушения в зоне боевых действий — требуют расследования" },
+  { src: "CGTN", text: "Пекин и Москва подписали декларацию о стратегическом партнёрстве в сфере безопасности" },
+  { src: "Reuters", text: "Разведка США: противник завершил переброску тяжёлой техники на восточный фланг" },
+  { src: "BBC", text: "Три посольства эвакуированы после угроз — дипломаты возвращаются на родину" },
+  { src: "Spiegel", text: "Немецкие спецслужбы предупредили о подготовке диверсий на критической инфраструктуре" },
+  { src: "AP", text: "НАТО провело экстренный саммит — союзники усиливают восточный фланг" },
+  { src: "Bloomberg", text: "Центробанки G20 скоординировали действия для стабилизации финансовых рынков" },
+  { src: "Euronews", text: "Беженцы: число вынужденных переселенцев превысило два миллиона человек" },
+  { src: "Al Jazeera", text: "Ракетный удар по военной базе — подробности уточняются, жертвы среди мирных не подтверждены" },
+  { src: "Reuters", text: "Переговоры зашли в тупик — делегация покинула зал заседаний без подписания соглашения" },
+  { src: "CNN", text: "Пентагон подтвердил: в регион направлена дополнительная авианосная группа" },
+  { src: "ТАСС", text: "Россия успешно испытала новую систему перехвата — подробности засекречены" },
+  { src: "DW", text: "Экономика региона сжимается: ВВП упал на 6% за квартал из-за санкций и нестабильности" },
+  { src: "Kyodo", text: "Япония ввела новые ограничения на экспорт полупроводников в связи с угрозами безопасности" },
+  { src: "AFP", text: "Международный суд ООН рассматривает иск о нарушении норм международного права" },
+  { src: "Hürriyet", text: "Анкара выступила посредником: турецкие дипломаты встретились с обеими сторонами конфликта" },
+  { src: "ANSA", text: "Рим предложил нейтральную площадку для переговоров — приглашения разосланы" },
+  { src: "Xinhua", text: "КНР призывает к немедленному прекращению огня и готова выступить гарантом мира" },
+  { src: "Yonhap", text: "Сеул зафиксировал аномальную активность вблизи демилитаризованной зоны — силы в готовности" },
+  { src: "Sky News", text: "Спутниковые снимки подтверждают: колонна техники движется к границе" },
+  { src: "Axios", text: "Утечка секретных документов: АНБ отслеживало переговоры союзников без их ведома" },
+  { src: "Der Spiegel", text: "Европейские спецслужбы совместно расследуют разветвлённую шпионскую сеть" },
+  { src: "RFI", text: "Африканский союз обеспокоен ростом иностранного военного присутствия на континенте" },
+  { src: "Nikkei", text: "Токийская биржа обвалилась на 4% — инвесторы реагируют на геополитическую эскалацию" },
+  { src: "Bloomberg", text: "Золото пробило исторический максимум: $3200 за унцию на фоне паники" },
+  { src: "The Times", text: "Разведка MI6 предупреждает: вероятность прямого столкновения в регионе выросла до 60%" },
+  { src: "Corriere", text: "Италия высылает трёх дипломатов — обвинения в шпионаже и вербовке чиновников" },
+  { src: "Kommersant", text: "Закрытый доклад: потери ВПК от санкций составили $47 млрд за год" },
+  { src: "Washington Post", text: "Внутренний раскол в администрации: советники президента не могут договориться о стратегии" },
+  { src: "AP", text: "Экологическая катастрофа в зоне конфликта: нефтяное пятно движется к побережью" },
+  { src: "Reuters", text: "Биткоин вырос на 12% — криптовалюта стала убежищем от геополитических рисков" },
+  { src: "Al Jazeera", text: "Журналисты заблокированы на въезде в зону конфликта — СМИ требуют доступа" },
+  { src: "BBC", text: "Новые санкции: заморожены активы на сумму свыше $200 млрд в западных банках" },
 ];
 
 function NewsVideoPanel() {
@@ -146,8 +185,13 @@ function NewsVideoPanel() {
   );
 }
 
-function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClearAll, onLeaderboard, onAdminOpen }) {
-  const [playerName, setPlayerName] = useState("");
+function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClearAll, onLeaderboard, onAdminOpen, savedPlayerName = "", onPlayerNameChange }) {
+  const [playerName, setPlayerName] = useState(savedPlayerName);
+
+  function handleNameChange(v) {
+    setPlayerName(v);
+    onPlayerNameChange?.(v);
+  }
   const [selectedCountry, setSelectedCountry] = useState("RU");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(null);
@@ -255,7 +299,7 @@ function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClea
           <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ВАШ ПОЗЫВНОЙ</div>
           <input
             value={playerName}
-            onChange={e => setPlayerName(e.target.value)}
+            onChange={e => handleNameChange(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleStart()}
             placeholder="Имя президента…"
             autoFocus
@@ -697,6 +741,7 @@ function Root() {
   const [sessions, setSessions] = useState(loadSessions);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [savedPlayerName, setSavedPlayerName] = useState("");
 
   useEffect(() => {
     // Desktop: Ctrl+Shift+A
@@ -747,7 +792,7 @@ function Root() {
   let screen;
   if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} />;
   else if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
-  else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onClearAll={handleClearAll} onLeaderboard={() => setShowLeaderboard(true)} onAdminOpen={() => setShowAdmin(true)} />;
+  else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onClearAll={handleClearAll} onLeaderboard={() => setShowLeaderboard(true)} onAdminOpen={() => setShowAdmin(true)} savedPlayerName={savedPlayerName} onPlayerNameChange={setSavedPlayerName} />;
 
   return (
     <>
