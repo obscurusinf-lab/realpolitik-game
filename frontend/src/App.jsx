@@ -569,7 +569,7 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
               </button>
             </div>
           )}
-          {arguing ? (
+          {arguing && (
             <div>
               <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.08em", marginBottom: 6 }}>ВАШ АРГУМЕНТ</div>
               <textarea
@@ -705,7 +705,10 @@ export default function App({ gameId, playerName, onNewGame }) {
     setPreviewing(true);
     setTurnError(null);
     try {
-      const result = await previewTurn(gameId, draftInput, actionMode);
+      const NUCLEAR_RE = /ядерн|термоядер|nuclear|атомн.*удар|ракет.*удар.*ядер/i;
+      const effectiveMode = NUCLEAR_RE.test(draftInput) ? "military" : actionMode;
+      if (effectiveMode !== actionMode) setActionMode("military");
+      const result = await previewTurn(gameId, draftInput, effectiveMode);
       setPreview(result);
     } catch (err) {
       setTurnError(err.message);
@@ -1586,7 +1589,7 @@ const COUNTRY_INFO = {
   "Папуа Новая Гвинея": { capital: "Порт-Морсби", gov: "Конституционная монархия", flag: "🇵🇬", desc: "Богатая ресурсами страна Тихоокеанского региона. США усиливают военное присутствие на фоне конкуренции с Китаем за влияние в регионе." },
 };
 
-function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, actionMarkers = [] }) {
+function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, actionMarkers = [], nuclearStrike = null }) {
   const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
   function getCountryFill(geoName) {
@@ -1606,12 +1609,19 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
 
   return (
     <div style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-      <div style={{ minWidth: 320, maxWidth: "100%" }}>
+      <div style={{ minWidth: 320, maxWidth: "100%", position: "relative" }}>
+        {nuclearStrike && (
+          <div style={{
+            position: "absolute", inset: 0, pointerEvents: "none", zIndex: 2,
+            background: "radial-gradient(ellipse at 50% 50%, rgba(80,0,0,0.18) 0%, rgba(10,10,10,0.55) 100%)",
+            mixBlendMode: "multiply",
+          }} />
+        )}
         <ComposableMap
           width={800}
           height={340}
           projectionConfig={{ scale, center: [20, 15] }}
-          style={{ width: "100%", height: "auto", background: "transparent", display: "block" }}
+          style={{ width: "100%", height: "auto", background: "transparent", display: "block", filter: nuclearStrike ? "grayscale(0.7) sepia(0.35) brightness(0.75)" : "none" }}
         >
           <Geographies geography={GEO_URL}>
             {({ geographies }) =>
@@ -1659,6 +1669,18 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               </Marker>
             );
           })}
+          {/* Маркер ядерного удара */}
+          {nuclearStrike?.coords && (
+            <Marker coordinates={nuclearStrike.coords}>
+              <circle r={18} fill="#ff2200" fillOpacity={0.12} />
+              <circle r={12} fill="#ff4400" fillOpacity={0.22} />
+              <circle r={7} fill="#ff6600" fillOpacity={0.7} stroke="#ff2200" strokeWidth={1.5} />
+              <text textAnchor="middle" y={4} fontSize={9} fill="#fff">☢</text>
+              {nuclearStrike.city && (
+                <text textAnchor="middle" y={-10} fontSize={7} fill="#ff9966" fontWeight="bold">{nuclearStrike.city}</text>
+              )}
+            </Marker>
+          )}
         </ComposableMap>
       </div>
     </div>
@@ -1886,12 +1908,62 @@ function OverviewTab({ state }) {
   );
 }
 
+const CITY_COORDS = {
+  "киев": [30.52, 50.45], "київ": [30.52, 50.45], "kyiv": [30.52, 50.45],
+  "москва": [37.62, 55.75], "moscow": [37.62, 55.75],
+  "вашингтон": [-77.04, 38.89], "washington": [-77.04, 38.89],
+  "лондон": [-0.12, 51.5], "london": [-0.12, 51.5],
+  "берлин": [13.4, 52.52], "berlin": [13.4, 52.52],
+  "париж": [2.35, 48.85], "paris": [2.35, 48.85],
+  "пекин": [116.4, 39.9], "beijing": [116.4, 39.9],
+  "токио": [139.7, 35.7], "tokyo": [139.7, 35.7],
+  "сеул": [126.98, 37.57], "seoul": [126.98, 37.57],
+  "тегеран": [51.42, 35.7], "tehran": [51.42, 35.7],
+  "тель-авив": [34.78, 32.08], "tel aviv": [34.78, 32.08],
+  "варшава": [21.01, 52.23], "warsaw": [21.01, 52.23],
+  "анкара": [32.87, 39.93], "ankara": [32.87, 39.93],
+  "нью-йорк": [-74.0, 40.71], "new york": [-74.0, 40.71],
+  "лос-анджелес": [-118.24, 34.05], "los angeles": [-118.24, 34.05],
+  "харьков": [36.23, 49.99], "одесса": [30.73, 46.48],
+  "минск": [27.56, 53.9], "вильнюс": [25.28, 54.69],
+  "рига": [24.11, 56.95], "таллин": [24.75, 59.44],
+  "прага": [14.42, 50.07],
+  "бухарест": [26.1, 44.43], "софия": [23.32, 42.7],
+  "белград": [20.46, 44.8], "братислава": [17.11, 48.15],
+  "стокгольм": [18.07, 59.33], "хельсинки": [24.94, 60.17],
+  "осло": [10.75, 59.91], "копенгаген": [12.57, 55.68],
+  "рим": [12.5, 41.9], "мадрид": [-3.7, 40.42], "лиссабон": [-9.14, 38.72],
+  "амстердам": [4.9, 52.37], "брюссель": [4.35, 50.85],
+  "дамаск": [36.29, 33.51], "багдад": [44.36, 33.33],
+  "кабул": [69.18, 34.52], "исламабад": [73.05, 33.72],
+  "дели": [77.2, 28.6], "мумбаи": [72.88, 19.07],
+  "пхеньян": [125.75, 39.02], "pyongyang": [125.75, 39.02],
+  "taipei": [121.56, 25.04], "тайбэй": [121.56, 25.04],
+};
+
+function detectNuclearStrike(state) {
+  const hasNuclear = (state.newsfeed || []).some(n => n.type === "nuclear_reaction");
+  if (!hasNuclear) return null;
+  // Ищем город-цель в нарративе хода с ядерным ударом
+  const logEntries = (state.log || []).filter(e => e.body);
+  for (const entry of [...logEntries].reverse()) {
+    const text = (entry.body || "").toLowerCase();
+    if (!text.includes("ядерн") && !text.includes("nuclear") && !text.includes("термоядер")) continue;
+    for (const [city, coords] of Object.entries(CITY_COORDS)) {
+      if (text.includes(city)) return { coords, city: city.charAt(0).toUpperCase() + city.slice(1) };
+    }
+    return { coords: null, city: null };
+  }
+  return { coords: null, city: null };
+}
+
 function MapTab({ state }) {
   const [activeHotspotIdx, setActiveHotspotIdx] = useState(null);
   const [hotspotModal, setHotspotModal] = useState(null);
   const [countryModal, setCountryModal] = useState(null);
   const hotspots = state.overview?.hotspots ?? [];
   const relations = state.relations ?? [];
+  const nuclearStrike = useMemo(() => detectNuclearStrike(state), [state.newsfeed, state.log]);
 
   function handleMarkerClick(idx) {
     setActiveHotspotIdx(idx === activeHotspotIdx ? null : idx);
@@ -1930,7 +2002,12 @@ function MapTab({ state }) {
 
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
         {/* Карта */}
-        <div style={{ flex: "1 1 0", minWidth: 0, background: "#0d1420", borderRadius: 6, overflow: "hidden", position: "relative" }}>
+        <div style={{ flex: "1 1 0", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, overflow: "hidden", position: "relative" }}>
+          {nuclearStrike && (
+            <div className="mono-font" style={{ padding: "4px 8px", background: "#2a0a0a", color: "#ff4444", fontSize: 9, letterSpacing: "0.1em", borderBottom: "1px solid #5a1a1a" }}>
+              ☢ ЯДЕРНЫЙ УДАР НАНЕСЁН{nuclearStrike.city ? ` · ЦЕЛЬ: ${nuclearStrike.city.toUpperCase()}` : ""} · РАДИАЦИОННОЕ ЗАРАЖЕНИЕ
+            </div>
+          )}
           <GeoMap
             hotspots={hotspots}
             activeHotspotIdx={activeHotspotIdx}
@@ -1938,6 +2015,7 @@ function MapTab({ state }) {
             onCountryClick={handleCountryClick}
             relations={relations}
             scale={110}
+            nuclearStrike={nuclearStrike}
           />
           <div className="mono-font" style={{ position: "absolute", bottom: 5, left: 8, fontSize: 8, color: "#2a3a4d" }}>
             клик по стране или маркеру
