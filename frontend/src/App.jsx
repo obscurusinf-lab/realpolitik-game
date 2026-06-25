@@ -253,7 +253,7 @@ function NuclearAftermathScreen({ reactions, onDone }) {
 }
 
 // ---------- NuclearConfirmScreen ----------
-function NuclearConfirmScreen({ onConfirm, onCancel, confirming }) {
+function NuclearConfirmScreen({ onConfirm, onCancel, confirming, error }) {
   const [code, setCode] = useState("");
   const REQUIRED = "ПОДТВЕРЖДАЮ";
   const ready = code.trim().toUpperCase() === REQUIRED;
@@ -309,6 +309,12 @@ function NuclearConfirmScreen({ onConfirm, onCancel, confirming }) {
           }}
         />
       </div>
+
+      {error && (
+        <div style={{ width: "100%", maxWidth: 380, marginBottom: 12, background: "#2a0000", border: "1px solid #a8313a", borderRadius: 4, padding: "10px 14px" }}>
+          <div className="doc-font" style={{ fontSize: 12.5, color: "#ff8080" }}>⚠ {error}</div>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 12, width: "100%", maxWidth: 380 }}>
         <button
@@ -661,6 +667,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [diplomaticReactions, setDiplomaticReactions] = useState(null);
   const [pendingNextState, setPendingNextState] = useState(null);
   const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
+  const [nuclearConfirmError, setNuclearConfirmError] = useState(null);
   const [nuclearAftermath, setNuclearAftermath] = useState(null);
 
   const [advisors, setAdvisors] = useState(null);
@@ -719,10 +726,10 @@ export default function App({ gameId, playerName, onNewGame }) {
     if (confirming) return;
     setConfirming(true);
     setTurnError(null);
+    setNuclearConfirmError(null);
     try {
       await confirmTurn(gameId);
-      setShowNuclearConfirm(false); // закрываем только после успеха
-      // Сохраняем результат как баннер, не завершаем ход — игрок может действовать дальше
+      setShowNuclearConfirm(false);
       setLastActionResult({
         narrative: preview?.narrative,
         statDeltasPreview: preview?.statDeltasPreview,
@@ -731,13 +738,17 @@ export default function App({ gameId, playerName, onNewGame }) {
       setPreview(null);
       setDraftInput("");
       setActionMode("decree");
-      await loadState(); // обновляем инициативу
+      await loadState();
     } catch (err) {
-      setShowNuclearConfirm(false); // закрываем и при ошибке
-      if (err.message.includes("Call /turns/preview") || err.message.includes("expired")) {
-        setPreview(null);
-        setTurnError("Сессия решения истекла — нажмите «Рассмотреть» ещё раз.");
+      // При ошибке — остаёмся на экране ядерного подтверждения, показываем ошибку там
+      if (showNuclearConfirm) {
+        if (err.message.includes("Call /turns/preview") || err.message.includes("expired")) {
+          setNuclearConfirmError("Сессия истекла — нажмите «Отменить» и «Рассмотреть» снова.");
+        } else {
+          setNuclearConfirmError(err.message);
+        }
       } else {
+        setPreview(null);
         setTurnError(err.message);
       }
     } finally {
@@ -853,7 +864,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
 
   if (showNuclearConfirm) {
-    return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => setShowNuclearConfirm(false)} confirming={confirming} />;
+    return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => { setShowNuclearConfirm(false); setNuclearConfirmError(null); }} confirming={confirming} error={nuclearConfirmError} />;
   }
 
   if (nuclearAftermath) {
