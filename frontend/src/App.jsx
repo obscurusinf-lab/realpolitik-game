@@ -26,7 +26,7 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
       try {
         const s = await fetchGameState(gameId);
         setNewState(s);
-        const reactions = (s.newsfeed || []).filter(n => n.item_type === "reaction" && n.turn_n === (prevState?.turn ?? 0) + 1);
+        const reactions = (s.newsfeed || []).filter(n => n.type === "reaction" && n.turn === (prevState?.turn ?? 0) + 1);
         if (reactions.length > 0 || attempts >= maxAttempts) {
           setWorldItems(reactions);
           setPolling(false);
@@ -122,20 +122,123 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone }) {
         {phase >= 2 && !polling && (
           <div className="et-fade" style={{ marginTop: 24, textAlign: "center" }}>
             <button
-              onClick={() => onDone(newState)}
+              onClick={() => onDone(newState, worldItems)}
               style={{ background: "#9c8347", color: "#0a0d12", border: "none", borderRadius: 6, padding: "14px 36px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
             >
-              Следующий ход →
+              {worldItems.length > 0 ? "Ответить на реакции →" : "Следующий ход →"}
             </button>
           </div>
         )}
         {phase >= 2 && polling && (
           <div style={{ marginTop: 24, textAlign: "center" }}>
-            <button onClick={() => onDone(newState)} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 6, padding: "10px 24px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer" }}>
+            <button onClick={() => onDone(newState, [])} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 6, padding: "10px 24px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer" }}>
               Пропустить →
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- DiplomaticResponseScreen ----------
+function DiplomaticResponseScreen({ reactions, onRespond, onSkip }) {
+  const [idx, setIdx] = useState(0);
+  const [custom, setCustom] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+
+  const reaction = reactions[idx];
+  if (!reaction) { onSkip(); return null; }
+
+  const isAlly = reaction.source && ["Беларусь","Казахстан","Северная Корея","Кыргызстан","Таджикистан"].some(a => reaction.source.includes(a));
+
+  // Предустановленные ответы по тональности
+  const presets = isAlly ? [
+    "Выразить солидарность и предложить углубить сотрудничество",
+    "Принять к сведению и скоординировать дальнейшие действия",
+    "Поблагодарить за поддержку и предложить встречу на высшем уровне",
+  ] : [
+    "Выразить обеспокоенность через дипломатические каналы",
+    "Игнорировать провокацию — ответ только усилит их позицию",
+    "Созвать экстренное совещание и подготовить ответные меры",
+  ];
+
+  function handlePreset(text) {
+    onRespond(text, reaction);
+    if (idx + 1 < reactions.length) setIdx(i => i + 1);
+    else onSkip();
+  }
+
+  function handleCustom() {
+    if (!custom.trim()) return;
+    onRespond(custom.trim(), reaction);
+    if (idx + 1 < reactions.length) { setIdx(i => i + 1); setCustom(""); setShowCustom(false); }
+    else onSkip();
+  }
+
+  const overlayStyle = {
+    position: "fixed", inset: 0, background: "#0a0d12", zIndex: 8100,
+    fontFamily: "'PT Serif',Georgia,serif", color: "#ece7d8",
+    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+    overflowY: "auto", padding: "32px 16px 48px",
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ maxWidth: 520, width: "100%" }}>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 6, textAlign: "center" }}>
+          ДИПЛОМАТИЧЕСКИЙ ОТВЕТ · {idx + 1} / {reactions.length}
+        </div>
+        <div className="doc-font" style={{ fontSize: 20, fontWeight: 700, textAlign: "center", marginBottom: 20 }}>РЕАКЦИЯ МИРА</div>
+
+        {/* Карточка реакции */}
+        <div style={{ background: "#14181f", border: `1px solid ${isAlly ? "#3a6a4a" : "#3a2a2a"}`, borderLeft: `3px solid ${isAlly ? "#4a9c6a" : "#a8313a"}`, borderRadius: 6, padding: "14px 16px", marginBottom: 16 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: isAlly ? "#4a9c6a" : "#a8313a", marginBottom: 6, letterSpacing: "0.1em" }}>
+            {reaction.source?.toUpperCase()} · {isAlly ? "СОЮЗНИК" : "ВНЕШНЯЯ РЕАКЦИЯ"}
+          </div>
+          <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6 }}>{reaction.text}</div>
+        </div>
+
+        {/* Варианты ответа */}
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.08em" }}>ВЫБЕРИТЕ ОТВЕТНУЮ ПОЗИЦИЮ:</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          {presets.map((p, i) => (
+            <button
+              key={i}
+              onClick={() => handlePreset(p)}
+              style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13.5, color: "#ece7d8", cursor: "pointer", textAlign: "left", lineHeight: 1.45 }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "#2a3040"}
+            >
+              <span style={{ color: "#9c8347", marginRight: 8 }}>{i + 1}.</span>{p}
+            </button>
+          ))}
+        </div>
+
+        {/* Свой вариант */}
+        {showCustom ? (
+          <div>
+            <textarea
+              value={custom}
+              onChange={e => setCustom(e.target.value)}
+              placeholder="Опишите вашу дипломатическую позицию…"
+              rows={2}
+              style={{ width: "100%", resize: "none", background: "#1f2733", color: "#ece7d8", border: "1px solid #3a4156", borderRadius: 4, padding: "8px 10px", fontFamily: "'PT Serif',serif", fontSize: 13, marginBottom: 8 }}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={handleCustom} disabled={!custom.trim()} style={{ background: "#9c8347", color: "#0a0d12", border: "none", borderRadius: 4, padding: "8px 18px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: custom.trim() ? 1 : 0.5 }}>Отправить</button>
+              <button onClick={() => setShowCustom(false)} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 14px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer" }}>Назад</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setShowCustom(true)} style={{ background: "none", border: "1px dashed #3a4156", borderRadius: 4, padding: "8px 14px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer", width: "100%" }}>
+            ✏ Написать свою позицию…
+          </button>
+        )}
+
+        <button onClick={onSkip} style={{ marginTop: 16, background: "none", border: "none", color: "#3a4050", fontFamily: "monospace", fontSize: 10, cursor: "pointer", display: "block", width: "100%", textAlign: "center" }}>
+          Пропустить все реакции →
+        </button>
       </div>
     </div>
   );
@@ -351,6 +454,8 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [confirming, setConfirming] = useState(false);
   const [turnError, setTurnError] = useState(null);
   const [endTurnResult, setEndTurnResult] = useState(null); // {narrative, statDeltasPreview, actionMode}
+  const [diplomaticReactions, setDiplomaticReactions] = useState(null); // реакции для ответа
+  const [pendingNextState, setPendingNextState] = useState(null);
 
   const [advisors, setAdvisors] = useState(null);
   const [consulting, setConsulting] = useState(false);
@@ -419,10 +524,30 @@ export default function App({ gameId, playerName, onNewGame }) {
     }
   }
 
-  function handleEndTurnDone(newState) {
-    if (newState) setState(newState);
+  function handleEndTurnDone(newState, worldReactions) {
+    // Если есть значимые реакции мира — показываем дипломатический ответ
+    const notable = (worldReactions || []).filter(r => r.text && r.source);
+    if (notable.length > 0) {
+      setPendingNextState(newState);
+      setDiplomaticReactions(notable);
+      setEndTurnResult(null);
+    } else {
+      if (newState) setState(newState);
+      else loadState();
+      setEndTurnResult(null);
+    }
+  }
+
+  function handleDiplomaticRespond(responseText, reaction) {
+    // Подставляем ответ в черновик следующего хода
+    setDraftInput(`[Ответ на: ${reaction.source}] ${responseText}`);
+  }
+
+  function handleDiplomaticDone() {
+    if (pendingNextState) setState(pendingNextState);
     else loadState();
-    setEndTurnResult(null);
+    setDiplomaticReactions(null);
+    setPendingNextState(null);
   }
 
   async function handleCancel() {
@@ -456,7 +581,7 @@ export default function App({ gameId, playerName, onNewGame }) {
     if (loadingSuggestions) return;
     setLoadingSuggestions(true);
     try {
-      const result = await fetchSuggestions(gameId);
+      const result = await fetchSuggestions(gameId, actionMode);
       setSuggestions(result.suggestions || []);
     } catch {
       setSuggestions([]);
@@ -484,6 +609,10 @@ export default function App({ gameId, playerName, onNewGame }) {
 
   if (endTurnResult) {
     return <EndTurnScreen prevState={state} turnResult={endTurnResult} gameId={gameId} onDone={handleEndTurnDone} />;
+  }
+
+  if (diplomaticReactions) {
+    return <DiplomaticResponseScreen reactions={diplomaticReactions} onRespond={handleDiplomaticRespond} onSkip={handleDiplomaticDone} />;
   }
 
   const tabs = [
@@ -1172,7 +1301,7 @@ const COUNTRY_INFO = {
   "Папуа Новая Гвинея": { capital: "Порт-Морсби", gov: "Конституционная монархия", flag: "🇵🇬", desc: "Богатая ресурсами страна Тихоокеанского региона. США усиливают военное присутствие на фоне конкуренции с Китаем за влияние в регионе." },
 };
 
-function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 120 }) {
+function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, actionMarkers = [] }) {
   const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
   function getCountryFill(geoName) {
@@ -1191,47 +1320,63 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
   }
 
   return (
-    <ComposableMap
-      width={900}
-      height={380}
-      projectionConfig={{ scale, center: [20, 15] }}
-      style={{ width: "100%", height: "auto", background: "transparent", display: "block" }}
-    >
-      <Geographies geography={GEO_URL}>
-        {({ geographies }) =>
-          geographies.map(geo => {
-            const fill = getCountryFill(geo.properties.name);
+    <div style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+      <div style={{ minWidth: 320, maxWidth: "100%" }}>
+        <ComposableMap
+          width={800}
+          height={340}
+          projectionConfig={{ scale, center: [20, 15] }}
+          style={{ width: "100%", height: "auto", background: "transparent", display: "block" }}
+        >
+          <Geographies geography={GEO_URL}>
+            {({ geographies }) =>
+              geographies.map(geo => {
+                const fill = getCountryFill(geo.properties.name);
+                return (
+                  <Geography
+                    key={geo.rsmKey}
+                    geography={geo}
+                    onClick={() => onCountryClick && onCountryClick(geo.properties.name)}
+                    style={{
+                      default: { fill, stroke: "#2a3a4d", strokeWidth: 0.4, outline: "none" },
+                      hover:   { fill: "#2e4a60", stroke: "#3a5a70", strokeWidth: 0.5, outline: "none", cursor: "pointer" },
+                      pressed: { fill, outline: "none" },
+                    }}
+                  />
+                );
+              })
+            }
+          </Geographies>
+          {hotspots.map((spot, i) => {
+            const coords = resolveCoords(spot);
+            if (!coords) return null;
+            const active = i === activeHotspotIdx;
             return (
-              <Geography
-                key={geo.rsmKey}
-                geography={geo}
-                onClick={() => onCountryClick && onCountryClick(geo.properties.name)}
-                style={{
-                  default: { fill, stroke: "#2a3a4d", strokeWidth: 0.4, outline: "none" },
-                  hover:   { fill: "#2e4a60", stroke: "#3a5a70", strokeWidth: 0.5, outline: "none", cursor: "pointer" },
-                  pressed: { fill, outline: "none" },
-                }}
-              />
+              <Marker key={i} coordinates={coords}>
+                <g onClick={() => onMarkerClick(i)} style={{ cursor: "pointer" }}>
+                  {active && <circle r={14} fill="#e05060" fillOpacity={0.15} />}
+                  {active && <circle r={10} fill="#e05060" fillOpacity={0.2} />}
+                  <circle r={active ? 7 : 5} fill={active ? "#ff3a50" : "#e05060"} />
+                  <circle r={active ? 3 : 2} fill="#ffffff" />
+                </g>
+              </Marker>
             );
-          })
-        }
-      </Geographies>
-      {hotspots.map((spot, i) => {
-        const coords = resolveCoords(spot);
-        if (!coords) return null;
-        const active = i === activeHotspotIdx;
-        return (
-          <Marker key={i} coordinates={coords}>
-            <g onClick={() => onMarkerClick(i)} style={{ cursor: "pointer" }}>
-              {active && <circle r={14} fill="#e05060" fillOpacity={0.15} />}
-              {active && <circle r={10} fill="#e05060" fillOpacity={0.2} />}
-              <circle r={active ? 7 : 5} fill={active ? "#ff3a50" : "#e05060"} />
-              <circle r={active ? 3 : 2} fill="#ffffff" />
-            </g>
-          </Marker>
-        );
-      })}
-    </ComposableMap>
+          })}
+          {/* Маркеры действий игрока (#6) */}
+          {actionMarkers.map((m, i) => {
+            if (!m.coords) return null;
+            const color = m.type === "military" ? "#e05060" : m.type === "intel" ? "#9c8347" : "#5b8c7a";
+            const symbol = m.type === "military" ? "⚔" : m.type === "intel" ? "🕵" : "📜";
+            return (
+              <Marker key={"am" + i} coordinates={m.coords}>
+                <circle r={8} fill={color} fillOpacity={0.85} stroke="#fff" strokeWidth={0.8} />
+                <text textAnchor="middle" y={4} fontSize={8} fill="#fff">{symbol}</text>
+              </Marker>
+            );
+          })}
+        </ComposableMap>
+      </div>
+    </div>
   );
 }
 
@@ -1287,24 +1432,40 @@ const LIVE_HEADLINES = [
   { src: "Le Monde", text: "Франция предложила план мирного урегулирования — реакция сторон пока неизвестна" },
 ];
 
-function NewsLiveFeed() {
+function NewsLiveFeed({ state }) {
+  // Берём реальные новости из state.newsfeed, дополняем статичными если мало
+  const headlines = useMemo(() => {
+    const fromGame = (state?.newsfeed || [])
+      .filter(n => n.text && n.source)
+      .map(n => ({ src: n.source, text: n.text }))
+      .reverse(); // последние первыми
+    const combined = [...fromGame, ...LIVE_HEADLINES];
+    return combined.slice(0, 20);
+  }, [state?.turn]); // обновляем при смене хода
+
   const [visibleIdx, setVisibleIdx] = useState(0);
   const [fade, setFade] = useState(true);
 
   useEffect(() => {
+    setVisibleIdx(0); // сброс при смене хода
+  }, [headlines]);
+
+  useEffect(() => {
+    if (headlines.length === 0) return;
     const interval = setInterval(() => {
       setFade(false);
       setTimeout(() => {
-        setVisibleIdx(i => (i + 1) % LIVE_HEADLINES.length);
+        setVisibleIdx(i => (i + 1) % headlines.length);
         setFade(true);
       }, 400);
     }, 4500);
     return () => clearInterval(interval);
-  }, []);
+  }, [headlines]);
 
-  const item = LIVE_HEADLINES[visibleIdx];
-  const next = LIVE_HEADLINES[(visibleIdx + 1) % LIVE_HEADLINES.length];
-  const prev = LIVE_HEADLINES[(visibleIdx - 1 + LIVE_HEADLINES.length) % LIVE_HEADLINES.length];
+  if (headlines.length === 0) return null;
+  const item = headlines[visibleIdx];
+  const next = headlines[(visibleIdx + 1) % headlines.length];
+  const prev = headlines[(visibleIdx - 1 + headlines.length) % headlines.length];
 
   return (
     <div style={{ marginBottom: 14, background: "#f0ebe0", border: "1px solid #c8c2af", borderRadius: 4, overflow: "hidden" }}>
@@ -1328,7 +1489,7 @@ function NewsLiveFeed() {
           animation: "ticker 18s linear infinite",
           whiteSpace: "nowrap",
         }}>
-          {[...LIVE_HEADLINES, ...LIVE_HEADLINES].map((h, i) => (
+          {[...headlines, ...headlines].map((h, i) => (
             <span key={i} className="mono-font" style={{ fontSize: 9, color: "#9c8347", paddingRight: 40 }}>
               <span style={{ color: "#a8313a", marginRight: 6 }}>{h.src}</span>{h.text}
             </span>
@@ -1350,8 +1511,7 @@ function NewsLiveFeed() {
   );
 }
 
-// Алиас для совместимости с вызовами в OverviewTab
-function NewsVideoPanel() { return <NewsLiveFeed />; }
+function NewsVideoPanel({ state }) { return <NewsLiveFeed state={state} />; }
 
 function OverviewTab({ state }) {
   const [modal, setModal] = useState(null);
@@ -1373,7 +1533,7 @@ function OverviewTab({ state }) {
         </Modal>
       )}
 
-      <NewsVideoPanel />
+      <NewsVideoPanel state={state} />
 
       <div style={{ borderLeft: "3px solid #a8313a", paddingLeft: 12, marginBottom: 14 }}>
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8313a", marginBottom: 4 }}>

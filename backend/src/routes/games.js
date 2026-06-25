@@ -137,9 +137,9 @@ async function registerGameRoutes(fastify, { db }) {
       })),
     ];
 
-    // Дата: начало + current_turn недель (упрощённая модель)
+    // Дата: начало + current_turn * 3 дня (каждый ход = 3 дня)
     const startDate = new Date(game.created_at);
-    startDate.setDate(startDate.getDate() + game.current_turn * 7);
+    startDate.setDate(startDate.getDate() + game.current_turn * 3);
     const date = startDate.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
 
     return reply.send({

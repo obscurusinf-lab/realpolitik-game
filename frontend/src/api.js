@@ -89,11 +89,11 @@ export async function argueWithAdvisor(gameId, playerArgument) {
   return res.json();
 }
 
-export async function fetchSuggestions(gameId) {
+export async function fetchSuggestions(gameId, actionMode = "decree") {
   const res = await fetch(`${API_BASE}/games/${gameId}/suggestions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ actionMode }),
   });
   if (!res.ok) throw new Error(`fetchSuggestions failed: ${res.status}`);
   return res.json();

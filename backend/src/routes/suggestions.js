@@ -9,6 +9,7 @@
 async function registerSuggestionRoutes(fastify, { db, callClaudeApi }) {
   fastify.post("/games/:gameId/suggestions", async (request, reply) => {
     const { gameId } = request.params;
+    const { actionMode = "decree" } = request.body || {};
 
     const gameRes = await db.query(
       `SELECT g.current_turn, gs.stats, gs.relations, gs.overview, gs.policies, c.name AS country_name
@@ -27,7 +28,7 @@ async function registerSuggestionRoutes(fastify, { db, callClaudeApi }) {
     );
     const recentTurns = historyRes.rows.reverse();
 
-    const prompt = buildSuggestionsPrompt(game, recentTurns);
+    const prompt = buildSuggestionsPrompt(game, recentTurns, actionMode);
 
     const response = await callClaudeApi({
       model: "claude-sonnet-4-6",
@@ -48,7 +49,25 @@ async function registerSuggestionRoutes(fastify, { db, callClaudeApi }) {
   });
 }
 
-function buildSuggestionsPrompt(game, recentTurns) {
+const MODE_CONTEXT = {
+  decree: {
+    label: "президентских указов",
+    focus: "официальные решения, законы, государственные программы, публичная политика (экономическая, социальная, внутренняя, дипломатическая). Не предлагай тайных операций или военных приказов.",
+    examples: "«Ввести налоговые льготы для ОПК», «Подписать соглашение о торговле с Ираном», «Объявить амнистию политзаключённым»",
+  },
+  intel: {
+    label: "разведывательных операций",
+    focus: "тайные операции спецслужб: вербовка агентов, кибератаки, дезинформация, компромат, провокации, слежка, саботаж — всё засекреченно и не публично.",
+    examples: "«Завербовать источник в окружении лидера оппозиции», «Запустить дезинформационную кампанию против Украины в соцсетях», «Организовать утечку компрометирующих материалов на западного чиновника»",
+  },
+  military: {
+    label: "военных операций",
+    focus: "прямые военные приказы и операции: переброска войск, ракетные удары, учения с реальными целями, блокады, захват позиций, военная поддержка союзников.",
+    examples: "«Нанести удар крылатыми ракетами по военной инфраструктуре противника», «Перебросить дополнительные силы на северный фланг», «Ввести морскую блокаду порта Одесса»",
+  },
+};
+
+function buildSuggestionsPrompt(game, recentTurns, actionMode = "decree") {
   const stats = game.stats;
   const weakStats = Object.entries(stats)
     .filter(([, v]) => v < 45)
@@ -59,16 +78,22 @@ function buildSuggestionsPrompt(game, recentTurns) {
     ? recentTurns.map(t => `Ход ${t.turn_n}: "${t.player_input}"`).join("; ")
     : "партия только началась";
 
+  const mode = MODE_CONTEXT[actionMode] || MODE_CONTEXT.decree;
+
   return `Ты — помощник в геополитической стратегии. Игрок управляет ${game.country_name}, ход ${game.current_turn + 1}.
 
 Текущие показатели: ${JSON.stringify(stats)}
 Слабые места: ${weakStats}
 Последние решения: ${historyText}
 
-Сгенерируй ровно 6 конкретных, разнообразных вариантов президентского указа — коротких (1 предложение), реалистичных, на русском языке. Охвати разные сферы (военную, дипломатическую, экономическую, внутреннюю). Учти слабые места в показателях.
+Режим действия: ${mode.label.toUpperCase()}
+Фокус: ${mode.focus}
+Примеры стиля: ${mode.examples}
+
+Сгенерируй ровно 6 конкретных вариантов ${mode.label} — коротких (1 предложение), реалистичных, на русском языке. Учти слабые показатели. ВСЕ варианты должны соответствовать режиму «${actionMode}» — не смешивай типы.
 
 Верни ТОЛЬКО JSON без markdown:
-{"suggestions": ["текст указа 1", "текст указа 2", "текст указа 3", "текст указа 4", "текст указа 5", "текст указа 6"]}`;
+{"suggestions": ["вариант 1", "вариант 2", "вариант 3", "вариант 4", "вариант 5", "вариант 6"]}`;
 }
 
 function fallbackSuggestions() {
