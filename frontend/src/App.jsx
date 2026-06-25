@@ -757,9 +757,9 @@ export default function App({ gameId, playerName, onNewGame }) {
   }
 
   function handleEndTurnDone(newState, worldReactions) {
+    setSessionTurnStart(null); // сбрасываем всегда — следующая сессия начнётся заново
     const nuclear = (worldReactions || []).filter(r => r.item_type === "nuclear_reaction" || r.type === "nuclear_reaction");
     if (nuclear.length > 0) {
-      // Парсим escalation из reactions поля
       const enriched = nuclear.map(r => {
         const esc = Array.isArray(r.reactions) && r.reactions[0]?.escalation ? r.reactions[0].escalation : 1;
         return { ...r, escalation: esc };
@@ -771,7 +771,6 @@ export default function App({ gameId, playerName, onNewGame }) {
     }
     // Обычные значимые реакции — дипломатический ответ
     const notable = (worldReactions || []).filter(r => r.text && r.source);
-    setSessionTurnStart(null); // сбрасываем — следующая сессия начнётся заново
     if (notable.length > 0) {
       setPendingNextState(newState);
       setDiplomaticReactions(notable);
@@ -800,6 +799,7 @@ export default function App({ gameId, playerName, onNewGame }) {
       await cancelTurn(gameId);
     } finally {
       setPreview(null);
+      setTurnError(null);
     }
   }
 
@@ -871,6 +871,7 @@ export default function App({ gameId, playerName, onNewGame }) {
     return <NuclearAftermathScreen
       reactions={nuclearAftermath}
       onDone={() => {
+        setSessionTurnStart(null);
         if (pendingNextState) setState(pendingNextState); else loadState();
         setNuclearAftermath(null); setPendingNextState(null);
       }}
@@ -1068,7 +1069,7 @@ export default function App({ gameId, playerName, onNewGame }) {
             ].map(({ id, label, cost, tip }) => (
               <button
                 key={id}
-                onClick={() => setActionMode(id)}
+                onClick={() => { setActionMode(id); setSuggestions(null); }}
                 title={tip}
                 style={{
                   background: actionMode === id ? "#1f2733" : "transparent",

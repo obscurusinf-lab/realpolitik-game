@@ -300,7 +300,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           countryName: game.country_name,
           turnNumber,
           actionType: gmClassification.action_type,
-          playerInput: request.body?.playerInput || pendingTurn.player_input || gmClassification.narrative,
+          playerInput: gmClassification.narrative,
           narrative: gmClassification.narrative,
           statDeltas,
           relationDeltas,
