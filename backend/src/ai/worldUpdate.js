@@ -109,7 +109,7 @@ async function generateWorldUpdate({ params, callClaudeApi }) {
   try {
     response = await callClaudeApi({
       model: "claude-sonnet-4-6",
-      max_tokens: isNuclear ? 2500 : 1000,
+      max_tokens: isNuclear ? 4096 : 1200,
       messages: [{ role: "user", content: prompt }],
     });
   } catch (err) {
@@ -122,10 +122,22 @@ async function generateWorldUpdate({ params, callClaudeApi }) {
     .map(b => b.text)
     .join("\n");
 
+  const cleaned = rawText.replace(/```json\s*|\s*```/g, "").trim();
   try {
-    return JSON.parse(rawText.replace(/```json\s*|\s*```/g, "").trim());
+    return JSON.parse(cleaned);
   } catch {
-    console.error("worldUpdate JSON parse failed");
+    // Попытка вытащить частичный JSON если ответ обрезан
+    try {
+      const start = cleaned.indexOf("{");
+      if (start === -1) throw new Error("no json");
+      let depth = 0, end = -1;
+      for (let i = start; i < cleaned.length; i++) {
+        if (cleaned[i] === "{") depth++;
+        else if (cleaned[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end !== -1) return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {}
+    console.error("worldUpdate JSON parse failed, raw:", cleaned.slice(0, 200));
     return null;
   }
 }

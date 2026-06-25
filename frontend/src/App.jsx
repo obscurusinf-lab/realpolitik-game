@@ -10,6 +10,7 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   const [polling, setPolling] = useState(true);
   const [newState, setNewState] = useState(null);
   const pollRef = useRef(null);
+  const isNuclearTurn = turnResult?.gmActionType === "nuclear_strike";
 
   // Показываем фазы с задержкой
   useEffect(() => {
@@ -21,7 +22,7 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   // Polling game state пока не появятся world reactions
   useEffect(() => {
     let attempts = 0;
-    const maxAttempts = 12;
+    const maxAttempts = isNuclearTurn ? 24 : 12; // ядерный worldUpdate занимает дольше
     async function poll() {
       try {
         const s = await fetchGameState(gameId);
@@ -739,6 +740,7 @@ export default function App({ gameId, playerName, onNewGame }) {
         narrative: preview?.narrative,
         statDeltasPreview: preview?.statDeltasPreview,
         actionMode,
+        gmActionType: preview?.gmActionType,
       });
       setPreview(null);
       setDraftInput("");
