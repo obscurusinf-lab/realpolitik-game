@@ -667,6 +667,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [diplomaticReactions, setDiplomaticReactions] = useState(null);
   const [pendingNextState, setPendingNextState] = useState(null);
   const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
+  const nuclearConfirmRef = useRef(false); // ref для catch-замыкания
   const [nuclearConfirmError, setNuclearConfirmError] = useState(null);
   const [nuclearAftermath, setNuclearAftermath] = useState(null);
 
@@ -714,8 +715,8 @@ export default function App({ gameId, playerName, onNewGame }) {
   }
 
   function handleConfirmClick() {
-    // Ядерный удар требует отдельного подтверждения
     if (preview?.gmActionType === "nuclear_strike") {
+      nuclearConfirmRef.current = true;
       setShowNuclearConfirm(true);
     } else {
       handleConfirm();
@@ -729,6 +730,7 @@ export default function App({ gameId, playerName, onNewGame }) {
     setNuclearConfirmError(null);
     try {
       await confirmTurn(gameId);
+      nuclearConfirmRef.current = false;
       setShowNuclearConfirm(false);
       setLastActionResult({
         narrative: preview?.narrative,
@@ -740,9 +742,9 @@ export default function App({ gameId, playerName, onNewGame }) {
       setActionMode("decree");
       await loadState();
     } catch (err) {
-      // При ошибке — остаёмся на экране ядерного подтверждения, показываем ошибку там
-      if (showNuclearConfirm) {
-        if (err.message.includes("Call /turns/preview") || err.message.includes("expired")) {
+      if (nuclearConfirmRef.current) {
+        // Ядерный экран — показываем ошибку прямо там, не закрываем
+        if (err.message.includes("Call /turns/preview") || err.message.includes("expired") || err.message.includes("No pending")) {
           setNuclearConfirmError("Сессия истекла — нажмите «Отменить» и «Рассмотреть» снова.");
         } else {
           setNuclearConfirmError(err.message);
@@ -864,7 +866,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
 
   if (showNuclearConfirm) {
-    return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => { setShowNuclearConfirm(false); setNuclearConfirmError(null); }} confirming={confirming} error={nuclearConfirmError} />;
+    return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => { nuclearConfirmRef.current = false; setShowNuclearConfirm(false); setNuclearConfirmError(null); }} confirming={confirming} error={nuclearConfirmError} />;
   }
 
   if (nuclearAftermath) {
