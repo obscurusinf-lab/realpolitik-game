@@ -2035,7 +2035,7 @@ function MapTab({ state }) {
 function StatsTab({ state }) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {Object.entries(state.stats).map(([key, value]) => {
+      {Object.entries(state.stats).filter(([key]) => statMeta[key]).map(([key, value]) => {
         const meta = statMeta[key];
         const Icon = meta.icon;
         return (
