@@ -253,7 +253,7 @@ function NuclearAftermathScreen({ reactions, onDone }) {
 }
 
 // ---------- NuclearConfirmScreen ----------
-function NuclearConfirmScreen({ onConfirm, onCancel }) {
+function NuclearConfirmScreen({ onConfirm, onCancel, confirming }) {
   const [code, setCode] = useState("");
   const REQUIRED = "ПОДТВЕРЖДАЮ";
   const ready = code.trim().toUpperCase() === REQUIRED;
@@ -313,18 +313,19 @@ function NuclearConfirmScreen({ onConfirm, onCancel }) {
       <div style={{ display: "flex", gap: 12, width: "100%", maxWidth: 380 }}>
         <button
           onClick={onConfirm}
-          disabled={!ready}
+          disabled={!ready || confirming}
           style={{
-            flex: 1, background: ready ? "#a8313a" : "#3a1a1a", color: ready ? "#fff" : "#5a3030",
+            flex: 1, background: ready && !confirming ? "#a8313a" : "#3a1a1a", color: ready && !confirming ? "#fff" : "#5a3030",
             border: "none", borderRadius: 4, padding: "12px", fontFamily: "'PT Serif',serif",
-            fontSize: 15, fontWeight: 700, cursor: ready ? "pointer" : "not-allowed", letterSpacing: "0.04em",
+            fontSize: 15, fontWeight: 700, cursor: ready && !confirming ? "pointer" : "not-allowed", letterSpacing: "0.04em",
           }}
         >
-          ☢ ПУСК
+          {confirming ? "☢ Удар наносится…" : "☢ ПУСК"}
         </button>
         <button
           onClick={onCancel}
-          style={{ flex: 1, background: "none", border: "1px solid #3a2020", borderRadius: 4, padding: "12px", fontFamily: "'PT Serif',serif", fontSize: 15, color: "#8a6060", cursor: "pointer" }}
+          disabled={confirming}
+          style={{ flex: 1, background: "none", border: "1px solid #3a2020", borderRadius: 4, padding: "12px", fontFamily: "'PT Serif',serif", fontSize: 15, color: "#8a6060", cursor: confirming ? "not-allowed" : "pointer", opacity: confirming ? 0.4 : 1 }}
         >
           Отменить
         </button>
@@ -716,11 +717,11 @@ export default function App({ gameId, playerName, onNewGame }) {
 
   async function handleConfirm() {
     if (confirming) return;
-    setShowNuclearConfirm(false);
     setConfirming(true);
     setTurnError(null);
     try {
       await confirmTurn(gameId);
+      setShowNuclearConfirm(false); // закрываем только после успеха
       // Сохраняем результат как баннер, не завершаем ход — игрок может действовать дальше
       setLastActionResult({
         narrative: preview?.narrative,
@@ -732,6 +733,7 @@ export default function App({ gameId, playerName, onNewGame }) {
       setActionMode("decree");
       await loadState(); // обновляем инициативу
     } catch (err) {
+      setShowNuclearConfirm(false); // закрываем и при ошибке
       if (err.message.includes("Call /turns/preview") || err.message.includes("expired")) {
         setPreview(null);
         setTurnError("Сессия решения истекла — нажмите «Рассмотреть» ещё раз.");
@@ -851,7 +853,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
 
   if (showNuclearConfirm) {
-    return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => setShowNuclearConfirm(false)} />;
+    return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => setShowNuclearConfirm(false)} confirming={confirming} />;
   }
 
   if (nuclearAftermath) {
