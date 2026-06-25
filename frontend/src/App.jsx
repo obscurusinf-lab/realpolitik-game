@@ -783,8 +783,7 @@ export default function App({ gameId, playerName, onNewGame }) {
       setDiplomaticReactions(notable);
       setEndTurnResult(null);
     } else {
-      if (newState) setState(newState);
-      else loadState();
+      loadState(); // всегда свежий запрос — worldUpdate мог обновить overview после поллинга
       setEndTurnResult(null);
     }
   }
@@ -879,8 +878,9 @@ export default function App({ gameId, playerName, onNewGame }) {
       reactions={nuclearAftermath}
       onDone={() => {
         setSessionTurnStart(null);
-        if (pendingNextState) setState(pendingNextState); else loadState();
-        setNuclearAftermath(null); setPendingNextState(null);
+        setNuclearAftermath(null);
+        setPendingNextState(null);
+        loadState(); // свежий запрос — к этому моменту nuclear worldUpdate уже записан в БД
       }}
     />;
   }
