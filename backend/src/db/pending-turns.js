@@ -14,7 +14,7 @@
  * отменённым, и при следующем preview/confirm придётся классифицировать заново.
  */
 
-const PENDING_TURN_TTL_SECONDS = 5 * 60;
+const PENDING_TURN_TTL_SECONDS = 30 * 60; // 30 минут — игрок может долго думать или спорить с советником
 
 function pendingTurnKey(gameId) {
   return `pending_turn:${gameId}`;

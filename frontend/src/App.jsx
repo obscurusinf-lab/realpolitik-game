@@ -732,9 +732,11 @@ export default function App({ gameId, playerName, onNewGame }) {
       setActionMode("decree");
       await loadState(); // обновляем инициативу
     } catch (err) {
-      setTurnError(err.message);
-      if (err.message.includes("Call /turns/preview")) {
+      if (err.message.includes("Call /turns/preview") || err.message.includes("expired")) {
         setPreview(null);
+        setTurnError("Сессия решения истекла — нажмите «Рассмотреть» ещё раз.");
+      } else {
+        setTurnError(err.message);
       }
     } finally {
       setConfirming(false);
