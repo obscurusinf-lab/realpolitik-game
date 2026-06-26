@@ -912,35 +912,72 @@ export default function App({ gameId, playerName, onNewGame }) {
     { id: "log", label: "Журнал", icon: ScrollText },
   ];
 
+  const isNuclearWorld = (state.newsfeed || []).some(n => n.type === "nuclear_reaction");
+  const NK = isNuclearWorld ? {
+    pageBg: "#0d0505",
+    headerBg: "linear-gradient(180deg,#120303 0%,#1a0505 100%)",
+    headerBorder: "#6a1010",
+    accent: "#c03030",
+    tabBarBg: "#0d0505",
+    tabActiveBg: "#2a0808",
+    tabActiveColor: "#e8b0b0",
+    tabInactiveColor: "#7a4040",
+    contentBg: "#1a0808",
+    contentColor: "#d0a0a0",
+    inputBg: "#14181f",
+    footerBg: "#0d0505",
+    footerBorder: "#6a1010",
+  } : {
+    pageBg: "#1a1f2c",
+    headerBg: "linear-gradient(180deg,#14181f 0%,#1a1f2c 100%)",
+    headerBorder: "#9c8347",
+    accent: "#9c8347",
+    tabBarBg: "#1a1f2c",
+    tabActiveBg: "#ece7d8",
+    tabActiveColor: "#1a1f2c",
+    tabInactiveColor: "#a8a294",
+    contentBg: "#ece7d8",
+    contentColor: "#262420",
+    inputBg: "#14181f",
+    footerBg: "#14181f",
+    footerBorder: "#9c8347",
+  };
+
   return (
-    <div style={{ minHeight: "100vh", background: "#1a1f2c", fontFamily: "'Georgia','Times New Roman',serif", color: "#ece7d8" }}>
+    <div style={{ minHeight: "100vh", background: NK.pageBg, fontFamily: "'Georgia','Times New Roman',serif", color: "#ece7d8" }}>
       {showWelcome && state && (
         <WelcomeModal state={state} playerName={playerName} onClose={() => setShowWelcome(false)} />
       )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=PT+Serif:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
-        body { margin: 0; }
+        body { margin: 0; background: ${NK.pageBg}; }
         .doc-font { font-family: 'PT Serif', Georgia, serif; }
         .mono-font { font-family: 'JetBrains Mono', monospace; }
-        .tab-btn:focus-visible, button:focus-visible { outline: 2px solid #9c8347; outline-offset: 2px; }
+        .tab-btn:focus-visible, button:focus-visible { outline: 2px solid ${NK.accent}; outline-offset: 2px; }
         .scroll-hide::-webkit-scrollbar { height: 4px; }
         .scroll-hide::-webkit-scrollbar-thumb { background: #3a4156; }
       `}</style>
 
-      <div style={{ background: "linear-gradient(180deg,#14181f 0%,#1a1f2c 100%)", borderBottom: "2px solid #9c8347", padding: "18px 20px 14px" }}>
+      {isNuclearWorld && (
+        <div className="mono-font" style={{ background: "#3a0000", color: "#ff4040", fontSize: 10, letterSpacing: "0.2em", textAlign: "center", padding: "5px 0", borderBottom: "1px solid #6a1010" }}>
+          ☢ ЯДЕРНЫЙ УДАР НАНЕСЁН · DEFCON 1 · МИР В СОСТОЯНИИ ЯДЕРНОЙ ТРЕВОГИ ☢
+        </div>
+      )}
+
+      <div style={{ background: NK.headerBg, borderBottom: `2px solid ${NK.headerBorder}`, padding: "18px 20px 14px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.15em", color: "#9c8347", marginBottom: 4 }}>
-              СОВЕРШЕННО СЕКРЕТНО · ЭКЗ. №1
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.15em", color: NK.accent, marginBottom: 4 }}>
+              {isNuclearWorld ? "☢ ЯДЕРНАЯ ВОЙНА · DEFCON 1" : "СОВЕРШЕННО СЕКРЕТНО · ЭКЗ. №1"}
             </div>
-            <h1 className="doc-font" style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "0.04em" }}>REALPOLITIK</h1>
-            <div className="mono-font" style={{ fontSize: 11, color: "#a8a294", marginTop: 2 }}>
+            <h1 className="doc-font" style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "0.04em", color: isNuclearWorld ? "#e88080" : "#ece7d8" }}>REALPOLITIK</h1>
+            <div className="mono-font" style={{ fontSize: 11, color: isNuclearWorld ? "#9a5050" : "#a8a294", marginTop: 2 }}>
               {state.date} · Ход №{state.turn}{playerName ? ` · ${playerName}` : ""}
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-            <Lock size={20} color="#9c8347" />
+            <Lock size={20} color={NK.accent} />
             {onNewGame && (
               <button
                 onClick={() => { if (window.confirm("Начать новую партию? Текущий прогресс останется в базе.")) onNewGame(); }}
@@ -953,7 +990,7 @@ export default function App({ gameId, playerName, onNewGame }) {
         </div>
       </div>
 
-      <div className="scroll-hide" style={{ display: "flex", gap: 2, padding: "10px 16px 0", overflowX: "auto", background: "#1a1f2c" }}>
+      <div className="scroll-hide" style={{ display: "flex", gap: 2, padding: "10px 16px 0", overflowX: "auto", background: NK.tabBarBg }}>
         {tabs.map((t) => {
           const Icon = t.icon;
           const active = tab === t.id;
@@ -964,7 +1001,7 @@ export default function App({ gameId, playerName, onNewGame }) {
               onClick={() => setTab(t.id)}
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "9px 14px",
-                background: active ? "#ece7d8" : "transparent", color: active ? "#1a1f2c" : "#a8a294",
+                background: active ? NK.tabActiveBg : "transparent", color: active ? NK.tabActiveColor : NK.tabInactiveColor,
                 border: "none", borderRadius: "6px 6px 0 0", fontFamily: "'PT Serif',serif",
                 fontSize: 13, fontWeight: active ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
               }}
@@ -976,7 +1013,7 @@ export default function App({ gameId, playerName, onNewGame }) {
         })}
       </div>
 
-      <div style={{ background: "#ece7d8", color: "#262420", minHeight: "60vh", padding: "20px 16px 32px" }}>
+      <div style={{ background: NK.contentBg, color: NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} />}
         {tab === "map" && <MapTab state={state} />}
         {tab === "stats" && <StatsTab state={state} />}
@@ -1000,7 +1037,7 @@ export default function App({ gameId, playerName, onNewGame }) {
       {preview ? (
         <PreviewCard preview={preview} onConfirm={handleConfirmClick} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} />
       ) : (
-        <div style={{ background: "#14181f", borderTop: "2px solid #9c8347", padding: "14px 16px" }}>
+        <div style={{ background: NK.footerBg, borderTop: `2px solid ${NK.footerBorder}`, padding: "14px 16px" }}>
 
           {/* Баннер последнего выполненного действия */}
           {lastActionResult && (
