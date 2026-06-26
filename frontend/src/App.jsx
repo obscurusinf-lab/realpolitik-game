@@ -701,6 +701,13 @@ export default function App({ gameId, playerName, onNewGame }) {
     loadState();
   }, [loadState]);
 
+  // Авто-консультация советников при открытии вкладки
+  useEffect(() => {
+    if (tab === "advisors" && !advisors && !consulting) {
+      handleConsult();
+    }
+  }, [tab]);
+
   async function handlePreview() {
     if (!draftInput.trim() || previewing) return;
     setPreviewing(true);
@@ -1193,7 +1200,7 @@ function AdvisorsTab({ advisors, consulting, advisorError, draftInput, onConsult
             opacity: consulting ? 0.7 : 1,
           }}
         >
-          {consulting ? "Советники совещаются…" : draftInput.trim() ? "Запросить совет по черновику" : "Запросить общий совет"}
+          {consulting ? "Советники совещаются…" : draftInput.trim() ? "Обновить совет по черновику" : "Обновить совет"}
         </button>
         {draftInput.trim() && !consulting && (
           <div className="doc-font" style={{ marginTop: 8, fontSize: 12, color: "#5c5648", fontStyle: "italic" }}>
