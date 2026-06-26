@@ -324,7 +324,25 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         },
         callClaudeApi,
       }).then(async (worldUpdate) => {
-        if (!worldUpdate) return;
+        const isNuclearAction = gmClassification.action_type === "nuclear_strike";
+        // Если worldUpdate упал и это был ядерный удар — пишем минимальные реакции-заглушки
+        if (!worldUpdate) {
+          if (isNuclearAction) {
+            const fallbackReactions = [
+              { source: "Совет Безопасности ООН", text: "Экстренное заседание СБ ООН созвано в связи с применением ядерного оружия. Мировое сообщество потрясено.", escalation: 1 },
+              { source: "США / НАТО", text: "Президент США: «Это беспрецедентный акт агрессии. Мы рассматриваем все варианты ответа, включая применение ядерного оружия». НАТО переведено в DEFCON 2.", escalation: 3 },
+              { source: "Китай", text: "МИД КНР осудил применение ядерного оружия и потребовал немедленного прекращения огня. Китай приводит собственные ядерные силы в повышенную готовность.", escalation: 2 },
+              { source: "Мировые рынки", text: "Фондовые биржи рухнули. Нефть взлетела до исторического максимума. Международная торговля парализована.", escalation: 1 },
+            ];
+            for (const r of fallbackReactions) {
+              await db.query(
+                `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, 'nuclear_reaction', $3, $4, $5)`,
+                [gameId, turnNumber, r.source, r.text, JSON.stringify([{ escalation: r.escalation }])]
+              );
+            }
+          }
+          return;
+        }
         try {
           // Обновляем overview
           if (worldUpdate.overview) {

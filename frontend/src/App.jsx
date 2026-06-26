@@ -773,11 +773,18 @@ export default function App({ gameId, playerName, onNewGame }) {
   function handleEndTurnDone(newState, worldReactions) {
     setSessionTurnStart(null); // сбрасываем всегда — следующая сессия начнётся заново
     const nuclear = (worldReactions || []).filter(r => r.item_type === "nuclear_reaction" || r.type === "nuclear_reaction");
-    if (nuclear.length > 0) {
-      const enriched = nuclear.map(r => {
-        const esc = Array.isArray(r.reactions) && r.reactions[0]?.escalation ? r.reactions[0].escalation : 1;
-        return { ...r, escalation: esc };
-      });
+    const isNuclearTurnDone = endTurnResult?.gmActionType === "nuclear_strike";
+    if (nuclear.length > 0 || isNuclearTurnDone) {
+      const enriched = nuclear.length > 0
+        ? nuclear.map(r => {
+            const esc = Array.isArray(r.reactions) && r.reactions[0]?.escalation ? r.reactions[0].escalation : 1;
+            return { ...r, escalation: esc };
+          })
+        : [
+            { source: "Совет Безопасности ООН", text: "Применение ядерного оружия зафиксировано. Мировое сообщество находится в состоянии шока. Счётчик судного дня переведён на 90 секунд до полуночи.", escalation: 1 },
+            { source: "США / НАТО", text: "Все союзники переведены в DEFCON 2. Президент США проводит экстренное заседание Совета национальной безопасности. Ядерный чемоданчик приведён в готовность.", escalation: 3 },
+            { source: "Мировые рынки", text: "Биржи закрыты. Торговля заморожена. Глобальная экономика входит в коллапс.", escalation: 1 },
+          ];
       setPendingNextState(newState);
       setNuclearAftermath(enriched);
       setEndTurnResult(null);
