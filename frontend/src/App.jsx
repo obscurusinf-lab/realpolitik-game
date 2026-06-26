@@ -2010,6 +2010,16 @@ function detectNuclearStrike(state) {
   return { coords: null, city: null };
 }
 
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 600);
+  useEffect(() => {
+    const fn = () => setMobile(window.innerWidth < 600);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  return mobile;
+}
+
 function MapTab({ state }) {
   const [activeHotspotIdx, setActiveHotspotIdx] = useState(null);
   const [hotspotModal, setHotspotModal] = useState(null);
@@ -2017,6 +2027,7 @@ function MapTab({ state }) {
   const hotspots = state.overview?.hotspots ?? [];
   const relations = state.relations ?? [];
   const nuclearStrike = useMemo(() => detectNuclearStrike(state), [state.newsfeed, state.log]);
+  const isMobile = useIsMobile();
 
   function handleMarkerClick(idx) {
     setActiveHotspotIdx(idx === activeHotspotIdx ? null : idx);
@@ -2053,9 +2064,9 @@ function MapTab({ state }) {
         КАРТА МИРА · ХОД {state.overview?.turn ?? state.turn}
       </div>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
         {/* Карта */}
-        <div style={{ flex: "1 1 0", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, overflow: "hidden", position: "relative" }}>
+        <div style={{ flex: "1 1 0", width: "100%", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, overflow: "hidden", position: "relative" }}>
           {nuclearStrike && (
             <div className="mono-font" style={{ padding: "4px 8px", background: "#2a0a0a", color: "#ff4444", fontSize: 9, letterSpacing: "0.1em", borderBottom: "1px solid #5a1a1a" }}>
               ☢ ЯДЕРНЫЙ УДАР НАНЕСЁН{nuclearStrike.city ? ` · ЦЕЛЬ: ${nuclearStrike.city.toUpperCase()}` : ""} · РАДИАЦИОННОЕ ЗАРАЖЕНИЕ
@@ -2067,7 +2078,7 @@ function MapTab({ state }) {
             onMarkerClick={handleMarkerClick}
             onCountryClick={handleCountryClick}
             relations={relations}
-            scale={110}
+            scale={isMobile ? 130 : 110}
             nuclearStrike={nuclearStrike}
           />
           <div className="mono-font" style={{ position: "absolute", bottom: 5, left: 8, fontSize: 8, color: "#2a3a4d" }}>
@@ -2076,7 +2087,7 @@ function MapTab({ state }) {
         </div>
 
         {/* Боковая панель */}
-        <div style={{ width: 140, flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ width: isMobile ? "100%" : 140, flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
 
           {/* Инфо о стране */}
           {countryModal && (
