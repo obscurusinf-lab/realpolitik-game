@@ -22,7 +22,7 @@
  */
 
 const { classifyTurn } = require("../ai/gamemaster");
-const { verifyToken } = require("../middleware/auth");
+// verifyToken injected via options
 
 /**
  * Проверяет победные/поражения условия после каждого хода.
@@ -75,7 +75,7 @@ function advanceGameDate(currentDateStr, crisisMode) {
   }
 }
 
-async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore }) {
+async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore, verifyToken }) {
   async function loadGameForUpdate(client, gameId) {
     const res = await client.query(
       `SELECT g.*, gs.stats, gs.relations, gs.policies, gs.delayed_effects, gs.overview, c.name AS country_name

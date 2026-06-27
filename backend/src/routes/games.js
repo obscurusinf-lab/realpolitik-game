@@ -11,7 +11,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { verifyToken } = require("../middleware/auth");
+// verifyToken injected via options
 
 const COUNTRIES_DIR = path.join(__dirname, "../db/seed/countries");
 
@@ -34,7 +34,7 @@ const OUTCOME_TITLES = {
   defeat_unrest:  "Народные волнения сметают власть",
 };
 
-async function registerGameRoutes(fastify, { db, callClaudeApi }) {
+async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
   // ---------- POST /games ----------
   fastify.post("/games", async (request, reply) => {
     const payload = verifyToken(request, reply);
