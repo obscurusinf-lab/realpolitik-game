@@ -1139,12 +1139,21 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </div>
           )}
 
+          {/* Кризисный режим — баннер */}
+          {state?.overview?.crisis_mode && (
+            <div style={{ background: "#3a1414", border: "1px solid #c04040", borderRadius: 4, padding: "7px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: "#e06060", fontSize: 13 }}>⚠</span>
+              <span className="mono-font" style={{ fontSize: 9, color: "#e06060", letterSpacing: "0.1em" }}>РЕЖИМ ЧС АКТИВЕН · 1 ХОД = 2 НЕДЕЛИ · ТОЛЬКО БЫСТРЫЕ УКАЗЫ</span>
+            </div>
+          )}
+
           {/* Инициатива */}
           {(() => {
             const initiative = state?.stats?.initiative ?? 100;
-            const COST = { decree: 40, intel: 20, military: 55 };
-            const cost = COST[actionMode];
-            const regen = 25;
+            const crisisMode = !!(state?.overview?.crisis_mode);
+            const COST = { decree_fast: 20, decree_reform: 35, decree_program: 55, decree: 35, intel: 20, military: 55, crisis: 15 };
+            const cost = COST[actionMode] ?? 35;
+            const regen = crisisMode ? 35 : 25;
             const after = Math.min(100, initiative + regen) - cost;
             const color = after < 0 ? "#e09090" : after < 20 ? "#9c8347" : "#7fae93";
             return (
@@ -1164,29 +1173,45 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           })()}
 
           {/* Тип действия */}
-          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-            {[
-              { id: "decree",   label: "📜 Указ",        cost: 40, tip: "Официальное решение. Публично, мощно, дорого." },
-              { id: "intel",    label: "🕵️ Разведка",    cost: 20, tip: "Тайная операция. Компромат, агентура, провокации." },
-              { id: "military", label: "⚔️ Военная оп.", cost: 55, tip: "Прямое применение силы или угроза. Очень дорого!" },
-            ].map(({ id, label, cost, tip }) => (
-              <button
-                key={id}
-                onClick={() => { setActionMode(id); setSuggestions(null); }}
-                title={tip}
-                style={{
-                  background: actionMode === id ? "#1f2733" : "transparent",
-                  border: `1px solid ${actionMode === id ? "#9c8347" : "#2a3040"}`,
-                  color: actionMode === id ? "#9c8347" : "#5a6070",
-                  borderRadius: 4, padding: "4px 10px",
-                  fontFamily: "'JetBrains Mono',monospace", fontSize: 10,
-                  cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
-                }}
-              >
-                {label} <span style={{ color: "#5a6070" }}>-{cost}</span>
-              </button>
-            ))}
-          </div>
+          {(() => {
+            const crisisMode = !!(state?.overview?.crisis_mode);
+            const decreeButtons = crisisMode
+              ? [{ id: "crisis", label: "⚡ Антикризисный", cost: 15, tip: "Экстренный указ. Дёшево, быстро, краткосрочно.", dur: "1–2 мес." }]
+              : [
+                  { id: "decree_fast",    label: "📜 Быстрый указ",  cost: 20, tip: "Оперативное решение. 1–2 месяца.",    dur: "1–2 мес." },
+                  { id: "decree_reform",  label: "📋 Реформа",        cost: 35, tip: "Системные изменения. 3–6 месяцев.",   dur: "3–6 мес." },
+                  { id: "decree_program", label: "🏛 Программа",      cost: 55, tip: "Масштабная инициатива. 7–12 месяцев.", dur: "7–12 мес." },
+                ];
+            const allButtons = [
+              ...decreeButtons,
+              { id: "intel",    label: "🕵️ Разведка",    cost: 20, tip: "Тайная операция. Компромат, агентура, провокации.", dur: null },
+              { id: "military", label: "⚔️ Военная оп.", cost: 55, tip: "Прямое применение силы или угроза.", dur: null },
+            ];
+            // Если текущий режим несовместим с кризисом — сбросить на crisis
+            return (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+                {allButtons.map(({ id, label, cost, tip, dur }) => (
+                  <button
+                    key={id}
+                    onClick={() => { setActionMode(id); setSuggestions(null); }}
+                    title={tip}
+                    style={{
+                      background: actionMode === id ? "#1f2733" : "transparent",
+                      border: `1px solid ${actionMode === id ? "#9c8347" : "#2a3040"}`,
+                      color: actionMode === id ? "#9c8347" : "#5a6070",
+                      borderRadius: 4, padding: "4px 8px",
+                      fontFamily: "'JetBrains Mono',monospace", fontSize: 9,
+                      cursor: "pointer", display: "flex", alignItems: "center", gap: 3,
+                    }}
+                  >
+                    {label}
+                    <span style={{ color: "#5a6070" }}>−{cost}</span>
+                    {dur && <span style={{ color: "#3a4050", fontSize: 8 }}>{dur}</span>}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
 
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
             <textarea
@@ -1196,7 +1221,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               placeholder={
                 actionMode === "intel" ? "Опишите разведывательную или тайную операцию…"
                 : actionMode === "military" ? "Опишите военную операцию или приказ…"
-                : "Опишите ваше решение как президента…"
+                : actionMode === "decree_program" ? "Опишите крупную государственную программу (7–12 мес.)…"
+                : actionMode === "decree_reform" ? "Опишите реформу (3–6 мес.)…"
+                : actionMode === "crisis" ? "Опишите экстренную меру (ЧС режим)…"
+                : "Опишите быстрый указ или решение (1–2 мес.)…"
               }
               rows={2}
               disabled={previewing}
@@ -1352,6 +1380,11 @@ function AdvisorsTab({ advisors, consulting, advisorError, draftInput, onConsult
                     {adv.suggested_direction && adv.suggested_direction !== "null_action" && (
                       <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>
                         → {DIRECTION_LABEL[adv.suggested_direction] || adv.suggested_direction}
+                      </span>
+                    )}
+                    {adv.suggested_scale && (
+                      <span className="mono-font" style={{ fontSize: 8, padding: "2px 6px", borderRadius: 2, background: adv.suggested_scale === "decree_program" ? "#2a1f3a" : adv.suggested_scale === "decree_reform" ? "#1a2a1f" : "#1f2a2a", color: adv.suggested_scale === "decree_program" ? "#9c7ab0" : adv.suggested_scale === "decree_reform" ? "#7ab09c" : "#7a9cb0", letterSpacing: "0.06em" }}>
+                        {{ decree_fast: "БЫСТРЫЙ УКАЗ", decree_reform: "РЕФОРМА", decree_program: "ПРОГРАММА", intel: "РАЗВЕДКА", military: "ВОЕННАЯ ОП." }[adv.suggested_scale] || adv.suggested_scale}
                       </span>
                     )}
                   </div>

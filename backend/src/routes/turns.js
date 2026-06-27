@@ -22,8 +22,24 @@
  */
 
 const { classifyTurn } = require("../ai/gamemaster");
-const { applyTurn, computeDelayedEffectDelta } = require("../rules/rules-engine");
+const { applyTurn, computeDelayedEffectDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
+
+// Вычисляет новую дату игры (+1 месяц в обычном режиме, +2 недели в кризисном)
+function advanceGameDate(currentDateStr, crisisMode) {
+  try {
+    const d = new Date(currentDateStr);
+    if (isNaN(d)) throw new Error("invalid");
+    if (crisisMode) {
+      d.setDate(d.getDate() + CRISIS_TURN_WEEKS * 7);
+    } else {
+      d.setMonth(d.getMonth() + 1);
+    }
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return currentDateStr;
+  }
+}
 
 async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore }) {
   async function loadGameForUpdate(client, gameId) {
@@ -46,8 +62,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     if (!playerInput || typeof playerInput !== "string" || playerInput.trim().length === 0) {
       return reply.code(400).send({ error: "playerInput is required" });
     }
-    if (!["decree", "intel", "military"].includes(actionMode)) {
-      return reply.code(400).send({ error: "actionMode must be decree|intel|military" });
+    const VALID_MODES = ["decree", "decree_fast", "decree_reform", "decree_program", "crisis", "intel", "military"];
+    if (!VALID_MODES.includes(actionMode)) {
+      return reply.code(400).send({ error: `actionMode must be one of: ${VALID_MODES.join("|")}` });
     }
 
     // Проверяем хватает ли инициативы
@@ -215,13 +232,31 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, actionMode: pendingActionMode = "decree" } = pending;
 
+      const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
+
       const { newStats, newRelations, statDeltas, relationDeltas } = applyTurn({
         state: { stats: statsAfterDelayed, relations: game.relations },
         gmClassification,
         gameId,
         turnNumber,
         actionMode: pendingActionMode,
+        crisisMode,
       });
+
+      // Автоматический выход из кризиса если стабильность восстановилась
+      if (crisisMode && newStats.stability >= 40) {
+        newStats.crisis_mode = false;
+      } else if (crisisMode) {
+        newStats.crisis_mode = true;
+      }
+      // Автоматический вход в кризис
+      if (!crisisMode && newStats.stability < 25) {
+        newStats.crisis_mode = true;
+      }
+
+      // Сдвигаем дату игры
+      const currentGameDate = game.overview?.date;
+      const newGameDate = currentGameDate ? advanceGameDate(currentGameDate, crisisMode) : null;
 
       const newDelayedEffects = (gmClassification.delayed_effects || []).map((e, idx) => {
         const delta = computeDelayedEffectDelta({
@@ -259,7 +294,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       let updatedPolicies = game.policies || [];
       if (gmClassification.policy_update?.is_new_policy) {
-        const policyDuration = gmClassification.policy_update.duration_turns || 5;
+        const policyDuration = gmClassification.policy_update.duration_turns || DECREE_DURATION[pendingActionMode] || 5;
         updatedPolicies = [
           ...updatedPolicies,
           {
@@ -275,17 +310,25 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         ];
       }
 
+      // Обновляем дату в overview
+      let updatedOverview = game.overview || {};
+      if (newGameDate) updatedOverview = { ...updatedOverview, date: newGameDate };
+      if (newStats.crisis_mode !== undefined) {
+        updatedOverview = { ...updatedOverview, crisis_mode: newStats.crisis_mode };
+      }
+
       await client.query(
         `UPDATE game_state
-         SET stats = $1, relations = $2, policies = $3, delayed_effects = $4, updated_at = now()
-         WHERE game_id = $5`,
-        [JSON.stringify(newStats), JSON.stringify(newRelations), JSON.stringify(updatedPolicies), JSON.stringify(updatedDelayedEffects), gameId]
+         SET stats = $1, relations = $2, policies = $3, delayed_effects = $4, overview = $5, updated_at = now()
+         WHERE game_id = $6`,
+        [JSON.stringify(newStats), JSON.stringify(newRelations), JSON.stringify(updatedPolicies), JSON.stringify(updatedDelayedEffects), JSON.stringify(updatedOverview), gameId]
       );
 
       await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
 
       // Для тайных операций — без публичных комментариев, только внутренний брифинг
       const isSecret = pendingActionMode === "intel";
+      const isDecree = pendingActionMode.startsWith("decree") || pendingActionMode === "crisis";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
          VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -293,7 +336,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           gameId,
           turnNumber,
           isSecret ? "news" : (gmClassification.policy_update?.is_new_policy ? "decree" : "news"),
-          isSecret ? "Служба внешней разведки" : "Брифинг штаба",
+          isSecret ? "Служба внешней разведки" : (isDecree ? "Президентский указ" : "Брифинг штаба"),
           isSecret ? `[СЕКРЕТНО] ${gmClassification.narrative}` : gmClassification.narrative,
           isSecret ? "[]" : JSON.stringify(gmClassification.newsfeed_reactions || []),
         ]

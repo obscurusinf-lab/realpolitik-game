@@ -31,17 +31,35 @@ const SUBSTAT_DEFAULTS = {
   lower_class_mood: 45,
 };
 
-// Стоимость инициативы по режиму действия
-// Военные операции дорогие — нельзя воевать каждый ход
-// Разведка дёшевая — можно вести постоянно
-// Указ средний — публичная власть, расходует политический капитал
+// Стоимость инициативы по типу действия
+// decree_fast: быстрый указ (1–2 мес.), decree_reform: реформа (3–6 мес.), decree_program: крупная программа (7–12 мес.)
+// intel: разведка — дёшево, military: прямое применение силы — дорого
+// crisis_*: кризисные версии — быстрее и дешевле по инициативе, но меньший эффект
 const INITIATIVE_COST = {
-  decree:   40,
-  intel:    20,
-  military: 55,
+  decree_fast:    20,
+  decree_reform:  35,
+  decree_program: 55,
+  decree:         35, // совместимость со старым кодом
+  intel:          20,
+  military:       55,
+  crisis:         15, // антикризисный указ
 };
-const INITIATIVE_REGEN_PER_TURN = 25; // обычная регенерация
-const INITIATIVE_SKIP_REGEN = 30;     // регенерация за пропуск хода
+
+// Сроки (в ходах = месяцах) по типу указа
+const DECREE_DURATION = {
+  decree_fast:    2,
+  decree_reform:  5,
+  decree_program: 10,
+  decree:         5,
+};
+
+// В кризисном режиме 1 ход = 2 недели (коэффициент 0.5 от обычного)
+const CRISIS_TURN_WEEKS = 2;
+const NORMAL_TURN_WEEKS = 4; // 1 месяц
+
+const INITIATIVE_REGEN_PER_TURN = 25;
+const INITIATIVE_REGEN_CRISIS   = 35; // быстрее восстанавливается в кризисе
+const INITIATIVE_SKIP_REGEN = 30;
 const INITIATIVE_MAX = 100;
 
 const MAX_RELATION_DELTA_DIRECT = 8;
@@ -124,7 +142,7 @@ function applyClamped(currentValue, delta) {
  * Основная функция: берёт текущий state, классификацию от ИИ,
  * возвращает новый state + объект дельт (для отображения игроку).
  */
-function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "decree" }) {
+function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "decree", crisisMode = false }) {
   const { action_type, severity } = gmClassification;
   const seed = `${gameId}:${turnNumber}:${action_type}`;
 
@@ -134,7 +152,8 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
 
   // Инициатива: регенерация → трата
   const currentInitiative = typeof newStats.initiative === "number" ? newStats.initiative : INITIATIVE_MAX;
-  const regenedInitiative = Math.min(INITIATIVE_MAX, currentInitiative + INITIATIVE_REGEN_PER_TURN);
+  const regen = crisisMode ? INITIATIVE_REGEN_CRISIS : INITIATIVE_REGEN_PER_TURN;
+  const regenedInitiative = Math.min(INITIATIVE_MAX, currentInitiative + regen);
   const cost = INITIATIVE_COST[actionMode] ?? INITIATIVE_COST.decree;
   newStats.initiative = Math.max(0, regenedInitiative - cost);
   statDeltas.initiative = newStats.initiative - currentInitiative;
@@ -206,7 +225,11 @@ module.exports = {
   MAX_DELTA_PER_TURN,
   SUBSTAT_DEFAULTS,
   INITIATIVE_COST,
+  DECREE_DURATION,
+  CRISIS_TURN_WEEKS,
+  NORMAL_TURN_WEEKS,
   INITIATIVE_REGEN_PER_TURN,
+  INITIATIVE_REGEN_CRISIS,
   INITIATIVE_MAX,
   MAX_RELATION_DELTA_DIRECT,
   MAX_RELATION_DELTA_SPILLOVER,

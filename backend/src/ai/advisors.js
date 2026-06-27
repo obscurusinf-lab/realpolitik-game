@@ -74,6 +74,7 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
       "id": "defense",
       "recommendation": "...",
       "suggested_direction": "одно из: military_offensive | military_defensive | diplomacy_outreach | diplomacy_confrontation | economic_stimulus | economic_austerity | domestic_repression | domestic_liberalization | info_narrative | intelligence_covert | peace_initiative | null_action",
+      "suggested_scale": "одно из: decree_fast | decree_reform | decree_program | intel | military",
       "tone": "одно из: supportive | cautious | critical | alarmed"
     },
     { "id": "foreign", ... },
