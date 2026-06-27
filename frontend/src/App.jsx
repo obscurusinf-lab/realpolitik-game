@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -691,6 +691,245 @@ function btnStyle(bg, color) {
   return { background: bg, color, border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: "pointer" };
 }
 
+// ---------- MissionPanel ----------
+const OUTCOME_TITLES = {
+  victory:         "ПОБЕДА — МИР ДОСТИГНУТ",
+  partial_peace:   "ДОГОВОР ПОДПИСАН",
+  partial:         "ДОСТОЙНОЕ ПРАВЛЕНИЕ",
+  defeat_time:     "СРОК ИСТЁК",
+  defeat_coup:     "ГОСУДАРСТВЕННЫЙ ПЕРЕВОРОТ",
+  defeat_collapse: "ЭКОНОМИЧЕСКИЙ КОЛЛАПС",
+  defeat_unrest:   "НАРОДНЫЕ ВОЛНЕНИЯ",
+};
+
+function MissionPanel({ stats, turn, maxTurns = 24 }) {
+  const peace = stats?.peace_progress ?? 0;
+  const peaceColor = peace >= 100 ? "#4caf50" : peace >= 60 ? "#8bc34a" : peace >= 30 ? "#ffc107" : "#ef5350";
+
+  const objectives = [
+    { label: "Экономика", key: "economy", target: 55 },
+    { label: "Рейтинг",   key: "approval", target: 60 },
+    { label: "Стабильность", key: "stability", target: 60 },
+  ];
+
+  const turnsLeft = maxTurns - turn;
+  const progressPct = Math.min(100, (turn / maxTurns) * 100);
+
+  return (
+    <div style={{ background: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 6, padding: "10px 14px", fontSize: 11.5, color: "#bbb", fontFamily: "'PT Serif',serif" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ color: "#c9aa71", fontWeight: 700, fontSize: 12, letterSpacing: 1 }}>МИССИЯ · РОССИЯ 2026</span>
+        <span style={{ color: turnsLeft <= 4 ? "#ef5350" : "#888", fontSize: 11 }}>ХОД {turn}/{maxTurns} · осталось {turnsLeft}</span>
+      </div>
+
+      {/* Timeline bar */}
+      <div style={{ background: "#111", borderRadius: 3, height: 4, marginBottom: 10, overflow: "hidden" }}>
+        <div style={{ width: `${progressPct}%`, height: "100%", background: turnsLeft <= 4 ? "#ef5350" : "#c9aa71", transition: "width 0.4s" }} />
+      </div>
+
+      {/* Peace progress */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+          <span style={{ color: "#ccc", fontSize: 11 }}>☮ Мирный трек</span>
+          <span style={{ color: peaceColor, fontWeight: 700, fontSize: 11 }}>{peace}/100</span>
+        </div>
+        <div style={{ background: "#111", borderRadius: 3, height: 6, overflow: "hidden" }}>
+          <div style={{ width: `${peace}%`, height: "100%", background: peaceColor, transition: "width 0.6s" }} />
+        </div>
+        <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>
+          Дипломатия или военная победа (армия &gt;70) движет трек вперёд
+        </div>
+      </div>
+
+      {/* Stat thresholds */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {objectives.map(obj => {
+          const val = stats?.[obj.key] ?? 0;
+          const ok = val >= obj.target;
+          return (
+            <div key={obj.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ color: "#aaa", fontSize: 11 }}>{obj.label}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 10, color: "#555" }}>цель {obj.target}</span>
+                <span style={{ color: ok ? "#4caf50" : "#ef5350", fontWeight: 700, fontSize: 11 }}>{val} {ok ? "✓" : "✗"}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Defeat warnings */}
+      {(stats?.approval ?? 100) < 35 && (
+        <div style={{ marginTop: 8, padding: "4px 8px", background: "#3a1515", borderRadius: 3, fontSize: 10.5, color: "#ef9a9a" }}>
+          ⚠ Рейтинг критически низок — угроза переворота (&lt;25)
+        </div>
+      )}
+      {(stats?.economy ?? 100) < 40 && (
+        <div style={{ marginTop: 4, padding: "4px 8px", background: "#3a1515", borderRadius: 3, fontSize: 10.5, color: "#ef9a9a" }}>
+          ⚠ Экономика под угрозой коллапса (&lt;30)
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- EndGameScreen ----------
+const OUTCOME_COLORS = {
+  victory:         { bg: "#0a1f0a", border: "#4caf50", title: "#81c784", glow: "rgba(76,175,80,0.15)" },
+  partial_peace:   { bg: "#0f1f0a", border: "#8bc34a", title: "#aed581", glow: "rgba(139,195,74,0.15)" },
+  partial:         { bg: "#1a1500", border: "#c9aa71", title: "#c9aa71", glow: "rgba(201,170,113,0.15)" },
+  defeat_time:     { bg: "#1a1000", border: "#ff8c00", title: "#ffb74d", glow: "rgba(255,140,0,0.1)" },
+  defeat_coup:     { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+  defeat_collapse: { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+  defeat_unrest:   { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+};
+
+function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
+  const [legacy, setLegacy] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const colors = OUTCOME_COLORS[outcome] || OUTCOME_COLORS.partial;
+  const outcomeTitle = OUTCOME_TITLES[outcome] || "КОНЕЦ ПРАВЛЕНИЯ";
+  const isVictory = outcome === "victory" || outcome === "partial_peace" || outcome === "partial";
+
+  useEffect(() => {
+    fetchLegacy(gameId, outcome)
+      .then(data => setLegacy(data.legacy))
+      .catch(() => setLegacy(null))
+      .finally(() => setLoading(false));
+  }, [gameId, outcome]);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: `radial-gradient(ellipse at center, ${colors.glow} 0%, #0a0a12 70%)`,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+      overflowY: "auto", padding: "40px 20px",
+    }}>
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 32, maxWidth: 700 }}>
+        <div style={{ fontSize: 11, letterSpacing: 4, color: "#555", marginBottom: 10, fontFamily: "monospace" }}>
+          {isVictory ? "— КОНЕЦ ПАРТИИ —" : "— ИГРА ОКОНЧЕНА —"}
+        </div>
+        <div style={{
+          fontSize: 28, fontWeight: 700, letterSpacing: 2, color: colors.title,
+          fontFamily: "'PT Serif',serif", textTransform: "uppercase", marginBottom: 12,
+          textShadow: `0 0 30px ${colors.title}44`,
+        }}>
+          {outcomeTitle}
+        </div>
+        {legacy?.verdict && (
+          <div style={{ fontSize: 15, color: "#bbb", fontFamily: "'PT Serif',serif", lineHeight: 1.6, fontStyle: "italic" }}>
+            "{legacy.verdict}"
+          </div>
+        )}
+      </div>
+
+      {loading && (
+        <div style={{ color: "#555", fontFamily: "monospace", fontSize: 13, marginBottom: 30 }}>
+          Хроникёр составляет летопись…
+        </div>
+      )}
+
+      {legacy && (
+        <div style={{ maxWidth: 720, width: "100%", display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Title */}
+          {legacy.title && (
+            <div style={{
+              textAlign: "center", fontSize: 17, color: colors.title, fontFamily: "'PT Serif',serif",
+              fontWeight: 700, padding: "12px 20px", border: `1px solid ${colors.border}22`,
+              borderRadius: 6, background: colors.bg,
+            }}>
+              {legacy.title}
+            </div>
+          )}
+
+          {/* Chapters */}
+          {(legacy.chapters || []).map((ch, i) => (
+            <div key={i} style={{
+              background: "#111827", border: `1px solid ${colors.border}33`,
+              borderRadius: 6, padding: "16px 20px",
+            }}>
+              <div style={{ fontSize: 12, color: colors.title, fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>
+                {ch.heading}
+              </div>
+              <div style={{ fontSize: 13.5, color: "#ccc", lineHeight: 1.7, fontFamily: "'PT Serif',serif" }}>
+                {ch.text}
+              </div>
+            </div>
+          ))}
+
+          {/* Highlights */}
+          {(legacy.highlights || []).length > 0 && (
+            <div style={{ background: "#0d1117", border: `1px solid #2a2a3e`, borderRadius: 6, padding: "16px 20px" }}>
+              <div style={{ fontSize: 12, color: "#888", letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>
+                Ключевые решения
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {(legacy.highlights || []).map((h, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>
+                      {h.type === "good" ? "✓" : "✗"}
+                    </span>
+                    <span style={{ fontSize: 13, color: h.type === "good" ? "#81c784" : "#ef9a9a", fontFamily: "'PT Serif',serif", lineHeight: 1.5 }}>
+                      {h.text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Epitaph */}
+          {legacy.epitaph && (
+            <div style={{
+              textAlign: "center", padding: "20px 30px",
+              borderTop: `1px solid ${colors.border}33`,
+              fontSize: 15, color: "#888", fontFamily: "'PT Serif',serif", fontStyle: "italic",
+              lineHeight: 1.7,
+            }}>
+              {legacy.epitaph}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stats summary */}
+      <div style={{ maxWidth: 720, width: "100%", marginTop: 24, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+        {[
+          { label: "Экономика", key: "economy" },
+          { label: "Армия", key: "military" },
+          { label: "Стабильность", key: "stability" },
+          { label: "Дипломатия", key: "diplomacy" },
+          { label: "Рейтинг", key: "approval" },
+          { label: "Мирный трек", key: "peace_progress" },
+        ].map(s => {
+          const val = stats?.[s.key] ?? 0;
+          const clr = val >= 65 ? "#81c784" : val >= 40 ? "#ffb74d" : "#ef9a9a";
+          return (
+            <div key={s.key} style={{
+              background: "#111827", border: "1px solid #2a2a3e", borderRadius: 6,
+              padding: "10px 16px", textAlign: "center", minWidth: 90,
+            }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: clr }}>{val}</div>
+              <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>{s.label}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 36, marginBottom: 20 }}>
+        <button onClick={onRestart} style={{
+          background: colors.border, color: "#000", border: "none", borderRadius: 4,
+          padding: "12px 32px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'PT Serif',serif", letterSpacing: 1,
+        }}>
+          НОВАЯ ПАРТИЯ
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DecreeLegendModal({ onClose }) {
   const CATEGORIES = [
     {
@@ -832,6 +1071,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [pendingNextState, setPendingNextState] = useState(null);
   const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
   const nuclearConfirmRef = useRef(false); // ref для catch-замыкания
+  const [gameOutcome, setGameOutcome] = useState(null);
   const draftTextareaRef = useRef(null);
   const [nuclearConfirmError, setNuclearConfirmError] = useState(null);
   const [nuclearAftermath, setNuclearAftermath] = useState(null);
@@ -927,7 +1167,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     setTurnError(null);
     setNuclearConfirmError(null);
     try {
-      await confirmTurn(gameId);
+      const confirmResult = await confirmTurn(gameId);
       nuclearConfirmRef.current = false;
       setShowNuclearConfirm(false);
       setLastActionResult({
@@ -936,6 +1176,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         actionMode,
         gmActionType: preview?.gmActionType,
       });
+      if (confirmResult?.gameOutcome) {
+        setGameOutcome(confirmResult.gameOutcome);
+      }
       setPreview(null);
       setDraftInput("");
       setActionMode("decree_fast");
@@ -1081,6 +1324,16 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   if (!loaded) return <CenteredMessage text="Загрузка партии…" />;
   if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
+
+  if (gameOutcome) {
+    return <EndGameScreen
+      outcome={gameOutcome}
+      gameId={gameId}
+      stats={state?.stats}
+      turn={state?.turn ?? 0}
+      onRestart={onNewGame}
+    />;
+  }
 
   if (showNuclearConfirm) {
     return <NuclearConfirmScreen onConfirm={handleConfirm} onCancel={() => { nuclearConfirmRef.current = false; setShowNuclearConfirm(false); setNuclearConfirmError(null); }} confirming={confirming} error={nuclearConfirmError} />;
@@ -1239,6 +1492,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         {tab === "relations" && <RelationsTab state={state} />}
         {tab === "newsfeed" && <NewsfeedTab state={state} />}
         {tab === "log" && <LogTab state={state} />}
+      </div>
+
+      {/* Mission panel — always visible above action area */}
+      <div style={{ padding: "0 16px 10px" }}>
+        <MissionPanel stats={state?.stats} turn={state?.turn ?? 0} maxTurns={24} />
       </div>
 
       {preview ? (

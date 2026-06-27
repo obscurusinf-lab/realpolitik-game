@@ -23,7 +23,17 @@ function loadCountrySeed(countryId) {
   return null;
 }
 
-async function registerGameRoutes(fastify, { db }) {
+const OUTCOME_TITLES = {
+  victory:        "Триумф: мир достигнут",
+  partial_peace:  "Договор подписан, но страна истощена",
+  partial:        "Достойное правление без мирного соглашения",
+  defeat_time:    "Срок истёк — цели не достигнуты",
+  defeat_coup:    "Государственный переворот",
+  defeat_collapse:"Экономический коллапс",
+  defeat_unrest:  "Народные волнения сметают власть",
+};
+
+async function registerGameRoutes(fastify, { db, callClaudeApi }) {
   // ---------- POST /games ----------
   fastify.post("/games", async (request, reply) => {
     const { countryId, userId } = request.body || {};
@@ -208,6 +218,96 @@ async function registerGameRoutes(fastify, { db }) {
       [gameId]
     );
     return reply.send({ turns: res.rows });
+  });
+
+  // ---------- POST /games/:gameId/legacy — итоговый текст правления ----------
+  fastify.post("/games/:gameId/legacy", async (request, reply) => {
+    const { gameId } = request.params;
+    const { outcome } = request.body || {};
+
+    const gameRes = await db.query(
+      `SELECT g.current_turn, g.status, gs.stats, gs.relations, c.name AS country_name, u.display_name AS player_name
+       FROM games g JOIN game_state gs ON gs.game_id = g.id
+       JOIN countries c ON c.id = g.country_id
+       LEFT JOIN users u ON u.id = g.owner_user_id
+       WHERE g.id = $1`,
+      [gameId]
+    );
+    if (gameRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
+    const game = gameRes.rows[0];
+
+    const turnsRes = await db.query(
+      `SELECT turn_n, player_input, narrative_text, action_mode FROM turns WHERE game_id = $1 ORDER BY turn_n ASC`,
+      [gameId]
+    );
+    const turns = turnsRes.rows;
+
+    const outcomeTitle = OUTCOME_TITLES[outcome] || "Конец правления";
+    const stats = game.stats || {};
+    const turnCount = game.current_turn;
+
+    const historyLines = turns.map(t =>
+      `Ход ${t.turn_n} [${t.action_mode || "decree"}]: "${t.player_input}" → ${t.narrative_text}`
+    ).join("\n");
+
+    const prompt = `Ты — исторический хроникёр. Игрок управлял страной "${game.country_name}" как президент "${game.player_name || "безымянный правитель"}" в течение ${turnCount} ходов (1 ход = 1 месяц).
+
+ИТОГ ПРАВЛЕНИЯ: "${outcomeTitle}"
+
+ФИНАЛЬНЫЕ ПОКАЗАТЕЛИ:
+- Экономика: ${stats.economy ?? "?"}/100
+- Армия: ${stats.military ?? "?"}/100
+- Стабильность: ${stats.stability ?? "?"}/100
+- Дипломатия: ${stats.diplomacy ?? "?"}/100
+- Рейтинг: ${stats.approval ?? "?"}/100
+- Мирный трек: ${stats.peace_progress ?? 0}/100
+
+ХРОНИКА РЕШЕНИЙ (${turns.length} ходов):
+${historyLines || "(история пуста)"}
+
+Напиши итоговую историческую оценку правления в формате JSON:
+{
+  "title": "краткий исторический заголовок (8-12 слов)",
+  "verdict": "1-2 предложения — общая оценка правления",
+  "chapters": [
+    { "heading": "краткий заголовок", "text": "2-3 предложения об этом периоде/аспекте правления" }
+  ],
+  "highlights": [
+    { "type": "good|bad", "text": "одна строка — ключевое решение или достижение" }
+  ],
+  "epitaph": "финальная фраза, которую история запомнит об этом правителе (1 предложение, поэтически)"
+}
+
+Требования:
+- chapters: 3-4 раздела (экономика, внешняя политика, армия/безопасность, итог)
+- highlights: 4-6 пунктов — конкретные решения из хроники, хорошие и плохие
+- Тон: документальный, без пафоса, как настоящий учебник истории
+- Только JSON, без markdown-обёрток`;
+
+    try {
+      const response = await callClaudeApi({
+        model: "claude-sonnet-4-6",
+        max_tokens: 2000,
+        messages: [{ role: "user", content: prompt }],
+      });
+      const rawText = response.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+      const cleaned = rawText.replace(/```json\s*|\s*```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      return reply.send({ legacy: parsed, outcome, outcomeTitle });
+    } catch (err) {
+      fastify.log.error({ err }, "Legacy generation failed");
+      return reply.send({
+        legacy: {
+          title: outcomeTitle,
+          verdict: "Правление завершено.",
+          chapters: [],
+          highlights: [],
+          epitaph: "История расставит все точки.",
+        },
+        outcome,
+        outcomeTitle,
+      });
+    }
   });
 
   // ---------- GET /leaderboard ----------

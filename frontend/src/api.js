@@ -166,6 +166,16 @@ export async function fetchPolicyNews(gameId, keyword) {
   return res.json();
 }
 
+export async function fetchLegacy(gameId, outcome) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/legacy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ outcome }),
+  }, 90000);
+  if (!res.ok) throw new Error(`fetchLegacy failed: ${res.status}`);
+  return res.json();
+}
+
 export async function cancelPolicy(gameId, policyTitle) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/cancel-policy`, {
     method: "POST",

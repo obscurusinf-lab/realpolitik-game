@@ -69,7 +69,7 @@ async function buildServer() {
 
   // --- Роуты ---
   await registerUserRoutes(fastify, { db });
-  await registerGameRoutes(fastify, { db });
+  await registerGameRoutes(fastify, { db, callClaudeApi });
   await registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore });
   await registerAdvisorRoutes(fastify, { db, callClaudeApi });
   await registerSuggestionRoutes(fastify, { db, callClaudeApi });

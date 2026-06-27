@@ -11,6 +11,7 @@
  */
 
 const MAX_DELTA_PER_TURN = {
+  peace_progress: 20,
   economy: 6,
   military: 6,
   stability: 5,
@@ -180,6 +181,29 @@ function applyClamped(currentValue, delta) {
 }
 
 /**
+ * Вычисляет изменение peace_progress на основе типа действия и состояния армии.
+ * Военные эскалации могут УСКОРИТЬ мир — если армия сильная (>70).
+ */
+function computePeaceProgressDelta({ action_type, severity, armyValue, seed }) {
+  const armyStrong = armyValue >= 70;
+  const sevMultiplier = { 1: 0.5, 2: 0.8, 3: 1.0 }[severity] || 0.8;
+  const jitter = (seededFraction(seed + "peace") - 0.5) * 0.3;
+  const eff = Math.min(1, Math.max(0, sevMultiplier + jitter));
+
+  switch (action_type) {
+    case "peace_initiative":       return Math.round((10 + 10 * eff));  // +10..+20
+    case "diplomacy_outreach":     return Math.round(4 + 4 * eff);      // +4..+8
+    case "military_offensive":     return armyStrong ? Math.round(4 + 6 * eff) : Math.round(-(5 + 7 * eff)); // +4..+10 / -5..-12
+    case "military_defensive":     return Math.round(1 + 2 * eff);      // +1..+3
+    case "diplomacy_confrontation":return Math.round(-(3 + 4 * eff));   // -3..-7
+    case "domestic_repression":    return Math.round(-(2 + 3 * eff));   // -2..-5
+    case "nuclear_strike":         return -40;
+    case "null_action":            return -2;
+    default:                       return 0;
+  }
+}
+
+/**
  * Основная функция: берёт текущий state, классификацию от ИИ,
  * возвращает новый state + объект дельт (для отображения игроку).
  */
@@ -199,7 +223,16 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   newStats.initiative = Math.max(0, regenedInitiative - cost);
   statDeltas.initiative = newStats.initiative - currentInitiative;
 
+  // Peace progress — отдельная механика мирного трека
+  const currentPeaceProgress = typeof state.stats.peace_progress === "number" ? state.stats.peace_progress : 0;
+  const peaceArmyValue = newStats.military ?? 50;
+  const peaceDelta = computePeaceProgressDelta({ action_type, severity, armyValue: peaceArmyValue, seed });
+  const newPeaceProgress = Math.max(0, Math.min(100, currentPeaceProgress + peaceDelta));
+  newStats.peace_progress = newPeaceProgress;
+  statDeltas.peace_progress = peaceDelta;
+
   for (const stat of Object.keys(MAX_DELTA_PER_TURN)) {
+    if (stat === "peace_progress") continue; // уже посчитано выше
     if (action_type === "nuclear_strike") {
       // Ядерный удар: берём диапазон напрямую без ограничений MAX_DELTA
       const range = RULES_TABLE.nuclear_strike[stat];
@@ -263,6 +296,7 @@ function computeDelayedEffectDelta({ category, stat, gameId, turnNumber, effectI
 
 module.exports = {
   RULES_TABLE,
+  computePeaceProgressDelta,
   MAX_DELTA_PER_TURN,
   SUBSTAT_DEFAULTS,
   INITIATIVE_COST,

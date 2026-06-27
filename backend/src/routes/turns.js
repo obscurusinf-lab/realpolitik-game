@@ -22,6 +22,39 @@
  */
 
 const { classifyTurn } = require("../ai/gamemaster");
+
+/**
+ * Проверяет победные/поражения условия после каждого хода.
+ * Возвращает строку-статус или null если игра продолжается.
+ *
+ * Условия победы (ход 24):
+ *   - peace_progress >= 100 + economy >= 55 + approval >= 60 + stability >= 60 → "victory"
+ *   - peace_progress < 100 но economy/approval/stability в норме → "partial"
+ *   - peace_progress >= 100 но статы не дотянули → "partial_peace"
+ *
+ * Условия поражения (в любой ход):
+ *   - approval < 25 → "defeat_coup"
+ *   - economy < 30  → "defeat_collapse"
+ *   - stability < 20 → "defeat_unrest"
+ */
+function detectGameOutcome(stats, turnNumber, maxTurns) {
+  // Поражение — проверяем каждый ход
+  if (stats.approval < 25)   return "defeat_coup";
+  if (stats.economy < 30)    return "defeat_collapse";
+  if (stats.stability < 20)  return "defeat_unrest";
+
+  // Победа — только по истечении срока
+  if (turnNumber >= maxTurns) {
+    const peace = (stats.peace_progress ?? 0) >= 100;
+    const statsOk = stats.economy >= 55 && stats.approval >= 60 && stats.stability >= 60;
+    if (peace && statsOk) return "victory";
+    if (peace && !statsOk) return "partial_peace";
+    if (!peace && statsOk)  return "partial";
+    return "defeat_time";
+  }
+
+  return null;
+}
 const { applyTurn, computeDelayedEffectDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
@@ -488,6 +521,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
       }).catch((err) => fastify.log.error({ err }, "worldUpdate failed"));
 
+      // Win/loss/partial outcome detection
+      const MAX_TURNS = 24;
+      const gameOutcome = detectGameOutcome(newStats, turnNumber, MAX_TURNS);
+      if (gameOutcome) {
+        await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
+      }
+
       return reply.send({
         turnNumber,
         narrative: gmClassification.narrative,
@@ -495,6 +535,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         relationDeltas,
         newStats,
         newRelations,
+        gameOutcome: gameOutcome || null,
+        maxTurns: MAX_TURNS,
       });
     } catch (err) {
       await client.query("ROLLBACK");
