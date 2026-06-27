@@ -774,13 +774,13 @@ function Root() {
     const updated = [entry, ...sessions.filter(s => s.id !== id)].slice(0, 5);
     saveSessions(updated);
     setSessions(updated);
-    const g = { id, name: playerName };
+    const g = { id, name: playerName, isNew: true };
     saveActiveGame(g);
     setGame(g);
   }
 
   function handleResume(session) {
-    const g = { id: session.id, name: session.playerName };
+    const g = { id: session.id, name: session.playerName, isNew: false };
     saveActiveGame(g);
     setGame(g);
   }
@@ -805,7 +805,7 @@ function Root() {
   }
 
   let screen;
-  if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} />;
+  if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} showWelcome={game.isNew === true} />;
   else if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
   else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onClearAll={handleClearAll} onLeaderboard={() => setShowLeaderboard(true)} onAdminOpen={() => setShowAdmin(true)} savedPlayerName={savedPlayerName} onPlayerNameChange={setSavedPlayerName} />;
 

@@ -680,11 +680,11 @@ function btnStyle(bg, color) {
   return { background: bg, color, border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: "pointer" };
 }
 
-export default function App({ gameId, playerName, onNewGame }) {
+export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
   const [state, setState] = useState(null);
   const [tab, setTab] = useState("overview");
   const [loaded, setLoaded] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(true);
+  const [showWelcome, setShowWelcome] = useState(initialShowWelcome);
   const [loadError, setLoadError] = useState(null);
 
   const [draftInput, setDraftInput] = useState("");
