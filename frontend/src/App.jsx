@@ -1843,13 +1843,16 @@ const REGION_COORDS = {
 };
 
 function resolveCoords(spot) {
-  // skip placeholder 0,0 coords — fall through to name lookup
+  // Explicit lat/lon (skip placeholder 0,0)
   if (typeof spot.lat === "number" && typeof spot.lon === "number" && !(spot.lat === 0 && spot.lon === 0)) {
     return [spot.lon, spot.lat];
   }
-  const key = (spot.region || "").toLowerCase();
-  for (const [k, v] of Object.entries(REGION_COORDS)) {
-    if (key.includes(k)) return v;
+  // Name-based lookup: check if region name contains any dict key
+  const regionLower = (spot.region || "").toLowerCase();
+  const entries = Object.entries(REGION_COORDS);
+  for (let i = 0; i < entries.length; i++) {
+    const [k, v] = entries[i];
+    if (regionLower.includes(k)) return v;
   }
   return null;
 }
@@ -2109,7 +2112,19 @@ function MapTab({ state }) {
   const [activeHotspotIdx, setActiveHotspotIdx] = useState(null);
   const [hotspotModal, setHotspotModal] = useState(null);
   const [countryModal, setCountryModal] = useState(null);
-  const hotspots = state.overview?.hotspots ?? [];
+  const rawHotspots = state.overview?.hotspots ?? [];
+  // Обогащаем hotspots координатами если их нет
+  const hotspots = rawHotspots.map(h => {
+    if (typeof h.lat === "number" && typeof h.lon === "number" && !(h.lat === 0 && h.lon === 0)) return h;
+    const regionLower = (h.region || "").toLowerCase();
+    for (const [k, coords] of Object.entries(REGION_COORDS)) {
+      if (regionLower.includes(k)) {
+        // REGION_COORDS хранит [lon, lat], нам нужен {lat, lon}
+        return { ...h, lon: coords[0], lat: coords[1] };
+      }
+    }
+    return h;
+  });
   const relations = state.relations ?? [];
   const nuclearStrike = useMemo(() => detectNuclearStrike(state), [state.newsfeed, state.log]);
   const isMobile = useIsMobile();
