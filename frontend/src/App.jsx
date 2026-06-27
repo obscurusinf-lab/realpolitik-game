@@ -7,6 +7,7 @@ import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, 
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   const [phase, setPhase] = useState(0); // 0=action, 1=stats, 2=world, 3=done
   const [worldItems, setWorldItems] = useState([]);
+  const [worldMoves, setWorldMoves] = useState([]);
   const [polling, setPolling] = useState(true);
   const [newState, setNewState] = useState(null);
   const pollRef = useRef(null);
@@ -22,15 +23,17 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   // Polling game state пока не появятся world reactions
   useEffect(() => {
     let attempts = 0;
-    const maxAttempts = isNuclearTurn ? 24 : 12; // ядерный worldUpdate занимает дольше
+    const maxAttempts = isNuclearTurn ? 24 : 12;
     async function poll() {
       try {
         const s = await fetchGameState(gameId);
         setNewState(s);
         const baseTurn = fromTurn ?? (prevState?.turn ?? 0);
         const reactions = (s.newsfeed || []).filter(n => (n.type === "reaction" || n.type === "nuclear_reaction") && n.turn > baseTurn);
-        if (reactions.length > 0 || attempts >= maxAttempts) {
+        const moves = (s.newsfeed || []).filter(n => n.type === "world_move" && n.turn > baseTurn);
+        if (reactions.length > 0 || moves.length > 0 || attempts >= maxAttempts) {
           setWorldItems(reactions);
+          setWorldMoves(moves);
           setPolling(false);
           setPhase(3);
           clearInterval(pollRef.current);
@@ -102,19 +105,47 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
         {/* Фаза 3: мировые события */}
         {phase >= 2 && (
           <div className="et-fade">
-            <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.1em" }}>РЕАКЦИЯ МИРА</div>
             {polling && (
               <div className="mono-font et-pulse" style={{ fontSize: 11, color: "#5a6070", textAlign: "center", padding: "20px 0" }}>
                 Анализируем реакцию мировых держав…
               </div>
             )}
-            {worldItems.map((item, i) => (
-              <div key={i} className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: "3px solid #3a4a60", borderRadius: 6, padding: "12px 16px", marginBottom: 8 }}>
-                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 4 }}>{item.source?.toUpperCase()}</div>
-                <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55 }}>{item.text}</div>
+
+            {/* Удары и действия противников */}
+            {!polling && worldMoves.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#8c4a2a", marginBottom: 10, letterSpacing: "0.1em" }}>⚡ ДЕЙСТВИЯ ПРОТИВНИКОВ</div>
+                {worldMoves.map((item, i) => {
+                  const analystNote = item.reactions?.[0];
+                  const delta = analystNote?.stat_delta || {};
+                  return (
+                    <div key={i} className="et-fade" style={{ background: "#1a0e0a", border: "1px solid #6a3020", borderLeft: "3px solid #8c4a2a", borderRadius: 6, padding: "12px 16px", marginBottom: 8 }}>
+                      <div className="mono-font" style={{ fontSize: 9, color: "#8c4a2a", marginBottom: 4 }}>{item.source?.toUpperCase()}</div>
+                      <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55, color: "#d0a090" }}>{item.text}</div>
+                      <StatDeltaBadges delta={delta} />
+                      {analystNote?.text && (
+                        <div className="doc-font" style={{ fontSize: 12, color: "#906050", marginTop: 6, fontStyle: "italic" }}>{analystNote.text}</div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-            {!polling && worldItems.length === 0 && (
+            )}
+
+            {/* Реакции стран */}
+            {!polling && worldItems.length > 0 && (
+              <div>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.1em" }}>РЕАКЦИЯ МИРА</div>
+                {worldItems.map((item, i) => (
+                  <div key={i} className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: "3px solid #3a4a60", borderRadius: 6, padding: "12px 16px", marginBottom: 8 }}>
+                    <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 4 }}>{item.source?.toUpperCase()}</div>
+                    <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55 }}>{item.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!polling && worldItems.length === 0 && worldMoves.length === 0 && (
               <div className="doc-font" style={{ fontSize: 12, color: "#4a5060", textAlign: "center", padding: "16px 0", fontStyle: "italic" }}>Мировые реакции ещё формируются или отсутствуют.</div>
             )}
           </div>
@@ -2339,10 +2370,32 @@ function WorldTab({ state }) {
 }
 
 const NEWSFEED_TYPE = {
-  decree:   { icon: "📜", color: "#a8313a", label: "УКАЗ" },
-  news:     { icon: "📰", color: "#5b6b8c", label: "НОВОСТИ" },
-  reaction: { icon: "🌐", color: "#4a6b5c", label: "РЕАКЦИЯ" },
+  decree:          { icon: "📜", color: "#a8313a", label: "УКАЗ" },
+  news:            { icon: "📰", color: "#5b6b8c", label: "НОВОСТИ" },
+  reaction:        { icon: "🌐", color: "#4a6b5c", label: "РЕАКЦИЯ" },
+  nuclear_reaction:{ icon: "☢", color: "#c03030", label: "ЯДЕРНЫЙ КРИЗИС" },
+  world_move:      { icon: "⚡", color: "#8c4a2a", label: "ДЕЙСТВИЕ ПРОТИВНИКА" },
 };
+
+const STAT_LABEL = { economy: "Экономика", military: "Армия", stability: "Стабильность", diplomacy: "Дипломатия", approval: "Рейтинг" };
+
+function StatDeltaBadges({ delta }) {
+  if (!delta || !Object.keys(delta).length) return null;
+  return (
+    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
+      {Object.entries(delta).map(([k, v]) => (
+        <span key={k} className="mono-font" style={{
+          fontSize: 10, padding: "2px 7px", borderRadius: 3,
+          background: v < 0 ? "#2a0808" : "#0a1a0d",
+          color: v < 0 ? "#e07070" : "#7fae93",
+          border: `1px solid ${v < 0 ? "#6a1010" : "#2a4030"}`,
+        }}>
+          {STAT_LABEL[k] || k} {v > 0 ? "+" : ""}{v}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function NewsfeedTab({ state }) {
   if (!state.newsfeed?.length) {
@@ -2352,18 +2405,26 @@ function NewsfeedTab({ state }) {
     <div style={{ display: "grid", gap: 12 }}>
       {[...state.newsfeed].reverse().map((item, i) => {
         const meta = NEWSFEED_TYPE[item.type] || NEWSFEED_TYPE.news;
+        const isWorldMove = item.type === "world_move";
+        const analystNote = isWorldMove ? item.reactions?.[0] : null;
+        const moveDelta = analystNote?.stat_delta || {};
         return (
-          <div key={i} style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, overflow: "hidden" }}>
+          <div key={i} style={{
+            background: isWorldMove ? "#1a0e0a" : "#f5f1e6",
+            border: `1px solid ${isWorldMove ? "#6a3020" : "#d8d2bf"}`,
+            borderRadius: 4, overflow: "hidden",
+          }}>
             <div style={{ padding: "10px 13px", borderLeft: `3px solid ${meta.color}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                 <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.08em", color: meta.color }}>
                   {meta.icon} {item.source.toUpperCase()} · {meta.label}
                 </span>
-                <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ХОД {item.turn}</span>
+                <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? "#6a4030" : "#8a8472" }}>ХОД {item.turn}</span>
               </div>
-              <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.45 }}>{item.text}</div>
+              <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? "#d0a090" : undefined }}>{item.text}</div>
+              {isWorldMove && <StatDeltaBadges delta={moveDelta} />}
             </div>
-            {item.reactions?.length > 0 && (
+            {!isWorldMove && item.reactions?.length > 0 && (
               <div style={{ background: "#ebe5d4", padding: "8px 13px 10px" }}>
                 <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 6, letterSpacing: "0.05em" }}>КОММЕНТАРИИ</div>
                 <div style={{ display: "grid", gap: 6 }}>
@@ -2377,6 +2438,12 @@ function NewsfeedTab({ state }) {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+            {isWorldMove && analystNote && (
+              <div style={{ background: "#120a08", padding: "7px 13px 10px", borderTop: "1px solid #4a2010" }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#6a3020", marginBottom: 4, letterSpacing: "0.05em" }}>ОЦЕНКА АНАЛИТИКА</div>
+                <div className="doc-font" style={{ fontSize: 12.5, color: "#c08070", lineHeight: 1.4 }}>{analystNote.text}</div>
               </div>
             )}
           </div>

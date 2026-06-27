@@ -29,12 +29,13 @@ function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, nar
     {"source": "Мировые рынки", "text": "1-2 предложения о коллапсе", "tone": "neg", "escalation": 1}
   ],
   "world_moves": [
-    {"country": "США", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile"},
-    {"country": "НАТО", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile"},
-    {"country": "Китай", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile"}
+    {"country": "США", "action": "1 предложение — конкретное действие против игрока", "impact": "1 предложение", "direction": "hostile", "stat_delta": {"economy": -2}},
+    {"country": "НАТО", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile", "stat_delta": {"military": -1, "diplomacy": -2}},
+    {"country": "Китай", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile", "stat_delta": {"diplomacy": -1}}
   ]
 }
-escalation: 1=осуждение, 2=ультиматум, 3=угроза ядерного ответа. Заполни реальными текстами вместо шаблонных описаний.`;
+escalation: 1=осуждение, 2=ультиматум, 3=угроза ядерного ответа.
+stat_delta: реальные изменения статов игрока от хода противника (из набора: economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. Заполни все поля реальными текстами.`;
 }
 
 function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrative, statDeltas, relationDeltas, currentRelations, prevOverview }) {
@@ -72,11 +73,11 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
     {"source": "страна/блок", "text": "1 предложение", "tone": "pos"}
   ],
   "world_moves": [
-    {"country": "страна", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile|neutral|cooperative"},
-    {"country": "страна", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile|neutral|cooperative"}
+    {"country": "страна", "action": "1 предложение — конкретное действие (удар, санкции, переброска войск, сделка и т.д.)", "impact": "1 предложение — последствие для игрока", "direction": "hostile|neutral|cooperative", "stat_delta": {"economy": -2}},
+    {"country": "страна", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile|neutral|cooperative", "stat_delta": {"stability": -1}}
   ]
 }
-Заполни реальными текстами соответствующими решению игрока и геополитическому контексту.`;
+stat_delta: изменения статов игрока от хода противника/союзника (economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. hostile=отрицательные, cooperative=положительные. Заполни реальными текстами.`;
 }
 
 async function generateWorldUpdate({ params, callClaudeApi }) {

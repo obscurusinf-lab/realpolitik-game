@@ -365,13 +365,39 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
                reaction.escalation ? JSON.stringify([{ escalation: reaction.escalation }]) : "[]"]
             );
           }
-          // Добавляем ходы других стран
+          // Добавляем ходы других стран + применяем stat_delta
+          const VALID_STATS = new Set(["economy", "military", "stability", "diplomacy", "approval"]);
           for (const move of worldUpdate.world_moves || []) {
+            const statDelta = move.stat_delta && typeof move.stat_delta === "object" ? move.stat_delta : {};
+            // Валидируем и клэмпим delta
+            const safeDelta = {};
+            for (const [k, v] of Object.entries(statDelta)) {
+              if (VALID_STATS.has(k) && typeof v === "number") {
+                safeDelta[k] = Math.max(-5, Math.min(5, Math.round(v)));
+              }
+            }
             await db.query(
               `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
                VALUES ($1, $2, 'world_move', $3, $4, $5)`,
-              [gameId, turnNumber, move.country, move.action, JSON.stringify([{ user: "Аналитик", text: move.impact, tone: move.direction === "hostile" ? "neg" : move.direction === "cooperative" ? "pos" : "neutral" }])]
+              [gameId, turnNumber, move.country, move.action, JSON.stringify([{
+                user: "Аналитик", text: move.impact,
+                tone: move.direction === "hostile" ? "neg" : move.direction === "cooperative" ? "pos" : "neutral",
+                stat_delta: safeDelta,
+              }])]
             );
+            // Применяем stat_delta к game_state
+            if (Object.keys(safeDelta).length > 0) {
+              const stateRow = await db.query(`SELECT stats FROM game_state WHERE game_id = $1`, [gameId]);
+              if (stateRow.rows[0]) {
+                const cur = stateRow.rows[0].stats || {};
+                const updated = { ...cur };
+                for (const [k, v] of Object.entries(safeDelta)) {
+                  updated[k] = Math.max(0, Math.min(100, (cur[k] ?? 50) + v));
+                }
+                await db.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
+                  [JSON.stringify(updated), gameId]);
+              }
+            }
           }
         } catch (err) {
           fastify.log.error({ err }, "worldUpdate DB write failed");
