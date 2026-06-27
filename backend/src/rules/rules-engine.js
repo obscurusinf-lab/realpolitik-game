@@ -28,7 +28,7 @@ const INITIATIVE_COST = {
   military: 55,
 };
 const INITIATIVE_REGEN_PER_TURN = 25; // обычная регенерация
-const INITIATIVE_SKIP_REGEN = 45;     // бонус за пропуск хода
+const INITIATIVE_SKIP_REGEN = 30;     // регенерация за пропуск хода
 const INITIATIVE_MAX = 100;
 
 const MAX_RELATION_DELTA_DIRECT = 8;

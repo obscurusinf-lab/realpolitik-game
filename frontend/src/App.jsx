@@ -1154,7 +1154,11 @@ export default function App({ gameId, playerName, onNewGame }) {
                   <div style={{ width: `${initiative}%`, height: "100%", background: initiative > 50 ? "#7fae93" : initiative > 25 ? "#9c8347" : "#e09090", transition: "width 0.3s", borderRadius: 2 }} />
                 </div>
                 <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{initiative}</div>
-                <div className="mono-font" style={{ fontSize: 9, color }}>→ {Math.max(0, after)} (-{cost}+{regen})</div>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>→</div>
+                <div className="mono-font" style={{ fontSize: 9, color }}>
+                  {after < 0 ? "недостаточно" : after} после хода
+                </div>
+                <div className="mono-font" style={{ fontSize: 8, color: "#3a4050" }}>(+{regen} ↻ −{cost} ⚡)</div>
               </div>
             );
           })()}
@@ -1217,15 +1221,20 @@ export default function App({ gameId, playerName, onNewGame }) {
             </div>
           </div>
 
-          {/* Завершить ход без действия */}
-          <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+          {/* Завершить ход */}
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            {!lastActionResult && (
+              <div className="mono-font" style={{ fontSize: 9, color: "#6a4030", textAlign: "right" }}>
+                ⚠ Без действия: инициатива +30, но штраф к статам
+              </div>
+            )}
             <button
               onClick={handleEndTurn}
               disabled={confirming}
-              title={lastActionResult ? "Завершить ход и увидеть реакцию мира" : "Пропустить ход — инициатива +45"}
+              title={lastActionResult ? "Завершить ход и увидеть реакцию мира" : "Пропустить ход — инициатива +30, штраф к показателям"}
               style={{ ...btnStyle("#1f2733", lastActionResult ? "#9c8347" : "#5a6070"), border: `1px solid ${lastActionResult ? "#3a3020" : "#2a3040"}`, fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
             >
-              {confirming ? "…" : lastActionResult ? "⏭ Завершить ход → реакция мира" : "⏭ Завершить ход (пропустить +45 инициативы)"}
+              {confirming ? "…" : lastActionResult ? "⏭ Завершить ход → реакция мира" : "⏭ Пропустить ход (+30 инициативы)"}
             </button>
           </div>
         </div>
