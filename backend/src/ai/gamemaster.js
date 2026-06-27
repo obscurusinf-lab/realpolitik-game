@@ -42,7 +42,7 @@ async function classifyTurn({ params, callClaudeApi, retryCount = 0 }) {
 
   const response = await callClaudeApi({
     model: "claude-sonnet-4-6",
-    max_tokens: 1500,
+    max_tokens: 2500,
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -55,6 +55,8 @@ async function classifyTurn({ params, callClaudeApi, retryCount = 0 }) {
   try {
     parsed = JSON.parse(stripMarkdownFences(rawText));
   } catch (err) {
+    console.error(`[GM] JSON parse error (retry ${retryCount}):`, err.message);
+    console.error(`[GM] Raw response (first 500 chars):`, rawText.slice(0, 500));
     if (retryCount < MAX_RETRIES) {
       return classifyTurn({
         params: { ...params, playerInput: params.playerInput + `\n\n[Системное: предыдущий ответ не был валидным JSON. Верни ТОЛЬКО JSON-объект.]` },
@@ -68,6 +70,8 @@ async function classifyTurn({ params, callClaudeApi, retryCount = 0 }) {
   try {
     validateGmResponse(parsed);
   } catch (err) {
+    console.error(`[GM] Validation error (retry ${retryCount}):`, err.message);
+    console.error(`[GM] Parsed action_type:`, parsed.action_type, "severity:", parsed.severity);
     if (retryCount < MAX_RETRIES) {
       return classifyTurn({
         params: { ...params, playerInput: params.playerInput + `\n\n[Системное: ошибка валидации "${err.message}". Исправь и верни корректный JSON.]` },

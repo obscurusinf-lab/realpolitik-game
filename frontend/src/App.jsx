@@ -503,11 +503,22 @@ function Modal({ title, children, onClose }) {
 }
 
 const statMeta = {
-  economy: { label: "Экономика", icon: TrendingDown, color: "#9c8347" },
-  military: { label: "Армия", icon: Swords, color: "#a8313a" },
-  stability: { label: "Стабильность", icon: Shield, color: "#4a6b5c" },
-  diplomacy: { label: "Дипломатия", icon: Globe2, color: "#5b6b8c" },
-  approval: { label: "Поддержка", icon: Landmark, color: "#8c6b3a" },
+  economy:   { label: "Экономика",    icon: TrendingDown, color: "#3a8a7a" },
+  military:  { label: "Армия",        icon: Swords,       color: "#a8313a" },
+  stability: { label: "Стабильность", icon: Shield,       color: "#4a6b5c" },
+  diplomacy: { label: "Дипломатия",   icon: Globe2,       color: "#5b6b8c" },
+  approval:  { label: "Поддержка",    icon: Landmark,     color: "#8c6b3a" },
+};
+
+// Плоский словарь всех меток (основные + субметрики) для отображения дельт
+const ALL_STAT_LABELS = {
+  economy: "Экономика", military: "Армия", stability: "Стабильность",
+  diplomacy: "Дипломатия", approval: "Поддержка", initiative: "Инициатива",
+  gdp_growth: "Рост ВВП", inflation: "Инфляция", employment: "Занятость", reserves: "Резервы",
+  army_morale: "Боевой дух", equipment: "Техника", readiness: "Боеготовность", veterans: "Опыт войск",
+  ally_trust: "Доверие союзников", isolation: "Изоляция", soft_power: "Мягкая сила", reputation: "Репутация",
+  law_order: "Правопорядок", social_tension: "Соц. напряж.", media_control: "Контроль СМИ", regional_unity: "Ед. регионов",
+  elite_satisfaction: "Элиты", corruption: "Коррупция", middle_class: "Средний класс", lower_class_mood: "Народ",
 };
 
 function Bar({ value, color }) {
@@ -643,7 +654,7 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
             ? <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>
             : deltas.map(([stat, delta]) => (
               <span key={stat} className="mono-font" style={{ fontSize: 12, color: delta > 0 ? "#7fae93" : "#e09090" }}>
-                {statMeta[stat]?.label ?? stat} {delta > 0 ? `+${delta}` : delta}
+                {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
               </span>
             ))
           }
@@ -680,6 +691,127 @@ function btnStyle(bg, color) {
   return { background: bg, color, border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: "pointer" };
 }
 
+function DecreeLegendModal({ onClose }) {
+  const CATEGORIES = [
+    {
+      id: "decree_fast",
+      icon: "📜",
+      title: "Быстрый указ",
+      duration: "1–2 месяца",
+      initiative: 20,
+      color: "#7ab09c",
+      desc: "Оперативное президентское решение: кадровые назначения, точечные постановления, экстренные меры. Подписывается и вступает в силу немедленно. Эффект ограниченный — вы решаете конкретную проблему, но не меняете систему.",
+      examples: ["Отправить в отставку министра", "Ввести временные пошлины на импорт", "Назначить спецпредставителя по переговорам", "Заморозить цены на топливо на 2 месяца"],
+      pros: ["Быстро — виден результат уже на следующем ходе", "Дёшево по инициативе"],
+      cons: ["Эффект краткосрочный и небольшой", "Не решает структурных проблем"],
+    },
+    {
+      id: "decree_reform",
+      icon: "📋",
+      title: "Реформа",
+      duration: "3–6 месяцев",
+      initiative: 35,
+      color: "#9c8347",
+      desc: "Системные изменения в одной отрасли или сфере государственного управления. Требует согласования ведомств, выделения ресурсов, назначения ответственных. Меняет правила работы — не разовую ситуацию, а механизм.",
+      examples: ["Реформа судебной системы", "Налоговая реформа малого бизнеса", "Реструктуризация армейских подразделений", "Программа поддержки регионального экспорта"],
+      pros: ["Средний масштаб эффекта", "Относительно управляемый риск", "Виден прогресс по ходам"],
+      cons: ["Нужно время — результат через 3–6 ходов", "Может встретить сопротивление элит"],
+    },
+    {
+      id: "decree_program",
+      icon: "🏛",
+      title: "Крупная программа",
+      duration: "7–12 месяцев",
+      initiative: 55,
+      color: "#9c7ab0",
+      desc: "Масштабная государственная инициатива с федеральным бюджетом, KPI, несколькими министерствами-исполнителями. Меняет структуру экономики, вооружённых сил или общества. Высокий риск — провал программы ударит по рейтингу и стабильности. Высокий выигрыш — при успехе эффект многократно превышает реформу.",
+      examples: ["Государственная программа вооружений", "Национальный проект «Инфраструктура»", "Программа импортозамещения в IT", "Масштабная демографическая программа"],
+      pros: ["Максимальный эффект при успехе", "Видна международному сообществу — влияет на дипломатию"],
+      cons: ["Очень дорого по инициативе", "Долгий срок — много ходов до результата", "Провал = крупный штраф к рейтингу и стабильности"],
+    },
+  ];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(14,18,26,0.9)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 8, width: "min(95vw, 680px)", maxHeight: "88vh", overflowY: "auto", color: "#ece7d8" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #2a3040", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.15em", marginBottom: 4 }}>ЛИКБЕЗ · ТИПЫ ГОСУДАРСТВЕННЫХ РЕШЕНИЙ</div>
+            <div className="doc-font" style={{ fontSize: 15, fontWeight: 700 }}>Как работают указы, реформы и программы</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#5a6070", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: "20px" }}>
+          <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", lineHeight: 1.6, marginBottom: 20 }}>
+            Президент не управляет страной напрямую — он задаёт направление. Масштаб решения определяет, насколько глубоко оно меняет систему, сколько времени нужно на исполнение и сколько политического капитала (инициативы) оно стоит.
+          </div>
+
+          <div style={{ display: "grid", gap: 16 }}>
+            {CATEGORIES.map(cat => (
+              <div key={cat.id} style={{ background: "#1a1f2c", border: `1px solid ${cat.color}30`, borderRadius: 6, padding: "16px 18px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <span style={{ fontSize: 20 }}>{cat.icon}</span>
+                  <div>
+                    <div className="doc-font" style={{ fontSize: 15, fontWeight: 700, color: cat.color }}>{cat.title}</div>
+                    <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>
+                      СРОК: {cat.duration} · ИНИЦИАТИВА: −{cat.initiative}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="doc-font" style={{ fontSize: 13, color: "#c0b898", lineHeight: 1.55, marginBottom: 12 }}>{cat.desc}</div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <div className="mono-font" style={{ fontSize: 8, color: "#4a6b5c", marginBottom: 5 }}>ПРИМЕРЫ</div>
+                    <ul style={{ margin: 0, paddingLeft: 14 }}>
+                      {cat.examples.map((e, i) => (
+                        <li key={i} className="doc-font" style={{ fontSize: 12, color: "#8a8472", lineHeight: 1.5 }}>{e}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="mono-font" style={{ fontSize: 8, color: "#4a6b5c", marginBottom: 5 }}>ПЛЮСЫ</div>
+                    {cat.pros.map((p, i) => (
+                      <div key={i} className="doc-font" style={{ fontSize: 12, color: "#7ab09c", lineHeight: 1.5, marginBottom: 2 }}>+ {p}</div>
+                    ))}
+                    <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", marginTop: 6, marginBottom: 5 }}>МИНУСЫ</div>
+                    {cat.cons.map((c, i) => (
+                      <div key={i} className="doc-font" style={{ fontSize: 12, color: "#c07070", lineHeight: 1.5, marginBottom: 2 }}>− {c}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 16, background: "#1a1f2c", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 16px" }}>
+            <div className="mono-font" style={{ fontSize: 8, color: "#9c8347", marginBottom: 6 }}>РАЗВЕДКА И ВОЕННЫЕ ОПЕРАЦИИ</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <span style={{ fontSize: 13 }}>🕵️ </span>
+                <span className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#7a9cb0" }}>Разведка</span>
+                <span className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginLeft: 6 }}>−20 инициативы</span>
+                <div className="doc-font" style={{ fontSize: 12, color: "#8a8472", marginTop: 4, lineHeight: 1.5 }}>Тайная операция — компромат, вербовка, дезинформация, провокация. Случайный исход: от блестящей операции до провала с задержанием агента.</div>
+              </div>
+              <div>
+                <span style={{ fontSize: 13 }}>⚔️ </span>
+                <span className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#c07070" }}>Военная операция</span>
+                <span className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginLeft: 6 }}>−55 инициативы</span>
+                <div className="doc-font" style={{ fontSize: 12, color: "#8a8472", marginTop: 4, lineHeight: 1.5 }}>Прямое применение силы или публичная угроза её применения. Самое дорогое и рискованное действие. Влияет на всех соседей и союзников.</div>
+              </div>
+            </div>
+          </div>
+
+          <button onClick={onClose} style={{ marginTop: 16, width: "100%", background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "10px", fontFamily: "'PT Serif',serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            Понятно →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
   const [state, setState] = useState(null);
   const [tab, setTab] = useState("overview");
@@ -688,7 +820,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [loadError, setLoadError] = useState(null);
 
   const [draftInput, setDraftInput] = useState("");
-  const [actionMode, setActionMode] = useState("decree");
+  const [actionMode, setActionMode] = useState("decree_fast");
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -707,9 +839,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [advisors, setAdvisors] = useState(null);
   const [consulting, setConsulting] = useState(false);
   const [advisorError, setAdvisorError] = useState(null);
+  const actionModeRef = useRef("decree_fast");
+  const consultingRef = useRef(false);
 
   const [suggestions, setSuggestions] = useState(null);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [showDecreeLegend, setShowDecreeLegend] = useState(false);
 
   const loadState = useCallback(async () => {
     try {
@@ -733,7 +868,27 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     loadState();
   }, [loadState]);
 
-  // Авто-консультация советников при открытии вкладки
+  // Предзагрузка советников сразу после загрузки игры
+  useEffect(() => {
+    if (loaded && state && !advisors && !consulting) {
+      handleConsult();
+    }
+  }, [loaded]);
+
+  // Синхронизируем ref с actionMode чтобы handleConsult всегда читал свежее значение
+  useEffect(() => { actionModeRef.current = actionMode; }, [actionMode]);
+
+  // Авто-обновление советников при смене режима
+  useEffect(() => {
+    if (!loaded || !state) return;
+    setAdvisors(null);
+    // Если сейчас идёт запрос — дождёмся его конца через consultingRef
+    if (!consultingRef.current) {
+      handleConsult();
+    }
+  }, [actionMode]);
+
+  // Обновить советников при переключении на вкладку если данных нет
   useEffect(() => {
     if (tab === "advisors" && !advisors && !consulting) {
       handleConsult();
@@ -783,7 +938,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       });
       setPreview(null);
       setDraftInput("");
-      setActionMode("decree");
+      setActionMode("decree_fast");
       await loadState();
       setTimeout(() => draftTextareaRef.current?.focus(), 100);
     } catch (err) {
@@ -900,15 +1055,26 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }
 
   async function handleConsult() {
-    if (consulting) return;
+    if (consultingRef.current) return;
+    consultingRef.current = true;
     setConsulting(true);
     setAdvisorError(null);
+    const modeForThisRequest = actionModeRef.current;
     try {
-      const result = await consultAdvisors(gameId, draftInput);
+      const result = await consultAdvisors(gameId, draftInput, modeForThisRequest);
+      // Если пока запрос шёл пользователь сменил режим — сбрасываем и перезапрашиваем
+      if (actionModeRef.current !== modeForThisRequest) {
+        setAdvisors(null);
+        consultingRef.current = false;
+        setConsulting(false);
+        handleConsult();
+        return;
+      }
       setAdvisors(result.advisors);
     } catch (err) {
       setAdvisorError(err.message);
     } finally {
+      consultingRef.current = false;
       setConsulting(false);
     }
   }
@@ -1064,6 +1230,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             consulting={consulting}
             advisorError={advisorError}
             draftInput={draftInput}
+            actionMode={actionMode}
             onConsult={handleConsult}
             onSelectAdvice={(text) => { setDraftInput(text); setTab("overview"); }}
           />
@@ -1173,6 +1340,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           })()}
 
           {/* Тип действия */}
+          {showDecreeLegend && <DecreeLegendModal onClose={() => setShowDecreeLegend(false)} />}
           {(() => {
             const crisisMode = !!(state?.overview?.crisis_mode);
             const decreeButtons = crisisMode
@@ -1209,6 +1377,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                     {dur && <span style={{ color: "#3a4050", fontSize: 8 }}>{dur}</span>}
                   </button>
                 ))}
+                <button
+                  onClick={() => setShowDecreeLegend(true)}
+                  title="Что такое быстрый указ, реформа и программа?"
+                  style={{ background: "transparent", border: "1px solid #2a3040", borderRadius: "50%", width: 22, height: 22, color: "#5a6070", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}
+                >?</button>
               </div>
             );
           })()}
@@ -1304,38 +1477,43 @@ const DIRECTION_LABEL = {
   null_action: "бездействие",
 };
 
-function AdvisorsTab({ advisors, consulting, advisorError, draftInput, onConsult, onSelectAdvice }) {
+const ACTION_MODE_BADGE = {
+  decree_fast:    { label: "📜 Быстрый указ",     color: "#7ab09c" },
+  decree_reform:  { label: "📋 Реформа",           color: "#9c8347" },
+  decree_program: { label: "🏛 Крупная программа", color: "#9c7ab0" },
+  intel:          { label: "🕵️ Разведка",          color: "#7a9cb0" },
+  military:       { label: "⚔️ Военная операция",  color: "#c07070" },
+  crisis:         { label: "⚡ Антикризисный",     color: "#c09030" },
+};
+
+function AdvisorsTab({ advisors, consulting, advisorError, draftInput, actionMode, onConsult, onSelectAdvice }) {
+  const badge = ACTION_MODE_BADGE[actionMode] || ACTION_MODE_BADGE.decree_fast;
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em" }}>СОВЕТ ПО РЕЖИМУ:</span>
+          <span style={{ background: badge.color + "22", border: `1px solid ${badge.color}55`, borderRadius: 4, padding: "3px 10px", color: badge.color, fontFamily: "'PT Serif',serif", fontSize: 12 }}>{badge.label}</span>
+          {consulting && <span className="mono-font" style={{ fontSize: 9, color: "#9c8347", animation: "pulse 1.2s infinite" }}>обновляется…</span>}
+        </div>
         <button
           onClick={onConsult}
           disabled={consulting}
-          style={{
-            background: consulting ? "#5a5040" : "#9c8347",
-            color: "#1a1f2c",
-            border: "none",
-            borderRadius: 4,
-            padding: "9px 18px",
-            fontFamily: "'PT Serif',serif",
-            fontSize: 13.5,
-            cursor: consulting ? "default" : "pointer",
-            opacity: consulting ? 0.7 : 1,
-          }}
+          style={{ background: consulting ? "#5a5040" : "#9c8347", color: "#1a1f2c", border: "none", borderRadius: 4, padding: "7px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: consulting ? "default" : "pointer", opacity: consulting ? 0.7 : 1 }}
         >
-          {consulting ? "Советники совещаются…" : draftInput.trim() ? "Обновить совет по черновику" : "Обновить совет"}
+          {draftInput.trim() ? "Совет по черновику" : "Обновить совет"}
         </button>
-        {draftInput.trim() && !consulting && (
-          <div className="doc-font" style={{ marginTop: 8, fontSize: 12, color: "#5c5648", fontStyle: "italic" }}>
-            Советники прочитают ваш черновик: «{draftInput.slice(0, 80)}{draftInput.length > 80 ? "…" : ""}»
-          </div>
-        )}
-        {advisorError && (
-          <div className="doc-font" style={{ marginTop: 8, fontSize: 12.5, color: "#a8313a" }}>
-            Ошибка: {advisorError}
-          </div>
-        )}
       </div>
+      {draftInput.trim() && !consulting && (
+        <div className="doc-font" style={{ marginBottom: 10, fontSize: 12, color: "#5c5648", fontStyle: "italic" }}>
+          Советники прочитают ваш черновик: «{draftInput.slice(0, 80)}{draftInput.length > 80 ? "…" : ""}»
+        </div>
+      )}
+      {advisorError && (
+        <div className="doc-font" style={{ marginBottom: 10, fontSize: 12.5, color: "#a8313a" }}>
+          Ошибка: {advisorError}
+        </div>
+      )}
 
       {!advisors && !consulting && (
         <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>
@@ -1415,7 +1593,7 @@ function AdvisorsTab({ advisors, consulting, advisorError, draftInput, onConsult
 }
 
 const STAT_LABEL = { economy: "Экономика", military: "Армия", stability: "Стабильность", diplomacy: "Дипломатия", approval: "Одобрение" };
-const STAT_COLOR = { economy: "#9c8347", military: "#a8313a", stability: "#4a6b5c", diplomacy: "#5b6b8c", approval: "#8c6b3a" };
+const STAT_COLOR = { economy: "#3a8a7a", military: "#a8313a", stability: "#4a6b5c", diplomacy: "#5b6b8c", approval: "#8c6b3a" };
 
 function statLevel(v) {
   if (v >= 70) return { label: "Высокий", color: "#7fae93" };
@@ -1469,14 +1647,14 @@ function WelcomeModal({ state, playerName, onClose }) {
           <div style={{ marginBottom: 24 }}>
             <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 12 }}>ОПЕРАТИВНАЯ СВОДКА</div>
             <div style={{ display: "grid", gap: 9 }}>
-              {Object.entries(stats).map(([key, value]) => {
+              {Object.entries(stats).filter(([key]) => STAT_LABEL[key]).map(([key, value]) => {
                 const lvl = statLevel(value);
                 const color = STAT_COLOR[key] || "#9c8347";
                 return (
                   <div key={key} style={{ background: "#1f2733", borderRadius: 4, padding: "10px 14px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
                       <span className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#ece7d8" }}>
-                        {STAT_LABEL[key] || key}
+                        {STAT_LABEL[key]}
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span className="mono-font" style={{ fontSize: 9, color: lvl.color, letterSpacing: "0.08em" }}>{lvl.label.toUpperCase()}</span>
@@ -2310,12 +2488,38 @@ function MapTab({ state }) {
   );
 }
 
-// Субметрики общества — показываются внутри карточки "Рейтинг"
+// Субметрики по каждому основному стату
 const SUBSTAT_META = {
-  elite_satisfaction: { label: "Элиты", color: "#8c6b3a", desc: "Довольство силовиков, олигархов, чиновников" },
-  corruption:         { label: "Коррупция", color: "#a8313a", desc: "Уровень коррупции в госаппарате (выше = хуже)", inverted: true },
-  middle_class:       { label: "Средний класс", color: "#5b6b8c", desc: "Размер и настроение среднего класса" },
-  lower_class_mood:   { label: "Народ", color: "#4a6b5c", desc: "Настроение низших слоёв населения" },
+  economy: [
+    { key: "gdp_growth",  label: "Рост ВВП",    color: "#3a8a7a", desc: "Темп роста экономики" },
+    { key: "inflation",   label: "Инфляция",    color: "#c06050", desc: "Уровень инфляции (выше = хуже)", inverted: true },
+    { key: "employment",  label: "Занятость",   color: "#4a7a5c", desc: "Уровень занятости населения" },
+    { key: "reserves",    label: "Резервы",     color: "#9c8347", desc: "Золотовалютные и бюджетные резервы" },
+  ],
+  military: [
+    { key: "army_morale", label: "Боевой дух",  color: "#c04040", desc: "Моральное состояние армии" },
+    { key: "equipment",   label: "Техника",     color: "#8c5a3a", desc: "Уровень технического оснащения" },
+    { key: "readiness",   label: "Боеготовность", color: "#a84020", desc: "Готовность к боевым действиям" },
+    { key: "veterans",    label: "Опыт войск",  color: "#7a3030", desc: "Доля опытных боевых ветеранов" },
+  ],
+  diplomacy: [
+    { key: "ally_trust",  label: "Доверие союзников", color: "#5b6b8c", desc: "Уровень доверия со стороны союзников" },
+    { key: "isolation",   label: "Изоляция",    color: "#8c5b5b", desc: "Дипломатическая изоляция (выше = хуже)", inverted: true },
+    { key: "soft_power",  label: "Мягкая сила", color: "#6b8c9c", desc: "Культурное и информационное влияние" },
+    { key: "reputation",  label: "Репутация",   color: "#4a6b8c", desc: "Международная репутация" },
+  ],
+  stability: [
+    { key: "law_order",       label: "Правопорядок",     color: "#4a6b5c", desc: "Эффективность правовой системы" },
+    { key: "social_tension",  label: "Соц. напряж.",     color: "#a85030", desc: "Социальная напряжённость (выше = хуже)", inverted: true },
+    { key: "media_control",   label: "Контроль СМИ",     color: "#5c7a6b", desc: "Степень контроля над медиапространством" },
+    { key: "regional_unity",  label: "Единство регионов",color: "#3a7a5c", desc: "Стабильность и лояльность регионов" },
+  ],
+  approval: [
+    { key: "elite_satisfaction", label: "Элиты",        color: "#8c6b3a", desc: "Довольство силовиков, олигархов, чиновников" },
+    { key: "corruption",         label: "Коррупция",    color: "#a8313a", desc: "Уровень коррупции в госаппарате (выше = хуже)", inverted: true },
+    { key: "middle_class",       label: "Средний класс",color: "#5b6b8c", desc: "Размер и настроение среднего класса" },
+    { key: "lower_class_mood",   label: "Народ",        color: "#4a6b5c", desc: "Настроение низших слоёв населения" },
+  ],
 };
 
 // Спарклайн-график из SVG без библиотек
@@ -2359,9 +2563,7 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
     approval: ["Экономическое благополучие", "Военные успехи", "Репрессии", "Мир"],
   };
 
-  const substats = statKey === "approval"
-    ? Object.entries(SUBSTAT_META).map(([k, sm]) => ({ key: k, ...sm, value: state.stats[k] ?? 50 }))
-    : null;
+  const substats = (SUBSTAT_META[statKey] || []).map(sm => ({ ...sm, value: state.stats[sm.key] ?? 50 }));
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(20,24,31,0.85)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
@@ -2398,10 +2600,10 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
             </div>
           )}
 
-          {/* Субметрики (только для "Одобрение") */}
-          {substats && (
+          {/* Субметрики */}
+          {substats.length > 0 && (
             <div style={{ marginBottom: 18 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 10 }}>СТРУКТУРА ОБЩЕСТВЕННОЙ ПОДДЕРЖКИ</div>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 10 }}>ДЕТАЛЬНЫЕ ПОКАЗАТЕЛИ</div>
               <div style={{ display: "grid", gap: 10 }}>
                 {substats.map(s => (
                   <div key={s.key}>
@@ -2456,10 +2658,7 @@ function StatsTab({ state, gameId }) {
         {Object.entries(state.stats).filter(([key]) => statMeta[key]).map(([key, value]) => {
           const meta = statMeta[key];
           const Icon = meta.icon;
-          const hasSubstats = key === "approval";
-          const substats = hasSubstats
-            ? Object.entries(SUBSTAT_META).map(([k, sm]) => ({ key: k, ...sm, value: state.stats[k] ?? 50 }))
-            : null;
+          const substats = (SUBSTAT_META[key] || []).map(sm => ({ ...sm, value: state.stats[sm.key] ?? 50 }));
           return (
             <div key={key} onClick={() => setOpenStat(key)} style={{ cursor: "pointer", borderRadius: 6, padding: "10px 12px", background: "#f5f1e6", border: "1px solid #d8d2bf", transition: "border-color 0.15s" }}
               onMouseEnter={e => e.currentTarget.style.borderColor = meta.color}
@@ -2475,8 +2674,7 @@ function StatsTab({ state, gameId }) {
                 </div>
               </div>
               <Bar value={value} color={meta.color} />
-              {/* Субметрики для "Рейтинг" — компактно */}
-              {substats && (
+              {substats.length > 0 && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginTop: 10 }}>
                   {substats.map(s => (
                     <div key={s.key}>
@@ -2795,7 +2993,7 @@ function StatDeltaBadges({ delta }) {
           color: v < 0 ? "#e07070" : "#7fae93",
           border: `1px solid ${v < 0 ? "#6a1010" : "#2a4030"}`,
         }}>
-          {STAT_LABEL[k] || k} {v > 0 ? "+" : ""}{v}
+          {ALL_STAT_LABELS[k] || k} {v > 0 ? "+" : ""}{v}
         </span>
       ))}
     </div>

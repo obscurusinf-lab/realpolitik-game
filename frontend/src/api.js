@@ -115,11 +115,11 @@ export async function fetchSuggestions(gameId, actionMode = "decree") {
   return res.json();
 }
 
-export async function consultAdvisors(gameId, playerDraft) {
+export async function consultAdvisors(gameId, playerDraft, actionMode) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/advisors/consult`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ playerDraft: playerDraft || null }),
+    body: JSON.stringify({ playerDraft: playerDraft || null, actionMode: actionMode || "decree_reform" }),
   }, 60000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

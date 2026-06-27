@@ -11,7 +11,7 @@ const { consultAdvisors } = require("../ai/advisors");
 async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
   fastify.post("/games/:gameId/advisors/consult", async (request, reply) => {
     const { gameId } = request.params;
-    const { playerDraft } = request.body || {};
+    const { playerDraft, actionMode = "decree_reform" } = request.body || {};
 
     const gameRes = await db.query(
       `SELECT g.current_turn, gs.stats, gs.relations, gs.policies, gs.overview,
@@ -47,6 +47,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
         policies: game.policies || [],
         recentHistory,
         playerDraft: playerDraft?.trim() || null,
+        actionMode: actionMode || "decree_reform",
       },
       callClaudeApi,
     });

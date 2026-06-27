@@ -12,7 +12,23 @@
     "elite_satisfaction": 62,
     "corruption": 55,
     "middle_class": 44,
-    "lower_class_mood": 41
+    "lower_class_mood": 41,
+    "gdp_growth": 36,
+    "inflation": 64,
+    "employment": 74,
+    "reserves": 48,
+    "army_morale": 62,
+    "equipment": 65,
+    "readiness": 70,
+    "veterans": 72,
+    "ally_trust": 42,
+    "isolation": 68,
+    "soft_power": 32,
+    "reputation": 28,
+    "law_order": 72,
+    "social_tension": 38,
+    "media_control": 76,
+    "regional_unity": 64
   },
 
   "stat_rationale": {
