@@ -736,8 +736,18 @@ function LeaderboardPage({ onBack }) {
   );
 }
 
+function loadActiveGame() {
+  try { return JSON.parse(localStorage.getItem("activeGame") || "null"); } catch { return null; }
+}
+function saveActiveGame(game) {
+  try {
+    if (game) localStorage.setItem("activeGame", JSON.stringify(game));
+    else localStorage.removeItem("activeGame");
+  } catch {}
+}
+
 function Root() {
-  const [game, setGame] = useState(null);
+  const [game, setGame] = useState(loadActiveGame);
   const [sessions, setSessions] = useState(loadSessions);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -764,11 +774,15 @@ function Root() {
     const updated = [entry, ...sessions.filter(s => s.id !== id)].slice(0, 5);
     saveSessions(updated);
     setSessions(updated);
-    setGame({ id, name: playerName });
+    const g = { id, name: playerName };
+    saveActiveGame(g);
+    setGame(g);
   }
 
   function handleResume(session) {
-    setGame({ id: session.id, name: session.playerName });
+    const g = { id: session.id, name: session.playerName };
+    saveActiveGame(g);
+    setGame(g);
   }
 
   function handleDeleteSession(e, id) {
@@ -779,6 +793,7 @@ function Root() {
   }
 
   function handleNewGame() {
+    saveActiveGame(null);
     setGame(null);
   }
 
