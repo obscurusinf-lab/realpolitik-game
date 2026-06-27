@@ -38,7 +38,8 @@ const ADVISORS = [
   },
 ];
 
-const SYSTEM_PROMPT = `Ты — система моделирования кабинета советников российского президента в геополитической стратегической игре.
+const SYSTEM_PROMPT = `Ты — система моделирования кабинета советников президента страны {{country_name}} в геополитической стратегической игре.
+Президента зовут: {{player_name}}. Советники обращаются к нему по имени-отчеству.
 
 Твоя задача: от лица каждого из пяти советников дать короткую, живую рекомендацию президенту.
 
@@ -82,13 +83,14 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
   ]
 }`;
 
-function buildAdvisorsPrompt({ countryName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft }) {
+function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft }) {
   const draftSection = playerDraft
     ? `ЧЕРНОВИК РЕШЕНИЯ ПРЕЗИДЕНТА (советники реагируют на него):\n"${playerDraft}"`
     : `ПРЕЗИДЕНТ ЕЩЁ НЕ СФОРМУЛИРОВАЛ РЕШЕНИЕ. Советники дают общие рекомендации исходя из текущей обстановки.`;
 
   return SYSTEM_PROMPT
     .replace("{{advisors_json}}", JSON.stringify(ADVISORS.map(a => ({ id: a.id, name: a.name, role: a.role, persona: a.persona })), null, 2))
+    .replace("{{player_name}}", playerName || "Господин Президент")
     .replace("{{country_name}}", countryName)
     .replace("{{game_date}}", gameDate)
     .replace("{{turn_number}}", turnNumber)

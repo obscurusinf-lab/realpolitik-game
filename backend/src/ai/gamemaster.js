@@ -16,9 +16,10 @@ const SYSTEM_PROMPT_TEMPLATE = require("fs").readFileSync(
 
 const MAX_RETRIES = 2;
 
-function buildPrompt({ countryName, gameDate, turnNumber, currentState, activePolicies, delayedEffects, playerInput, actionMode = "decree" }) {
+function buildPrompt({ countryName, playerName, gameDate, turnNumber, currentState, activePolicies, delayedEffects, playerInput, actionMode = "decree" }) {
   return SYSTEM_PROMPT_TEMPLATE
     .replace("{{country_name}}", countryName)
+    .replace("{{player_name}}", playerName || "Господин Президент")
     .replace("{{game_date}}", gameDate)
     .replace("{{turn_number}}", turnNumber)
     .replace("{{current_state_json}}", JSON.stringify(currentState, null, 2))
