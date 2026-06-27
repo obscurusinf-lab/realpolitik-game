@@ -3254,6 +3254,24 @@ function WorldTab({ state }) {
   const [modal, setModal] = useState(null);
   const worldMoves = (state.newsfeed || []).filter(i => i.type === "world_move");
 
+  // Строим словарь отношений: страна → значение
+  const relMap = {};
+  for (const r of (state.relations || [])) relMap[r.name] = r.value;
+
+  // Определяем статус страны по уровню отношений
+  function getStance(countryName) {
+    const val = relMap[countryName];
+    if (val === undefined) return "neutral";
+    if (val >= 60) return "cooperative";
+    if (val <= 30) return "hostile";
+    return "neutral";
+  }
+
+  const STANCE_COLOR  = { cooperative: "#4a6b5c", neutral: "#7a6a3a", hostile: "#a8313a" };
+  const STANCE_BG     = { cooperative: "#f0f5f0", neutral: "#f5f1e6", hostile: "#f5f0ee" };
+  const STANCE_BORDER = { cooperative: "#4a6b5c", neutral: "#9c8347", hostile: "#a8313a" };
+  const STANCE_BADGE  = { cooperative: "СОЮЗНИК", neutral: "НЕЙТРАЛЬНО", hostile: "ПРОТИВНИК" };
+
   if (!worldMoves.length) {
     return (
       <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>
@@ -3262,7 +3280,6 @@ function WorldTab({ state }) {
     );
   }
 
-  // Группируем по ходу
   const byTurn = {};
   for (const m of [...worldMoves].reverse()) {
     if (!byTurn[m.turn]) byTurn[m.turn] = [];
@@ -3271,23 +3288,35 @@ function WorldTab({ state }) {
 
   return (
     <div>
-      {modal && (
-        <Modal title={modal.source.toUpperCase() + " · ХОД " + modal.turn} onClose={() => setModal(null)}>
-          <div className="doc-font" style={{ fontSize: 15, lineHeight: 1.65, color: "#3a362e", marginBottom: 14 }}>
-            {modal.text}
-          </div>
-          {modal.reactions?.length > 0 && (
-            <div style={{ borderTop: "1px solid #d8d2bf", paddingTop: 12 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8, letterSpacing: "0.06em" }}>ОЦЕНКА АНАЛИТИКОВ</div>
-              {modal.reactions.map((r, i) => (
-                <div key={i} className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#5c5648", fontStyle: "italic" }}>
-                  «{r.text}»
+      {modal && (() => {
+        const stance = getStance(modal.source);
+        const col = STANCE_COLOR[stance];
+        const relVal = relMap[modal.source];
+        return (
+          <Modal title={modal.source.toUpperCase() + " · ХОД " + modal.turn} onClose={() => setModal(null)}>
+            {relVal !== undefined && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "7px 10px", background: STANCE_BG[stance], borderRadius: 4, border: `1px solid ${col}33` }}>
+                <span className="mono-font" style={{ fontSize: 9, color: col, letterSpacing: "0.08em" }}>{STANCE_BADGE[stance]}</span>
+                <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: col }}>{relVal}/100</span>
+                <div style={{ flex: 1, height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${relVal}%`, height: "100%", background: col }} />
                 </div>
-              ))}
+              </div>
+            )}
+            <div className="doc-font" style={{ fontSize: 15, lineHeight: 1.65, color: "#3a362e", marginBottom: 14 }}>
+              {modal.text}
             </div>
-          )}
-        </Modal>
-      )}
+            {modal.reactions?.length > 0 && (
+              <div style={{ borderTop: "1px solid #d8d2bf", paddingTop: 12 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8, letterSpacing: "0.06em" }}>ОЦЕНКА АНАЛИТИКОВ</div>
+                {modal.reactions.map((r, i) => (
+                  <div key={i} className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#5c5648", fontStyle: "italic" }}>«{r.text}»</div>
+                ))}
+              </div>
+            )}
+          </Modal>
+        );
+      })()}
 
       <div style={{ display: "grid", gap: 20 }}>
         {Object.entries(byTurn).map(([turn, moves]) => (
@@ -3297,25 +3326,37 @@ function WorldTab({ state }) {
             </div>
             <div style={{ display: "grid", gap: 8 }}>
               {moves.map((move, i) => {
-                const dirColor = DIRECTION_COLOR[move.reactions?.[0]?.tone === "neg" ? "hostile" : move.reactions?.[0]?.tone === "pos" ? "cooperative" : "neutral"] || DIRECTION_COLOR.neutral;
+                const stance = getStance(move.source);
+                const col = STANCE_COLOR[stance];
+                const bg  = STANCE_BG[stance];
+                const brd = STANCE_BORDER[stance];
+                const relVal = relMap[move.source];
                 return (
                   <div
                     key={i}
                     onClick={() => setModal(move)}
-                    style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderLeft: `4px solid ${dirColor}`, borderRadius: 4, padding: "10px 12px", cursor: "pointer" }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}
+                    style={{ background: bg, border: `1px solid ${brd}44`, borderLeft: `4px solid ${brd}`, borderRadius: 4, padding: "10px 12px", cursor: "pointer", transition: "opacity 0.15s" }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+                    onMouseLeave={e => e.currentTarget.style.opacity = "1"}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ flex: 1 }}>
-                        <div className="mono-font" style={{ fontSize: 10, color: dirColor, letterSpacing: "0.06em", marginBottom: 3 }}>
-                          {move.source.toUpperCase()}
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                          <span className="mono-font" style={{ fontSize: 11, color: col, fontWeight: 700, letterSpacing: "0.04em" }}>
+                            {move.source.toUpperCase()}
+                          </span>
+                          <span className="mono-font" style={{ fontSize: 8, color: col, background: `${col}18`, padding: "1px 5px", borderRadius: 2 }}>
+                            {STANCE_BADGE[stance]}
+                          </span>
+                          {relVal !== undefined && (
+                            <span className="mono-font" style={{ fontSize: 9, color: "#a8a294" }}>{relVal}</span>
+                          )}
                         </div>
-                        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.4 }}>
-                          {move.text.length > 100 ? move.text.slice(0, 100) + "…" : move.text}
+                        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.4, color: "#3a362e" }}>
+                          {move.text.length > 110 ? move.text.slice(0, 110) + "…" : move.text}
                         </div>
                       </div>
-                      <span style={{ color: "#9c8347", marginLeft: 10, flexShrink: 0, fontSize: 16 }}>›</span>
+                      <span style={{ color: col, marginLeft: 10, flexShrink: 0, fontSize: 16 }}>›</span>
                     </div>
                   </div>
                 );
