@@ -1866,6 +1866,7 @@ function WelcomeModal({ state, playerName, onClose }) {
   const countryName = state?.countryName || "страну";
   const countryAcc = COUNTRY_ACCUSATIVE[countryName] || countryName;
   const context = state?.contextSummary || null;
+  const [expandedStat, setExpandedStat] = useState(null);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
@@ -1903,25 +1904,54 @@ function WelcomeModal({ state, playerName, onClose }) {
 
           {/* Показатели */}
           <div style={{ marginBottom: 24 }}>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 12 }}>ОПЕРАТИВНАЯ СВОДКА</div>
-            <div style={{ display: "grid", gap: 9 }}>
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 12 }}>ОПЕРАТИВНАЯ СВОДКА · нажмите для деталей</div>
+            <div style={{ display: "grid", gap: 8 }}>
               {Object.entries(stats).filter(([key]) => STAT_LABEL[key]).map(([key, value]) => {
                 const lvl = statLevel(value);
                 const color = STAT_COLOR[key] || "#9c8347";
+                const substats = (SUBSTAT_META[key] || []).map(sm => ({ ...sm, value: stats[sm.key] ?? 50 }));
+                const isOpen = expandedStat === key;
                 return (
-                  <div key={key} style={{ background: "#1f2733", borderRadius: 4, padding: "10px 14px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-                      <span className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#ece7d8" }}>
-                        {STAT_LABEL[key]}
-                      </span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span className="mono-font" style={{ fontSize: 9, color: lvl.color, letterSpacing: "0.08em" }}>{lvl.label.toUpperCase()}</span>
-                        <span className="mono-font" style={{ fontSize: 14, fontWeight: 700, color }}>{value}</span>
+                  <div key={key} style={{ background: "#1f2733", borderRadius: 4, border: `1px solid ${isOpen ? color + "44" : "transparent"}`, overflow: "hidden", cursor: "pointer" }}
+                    onClick={() => setExpandedStat(isOpen ? null : key)}>
+                    <div style={{ padding: "10px 14px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+                        <span className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#ece7d8" }}>
+                          {STAT_LABEL[key]}
+                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span className="mono-font" style={{ fontSize: 9, color: lvl.color, letterSpacing: "0.08em" }}>{lvl.label.toUpperCase()}</span>
+                          <span className="mono-font" style={{ fontSize: 14, fontWeight: 700, color }}>{value}</span>
+                          <span style={{ fontSize: 10, color, transition: "transform 0.2s", display: "inline-block", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+                        </div>
+                      </div>
+                      <div style={{ height: 5, background: "#2a3040", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ width: `${value}%`, height: "100%", background: color, borderRadius: 3 }} />
                       </div>
                     </div>
-                    <div style={{ height: 5, background: "#2a3040", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ width: `${value}%`, height: "100%", background: color, borderRadius: 3 }} />
-                    </div>
+                    {isOpen && substats.length > 0 && (
+                      <div style={{ borderTop: `1px solid ${color}22`, padding: "10px 14px 12px", background: "#18202a" }}>
+                        <div className="mono-font" style={{ fontSize: 8, color: "#4a5060", letterSpacing: "0.08em", marginBottom: 8 }}>ДЕТАЛЬНЫЕ ПОКАЗАТЕЛИ</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px 14px" }}>
+                          {substats.map(s => {
+                            const displayVal = s.inverted ? 100 - s.value : s.value;
+                            const clr = displayVal >= 60 ? "#4a8a6a" : displayVal >= 40 ? "#9c8347" : "#c05050";
+                            return (
+                              <div key={s.key}>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                                  <span className="doc-font" style={{ fontSize: 11, color: "#8a9aaa" }}>{s.label}</span>
+                                  <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{s.value}</span>
+                                </div>
+                                <div style={{ height: 3, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
+                                  <div style={{ width: `${displayVal}%`, height: "100%", background: clr }} />
+                                </div>
+                                {s.desc && <div style={{ fontSize: 9.5, color: "#4a5060", marginTop: 2, fontFamily: "monospace", lineHeight: 1.3 }}>{s.desc}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1930,19 +1960,54 @@ function WelcomeModal({ state, playerName, onClose }) {
 
           {/* Цель */}
           <div style={{ border: "1px solid #9c8347", borderRadius: 4, padding: "14px 16px", marginBottom: 24 }}>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 10 }}>ЦЕЛЬ ОПЕРАЦИИ</div>
-            <div className="doc-font" style={{ fontSize: 14, color: "#ece7d8", lineHeight: 1.65, marginBottom: 14 }}>
-              Управляйте страной <strong style={{ color: "#9c8347" }}>20 ходов</strong>, не допустив коллапса. Итоговый рейтинг — взвешенная сумма всех показателей в конце партии. Лучшие результаты попадают в таблицу лидеров.
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 10 }}>ЦЕЛЬ ОПЕРАЦИИ · 24 ХОДА (2 ГОДА)</div>
+            <div className="doc-font" style={{ fontSize: 13.5, color: "#ece7d8", lineHeight: 1.65, marginBottom: 16 }}>
+              Завершите мирный процесс по Украине и стабилизируйте страну к <strong style={{ color: "#9c8347" }}>концу 2027 года</strong>.
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+
+            {/* Условия победы */}
+            <div className="mono-font" style={{ fontSize: 9, color: "#4a6b5c", letterSpacing: "0.1em", marginBottom: 8 }}>УСЛОВИЯ ПОБЕДЫ (все сразу)</div>
+            <div style={{ display: "grid", gap: 6, marginBottom: 16 }}>
               {[
-                { cond: "Стабильность → 0", res: "Коллапс", color: "#a8313a" },
-                { cond: "20 ходов пройдено", res: "Финальный счёт", color: "#5b6b8c" },
-                { cond: "Рейтинг > 75", res: "Победа", color: "#4a6b5c" },
+                { label: "☮ Мирный договор", desc: "Донбасс и Луганск → России, Запорожье и Херсон по линии разграничения. США и Китай — наблюдатели. Санкции сняты.", color: "#4a6b5c" },
+                { label: "📈 Экономика ≥ 55", desc: "Рост ВВП, снижение инфляции, восстановление резервов после санкционного давления.", color: "#3a8a7a" },
+                { label: "🗳 Рейтинг ≥ 60", desc: "Поддержка населения достаточна для легитимного управления страной.", color: "#8c6b3a" },
+                { label: "🛡 Стабильность ≥ 60", desc: "Отсутствие серьёзных внутренних угроз, управляемое общество.", color: "#4a6b5c" },
+              ].map(({ label, desc, color }) => (
+                <div key={label} style={{ background: "#1f2733", borderRadius: 3, padding: "8px 12px", borderLeft: `3px solid ${color}` }}>
+                  <div className="doc-font" style={{ fontSize: 12.5, color: "#ece7d8", fontWeight: 700, marginBottom: 3 }}>{label}</div>
+                  <div className="doc-font" style={{ fontSize: 11.5, color: "#6a7080", lineHeight: 1.4 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Мирный путь */}
+            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>КАК ДВИГАТЬ МИРНЫЙ ТРЕК</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 16 }}>
+              {[
+                { label: "Дипломатия", desc: "Всегда продвигает трек вперёд", color: "#5b6b8c" },
+                { label: "Армия > 70", desc: "Наступление с позиции силы ускоряет мир", color: "#4a6b5c" },
+                { label: "Армия ≤ 70", desc: "Наступление откатывает переговоры назад", color: "#9c8347" },
+                { label: "Ядерный удар", desc: "Катастрофический откат трека (-40)", color: "#a8313a" },
+              ].map(({ label, desc, color }) => (
+                <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
+                  <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>
+                  <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", lineHeight: 1.3 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Условия поражения */}
+            <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 8 }}>ПОРАЖЕНИЕ (любое из условий)</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              {[
+                { cond: "Рейтинг < 25", res: "Переворот", color: "#a8313a" },
+                { cond: "Экономика < 30", res: "Коллапс", color: "#a8313a" },
+                { cond: "Стабильность < 20", res: "Волнения", color: "#a8313a" },
               ].map(({ cond, res, color }) => (
-                <div key={cond} style={{ background: "#1f2733", borderRadius: 3, padding: "8px 10px", borderTop: `2px solid ${color}` }}>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 3 }}>{cond}</div>
-                  <div className="mono-font" style={{ fontSize: 10, color, fontWeight: 700 }}>→ {res}</div>
+                <div key={cond} style={{ background: "#2a1a1a", borderRadius: 3, padding: "7px 9px", borderTop: `2px solid ${color}` }}>
+                  <div className="mono-font" style={{ fontSize: 8.5, color: "#6a4040", marginBottom: 2 }}>{cond}</div>
+                  <div className="mono-font" style={{ fontSize: 9.5, color, fontWeight: 700 }}>{res}</div>
                 </div>
               ))}
             </div>
@@ -2749,34 +2814,34 @@ function MapTab({ state }) {
 // Субметрики по каждому основному стату
 const SUBSTAT_META = {
   economy: [
-    { key: "gdp_growth",  label: "Рост ВВП",    color: "#3a8a7a", desc: "Темп роста экономики" },
-    { key: "inflation",   label: "Инфляция",    color: "#c06050", desc: "Уровень инфляции (выше = хуже)", inverted: true },
-    { key: "employment",  label: "Занятость",   color: "#4a7a5c", desc: "Уровень занятости населения" },
-    { key: "reserves",    label: "Резервы",     color: "#9c8347", desc: "Золотовалютные и бюджетные резервы" },
+    { key: "gdp_growth",  label: "Рост ВВП",    color: "#3a8a7a", desc: "0,6–1% г/г — пик перегрева прошёл, темп замедлился. Ставка ЦБ 18,5% давит кредитование." },
+    { key: "inflation",   label: "Инфляция",    color: "#c06050", desc: "8,2% г/г — ЦБ удерживает высокую ставку. Рост цен бьёт по реальным доходам.", inverted: true },
+    { key: "employment",  label: "Занятость",   color: "#4a7a5c", desc: "Рынок труда перегрет: мобилизация и ВПК вытянули рабочих, безработица рекордно низкая." },
+    { key: "reserves",    label: "Резервы",     color: "#9c8347", desc: "ФНБ расходуется на покрытие дефицита. $300 млрд заморожены Западом, доступны только около $290 млрд." },
   ],
   military: [
-    { key: "army_morale", label: "Боевой дух",  color: "#c04040", desc: "Моральное состояние армии" },
-    { key: "equipment",   label: "Техника",     color: "#8c5a3a", desc: "Уровень технического оснащения" },
-    { key: "readiness",   label: "Боеготовность", color: "#a84020", desc: "Готовность к боевым действиям" },
-    { key: "veterans",    label: "Опыт войск",  color: "#7a3030", desc: "Доля опытных боевых ветеранов" },
+    { key: "army_morale", label: "Боевой дух",  color: "#c04040", desc: "Четвёртый год СВО — накапливается усталость, но мобилизационный патриотизм держит." },
+    { key: "equipment",   label: "Техника",     color: "#8c5a3a", desc: "ВПК на полной мощности: 1500 ед. бронетехники в год, 12 млн снарядов. Потери компенсируются." },
+    { key: "readiness",   label: "Боеготовность", color: "#a84020", desc: "Армия в постоянном боевом контакте — высокая тактическая готовность, сказывается износ." },
+    { key: "veterans",    label: "Опыт войск",  color: "#7a3030", desc: "Два года активных боёв дали огромный боевой опыт — крупнейший в Европе со времён ВОВ." },
   ],
   diplomacy: [
-    { key: "ally_trust",  label: "Доверие союзников", color: "#5b6b8c", desc: "Уровень доверия со стороны союзников" },
-    { key: "isolation",   label: "Изоляция",    color: "#8c5b5b", desc: "Дипломатическая изоляция (выше = хуже)", inverted: true },
-    { key: "soft_power",  label: "Мягкая сила", color: "#6b8c9c", desc: "Культурное и информационное влияние" },
-    { key: "reputation",  label: "Репутация",   color: "#4a6b8c", desc: "Международная репутация" },
+    { key: "ally_trust",  label: "Доверие союзников", color: "#5b6b8c", desc: "ОДКБ номинально, реально — Китай, КНДР, Беларусь. Ограниченный, но стабильный блок." },
+    { key: "isolation",   label: "Изоляция",    color: "#8c5b5b", desc: "21-й пакет санкций ЕС готовится. Отрезаны от SWIFT, западных технологий и рынков.", inverted: true },
+    { key: "soft_power",  label: "Мягкая сила", color: "#6b8c9c", desc: "RT заблокирован на Западе. Влияние в Африке и части Азии остаётся, но падает." },
+    { key: "reputation",  label: "Репутация",   color: "#4a6b8c", desc: "Исторический минимум в западных странах. В БРИКС и Глобальном Юге — неоднозначно." },
   ],
   stability: [
-    { key: "law_order",       label: "Правопорядок",     color: "#4a6b5c", desc: "Эффективность правовой системы" },
-    { key: "social_tension",  label: "Соц. напряж.",     color: "#a85030", desc: "Социальная напряжённость (выше = хуже)", inverted: true },
-    { key: "media_control",   label: "Контроль СМИ",     color: "#5c7a6b", desc: "Степень контроля над медиапространством" },
-    { key: "regional_unity",  label: "Единство регионов",color: "#3a7a5c", desc: "Стабильность и лояльность регионов" },
+    { key: "law_order",       label: "Правопорядок",     color: "#4a6b5c", desc: "Силовые структуры работают в штатном режиме. Публичных протестов нет с 2022 года." },
+    { key: "social_tension",  label: "Соц. напряж.",     color: "#a85030", desc: "Усталость от ограничений растёт, но открытых волнений нет. ВЦИОМ: поддержка СВО 65%.", inverted: true },
+    { key: "media_control",   label: "Контроль СМИ",     color: "#5c7a6b", desc: "Большинство независимых СМИ закрыты или за рубежом. Телевидение полностью под контролем." },
+    { key: "regional_unity",  label: "Единство регионов",color: "#3a7a5c", desc: "Регионы лояльны. Чечня интегрирована. Новые территории — управляемая нестабильность." },
   ],
   approval: [
-    { key: "elite_satisfaction", label: "Элиты",        color: "#8c6b3a", desc: "Довольство силовиков, олигархов, чиновников" },
-    { key: "corruption",         label: "Коррупция",    color: "#a8313a", desc: "Уровень коррупции в госаппарате (выше = хуже)", inverted: true },
-    { key: "middle_class",       label: "Средний класс",color: "#5b6b8c", desc: "Размер и настроение среднего класса" },
-    { key: "lower_class_mood",   label: "Народ",        color: "#4a6b5c", desc: "Настроение низших слоёв населения" },
+    { key: "elite_satisfaction", label: "Элиты",        color: "#8c6b3a", desc: "Силовики и госкорпорации в выигрыше от ВПК. Бизнес страдает от ставки ЦБ и санкций." },
+    { key: "corruption",         label: "Коррупция",    color: "#a8313a", desc: "Военные контракты и параллельный импорт открыли новые схемы. Transparency: 137-е место.", inverted: true },
+    { key: "middle_class",       label: "Средний класс",color: "#5b6b8c", desc: "Ипотека под 18%+, инфляция, утечка мозгов. Средний класс теряет позиции и уезжает." },
+    { key: "lower_class_mood",   label: "Народ",        color: "#4a6b5c", desc: "Рост цен перекрывает надбавки участникам СВО. Деревня держится, города напряжены." },
   ],
 };
 
