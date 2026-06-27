@@ -669,6 +669,7 @@ export default function App({ gameId, playerName, onNewGame }) {
   const [pendingNextState, setPendingNextState] = useState(null);
   const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
   const nuclearConfirmRef = useRef(false); // ref для catch-замыкания
+  const draftTextareaRef = useRef(null);
   const [nuclearConfirmError, setNuclearConfirmError] = useState(null);
   const [nuclearAftermath, setNuclearAftermath] = useState(null);
 
@@ -753,6 +754,7 @@ export default function App({ gameId, playerName, onNewGame }) {
       setDraftInput("");
       setActionMode("decree");
       await loadState();
+      setTimeout(() => draftTextareaRef.current?.focus(), 100);
     } catch (err) {
       if (nuclearConfirmRef.current) {
         // Ядерный экран — показываем ошибку прямо там, не закрываем
@@ -1057,14 +1059,22 @@ export default function App({ gameId, playerName, onNewGame }) {
             </div>
           )}
 
-          {/* Шаг 1 из 2 */}
+          {/* Заголовок действия */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <StepBadge n={1} active />
-            <div style={{ height: 1, width: 20, background: "#3a4156" }} />
-            <StepBadge n={2} />
-            <div className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.08em", marginLeft: 6 }}>
-              СФОРМУЛИРУЙТЕ РЕШЕНИЕ И НАЖМИТЕ «РАССМОТРЕТЬ»
-            </div>
+            {lastActionResult ? (
+              <div className="mono-font" style={{ fontSize: 10, color: "#7fae93", letterSpacing: "0.08em", background: "#0a1a0d", border: "1px solid #2a4030", borderRadius: 3, padding: "4px 10px" }}>
+                ➕ ДОБАВЬТЕ ЕЩЁ ОДНО ДЕЙСТВИЕ — ИЛИ ЗАВЕРШИТЕ ХОД
+              </div>
+            ) : (
+              <>
+                <StepBadge n={1} active />
+                <div style={{ height: 1, width: 20, background: "#3a4156" }} />
+                <StepBadge n={2} />
+                <div className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.08em", marginLeft: 6 }}>
+                  СФОРМУЛИРУЙТЕ РЕШЕНИЕ И НАЖМИТЕ «РАССМОТРЕТЬ»
+                </div>
+              </>
+            )}
           </div>
 
           {turnError && (
@@ -1145,6 +1155,7 @@ export default function App({ gameId, playerName, onNewGame }) {
 
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
             <textarea
+              ref={draftTextareaRef}
               value={draftInput}
               onChange={(e) => setDraftInput(e.target.value)}
               placeholder={
@@ -1154,7 +1165,7 @@ export default function App({ gameId, playerName, onNewGame }) {
               }
               rows={2}
               disabled={previewing}
-              style={{ flex: 1, resize: "none", background: "#ece7d8", color: "#262420", border: "1px solid #3a4156", borderRadius: 4, padding: "8px 10px", fontFamily: "'PT Serif',serif", fontSize: 13.5 }}
+              style={{ flex: 1, resize: "none", background: "#ece7d8", color: "#262420", border: `1px solid ${lastActionResult ? "#7fae93" : "#3a4156"}`, borderRadius: 4, padding: "8px 10px", fontFamily: "'PT Serif',serif", fontSize: 13.5, boxShadow: lastActionResult ? "0 0 0 2px rgba(127,174,147,0.25)" : "none" }}
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <button
