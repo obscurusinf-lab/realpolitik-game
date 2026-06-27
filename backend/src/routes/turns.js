@@ -106,6 +106,38 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       callClaudeApi,
     });
 
+    // Intel RNG: случайный исход разведывательной операции
+    if (gmClassification.action_type === "intelligence_covert" || effectiveActionMode === "intel") {
+      const roll = Math.random();
+      let intelOutcome, outcomeLabel;
+      if (roll < 0.08) {
+        intelOutcome = "intel_critical_failure";
+        outcomeLabel = "ПРОВАЛ — агент задержан";
+      } else if (roll < 0.25) {
+        intelOutcome = "intel_failure";
+        outcomeLabel = "Операция провалена";
+      } else if (roll < 0.80) {
+        intelOutcome = "intelligence_covert"; // норма
+        outcomeLabel = null;
+      } else if (roll < 0.95) {
+        intelOutcome = "intel_success";
+        outcomeLabel = "Операция успешна";
+      } else {
+        intelOutcome = "intel_critical_success";
+        outcomeLabel = "БЛЕСТЯЩАЯ ОПЕРАЦИЯ";
+      }
+      if (intelOutcome !== "intelligence_covert") {
+        gmClassification.action_type = intelOutcome;
+        if (outcomeLabel) {
+          gmClassification.narrative = `[${outcomeLabel}] ${gmClassification.narrative || ""}`.trim();
+        }
+        if (intelOutcome === "intel_failure" || intelOutcome === "intel_critical_failure") {
+          gmClassification.advisor_objection = gmClassification.advisor_objection ||
+            "Директор СВР: Операция скомпрометирована. Необходимо немедленно отозвать агентурную сеть во избежание дальнейших потерь.";
+        }
+      }
+    }
+
     // Защита: если AI вернул null_action при явном упоминании ядерного оружия — форсируем nuclear_strike
     const NUCLEAR_RE = /ядерн|термоядер|nuclear|атомн.*удар/i;
     if (gmClassification.action_type === "null_action" && NUCLEAR_RE.test(playerInput)) {

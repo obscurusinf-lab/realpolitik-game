@@ -1703,8 +1703,8 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
   }
 
   return (
-    <div style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-      <div style={{ minWidth: 320, maxWidth: "100%", position: "relative" }}>
+    <div style={{ width: "100%", position: "relative" }}>
+      <div style={{ position: "relative" }}>
         {nuclearStrike && (
           <div style={{
             position: "absolute", inset: 0, pointerEvents: "none", zIndex: 2,
@@ -1716,7 +1716,7 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
           width={800}
           height={340}
           projectionConfig={{ scale, center: [20, 15] }}
-          style={{ width: "100%", height: "auto", background: "transparent", display: "block", filter: nuclearStrike ? "grayscale(0.7) sepia(0.35) brightness(0.75)" : "none" }}
+          style={{ width: "100%", height: "auto", aspectRatio: "800/340", background: "transparent", display: "block", filter: nuclearStrike ? "grayscale(0.7) sepia(0.35) brightness(0.75)" : "none" }}
         >
           <Geographies geography={GEO_URL}>
             {({ geographies }) =>
@@ -1803,7 +1803,10 @@ const REGION_COORDS = {
 };
 
 function resolveCoords(spot) {
-  if (typeof spot.lat === "number" && typeof spot.lon === "number") return [spot.lon, spot.lat];
+  // skip placeholder 0,0 coords — fall through to name lookup
+  if (typeof spot.lat === "number" && typeof spot.lon === "number" && !(spot.lat === 0 && spot.lon === 0)) {
+    return [spot.lon, spot.lat];
+  }
   const key = (spot.region || "").toLowerCase();
   for (const [k, v] of Object.entries(REGION_COORDS)) {
     if (key.includes(k)) return v;
@@ -2108,7 +2111,7 @@ function MapTab({ state }) {
 
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
         {/* Карта */}
-        <div style={{ flex: "1 1 0", width: "100%", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, overflow: "hidden", position: "relative" }}>
+        <div style={{ flex: "1 1 0", width: "100%", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, position: "relative" }}>
           {nuclearStrike && (
             <div className="mono-font" style={{ padding: "4px 8px", background: "#2a0a0a", color: "#ff4444", fontSize: 9, letterSpacing: "0.1em", borderBottom: "1px solid #5a1a1a" }}>
               ☢ ЯДЕРНЫЙ УДАР НАНЕСЁН{nuclearStrike.city ? ` · ЦЕЛЬ: ${nuclearStrike.city.toUpperCase()}` : ""} · РАДИАЦИОННОЕ ЗАРАЖЕНИЕ

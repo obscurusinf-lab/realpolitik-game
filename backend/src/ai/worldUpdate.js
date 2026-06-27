@@ -63,8 +63,8 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
   "overview": {
     "headline": "1 предложение — что изменилось в мире",
     "hotspots": [
-      {"region": "название", "text": "1-2 предложения", "lat": 0.0, "lon": 0.0},
-      {"region": "название", "text": "1-2 предложения", "lat": 0.0, "lon": 0.0}
+      {"region": "название", "text": "1-2 предложения", "lat": 51.5, "lon": 30.5},
+      {"region": "название", "text": "1-2 предложения", "lat": 38.9, "lon": -77.0}
     ]
   },
   "world_reactions": [
@@ -77,11 +77,22 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
     {"country": "страна", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile|neutral|cooperative", "stat_delta": {"stability": -1}}
   ]
 }
+ВАЖНО: lat/lon в каждом hotspot — реальные координаты конкретного города/региона (не 0.0, не одинаковые). Каждый hotspot в разном месте.
 stat_delta: изменения статов игрока от хода противника/союзника (economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. hostile=отрицательные, cooperative=положительные. Заполни реальными текстами.`;
 }
 
 async function generateWorldUpdate({ params, callClaudeApi }) {
   const isNuclear = params.actionType === "nuclear_strike";
+  // Добавляем контекст исхода разведки в нарратив
+  const intelOutcomes = {
+    intel_critical_success: "Блестящая разведывательная операция — враги уязвлены, союзники впечатлены.",
+    intel_success: "Разведывательная операция успешно завершена.",
+    intel_failure: "Разведывательная операция провалена — операция скомпрометирована.",
+    intel_critical_failure: "Разведывательный провал — агент задержан, дипломатический скандал.",
+  };
+  if (intelOutcomes[params.actionType]) {
+    params = { ...params, narrative: `${intelOutcomes[params.actionType]} ${params.narrative || ""}`.trim() };
+  }
   const prompt = isNuclear
     ? buildNuclearAftermathPrompt(params)
     : buildWorldUpdatePrompt(params);

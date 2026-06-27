@@ -47,6 +47,11 @@ const RULES_TABLE = {
   domestic_liberalization:   { economy: [0, 1],  military: [0, 0],  stability: [-1, 2], diplomacy: [1, 2],  approval: [-1, 3] },
   info_narrative:            { economy: [0, 0],  military: [0, 0],  stability: [0, 2],  diplomacy: [-1, 2], approval: [1, 3] },
   intelligence_covert:       { economy: [0, 0],  military: [1, 3],  stability: [0, 0],  diplomacy: [-2, 0], approval: [0, 0] },
+  // Варианты исхода разведывательной операции (определяются случайным броском перед preview)
+  intel_success:             { economy: [0, 2],  military: [2, 5],  stability: [0, 1],  diplomacy: [-1, 1], approval: [1, 3] },
+  intel_critical_success:    { economy: [1, 3],  military: [4, 6],  stability: [1, 2],  diplomacy: [0, 2],  approval: [2, 4] },
+  intel_failure:             { economy: [-1, 0], military: [-1, 0], stability: [-2, 0], diplomacy: [-4, -2],approval: [-2, 0] },
+  intel_critical_failure:    { economy: [-2, 0], military: [-2, 0], stability: [-3, -1],diplomacy: [-5, -3],approval: [-3, -1] },
   peace_initiative:          { economy: [1, 2],  military: [-1, 0], stability: [1, 2],  diplomacy: [2, 4],  approval: [1, 3] },
   null_action:               { economy: [-1, 0], military: [-1, 0], stability: [0, 0],  diplomacy: [0, 0],  approval: [-1, 0] },
   // Ядерный удар: катастрофические необратимые последствия — изоляция, крах экономики, внутренний хаос
