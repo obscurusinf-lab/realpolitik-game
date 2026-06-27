@@ -2421,8 +2421,6 @@ const NEWSFEED_TYPE = {
   world_move:      { icon: "⚡", color: "#8c4a2a", label: "ДЕЙСТВИЕ ПРОТИВНИКА" },
 };
 
-const STAT_LABEL = { economy: "Экономика", military: "Армия", stability: "Стабильность", diplomacy: "Дипломатия", approval: "Рейтинг" };
-
 function StatDeltaBadges({ delta }) {
   if (!delta || !Object.keys(delta).length) return null;
   return (
