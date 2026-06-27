@@ -33,7 +33,36 @@ async function sendForeignAction(password, gameId, body) {
     headers: { "Content-Type": "application/json", "x-admin-password": password },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error("Ошибка отправки действия");
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Ошибка отправки действия"); }
+  return res.json();
+}
+
+async function adminSetStats(password, gameId, stats) {
+  const res = await fetch(`${API_BASE}/admin/games/${gameId}/set-stats`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-password": password },
+    body: JSON.stringify({ stats }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Ошибка"); }
+  return res.json();
+}
+
+async function adminSetInitiative(password, gameId, initiative) {
+  const res = await fetch(`${API_BASE}/admin/games/${gameId}/set-initiative`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-password": password },
+    body: JSON.stringify({ initiative: Number(initiative) }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Ошибка"); }
+  return res.json();
+}
+
+async function adminDeactivateGame(password, gameId) {
+  const res = await fetch(`${API_BASE}/admin/games/${gameId}`, {
+    method: "DELETE",
+    headers: { "x-admin-password": password },
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Ошибка"); }
   return res.json();
 }
 
@@ -405,77 +434,141 @@ const STAT_LABELS = { stability: "Стабильность", economy: "Экон�
 
 const COUNTRY_FLAG_MAP = { RU: "🇷🇺", US: "🇺🇸", CN: "🇨🇳", UA: "🇺🇦", DE: "🇩🇪", TR: "🇹🇷" };
 
-function InterventionForm({ password, game, onDone }) {
-  const [mode, setMode] = useState("event"); // "event" | "foreign"
+const STAT_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
+const STAT_NAMES_RU = { economy: "Экономика", military: "Армия", stability: "Стабильность", diplomacy: "Дипломатия", approval: "Рейтинг" };
+
+function InterventionForm({ password, game, onDone, onRefresh }) {
+  const [mode, setMode] = useState("event"); // "event" | "foreign" | "stats" | "initiative"
   const [text, setText] = useState("");
   const [source, setSource] = useState("");
   const [country, setCountry] = useState("");
   const [action, setAction] = useState("");
   const [secret, setSecret] = useState(false);
+  const [immediate, setImmediate] = useState(true);
+  const [statDeltas, setStatDeltas] = useState({ economy: 0, military: 0, stability: 0, diplomacy: 0, approval: 0 });
+  const [statsAbsolute, setStatsAbsolute] = useState(() => {
+    const s = game.stats || {};
+    return { economy: s.economy ?? 50, military: s.military ?? 50, stability: s.stability ?? 50, diplomacy: s.diplomacy ?? 50, approval: s.approval ?? 50 };
+  });
+  const [initiative, setInitiative] = useState(game.initiative ?? 100);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const inp = { width: "100%", background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 10px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 13, outline: "none", marginBottom: 8 };
-  const btnStyle = (active) => ({ background: active ? "#9c8347" : "#1f2733", color: active ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "5px 14px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", marginRight: 6 });
+  const inp = { width: "100%", background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 10px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 13, outline: "none", marginBottom: 8, boxSizing: "border-box" };
+  const btnStyle = (active) => ({ background: active ? "#9c8347" : "#1f2733", color: active ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "5px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", marginRight: 4, marginBottom: 4 });
+  const numInp = { width: 60, background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "4px 6px", color: "#ece7d8", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, outline: "none", textAlign: "center" };
 
   async function send() {
     setSending(true); setError(null); setResult(null);
     try {
-      let res;
       if (mode === "event") {
-        res = await sendAdminEvent(password, game.game_id, { text, source: source || "Внешний источник", secret });
-        setResult("Событие поставлено в очередь. Сработает при следующем ходе игрока.");
-      } else {
-        res = await sendForeignAction(password, game.game_id, { country, action, secret });
-        setResult(`ИИ сгенерировал последствия. Preview: "${res.preview?.narrative?.slice(0, 120)}…"`);
+        const nonZeroDeltas = Object.fromEntries(Object.entries(statDeltas).filter(([, v]) => v !== 0));
+        const res = await sendAdminEvent(password, game.game_id, { text, source: source || "Внешний источник", statDeltas: nonZeroDeltas, secret, immediate });
+        setResult(immediate ? `Применено немедленно.` : "Поставлено в очередь — сработает при следующем ходе.");
+        setText(""); setSource("");
+      } else if (mode === "foreign") {
+        const res = await sendForeignAction(password, game.game_id, { country, action, secret, immediate });
+        setResult(`ИИ: "${res.preview?.narrative?.slice(0, 100)}…"`);
+        setCountry(""); setAction("");
+      } else if (mode === "stats") {
+        await adminSetStats(password, game.game_id, statsAbsolute);
+        setResult("Показатели обновлены.");
+      } else if (mode === "initiative") {
+        await adminSetInitiative(password, game.game_id, initiative);
+        setResult(`Инициатива установлена: ${initiative}`);
       }
-      setText(""); setSource(""); setCountry(""); setAction("");
+      onRefresh?.();
     } catch (e) { setError(e.message); }
     finally { setSending(false); }
   }
 
+  const canSend = mode === "event" ? !!text
+    : mode === "foreign" ? (!!country && !!action)
+    : mode === "stats" ? true
+    : true;
+
   return (
     <div style={{ background: "#0d1118", border: "1px solid #2a3040", borderRadius: 6, padding: "14px", marginTop: 8 }}>
       <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 10 }}>
-        ВМЕШАТЕЛЬСТВО В ПАРТИЮ: {game.player_name} ({game.country_id}) · ХОД {game.current_turn}
+        ВМЕШАТЕЛЬСТВО: {game.player_name} ({game.country_id}) · ХОД {game.current_turn}
       </div>
-      <div style={{ marginBottom: 10 }}>
+      <div style={{ marginBottom: 12, flexWrap: "wrap", display: "flex" }}>
         <button style={btnStyle(mode === "event")} onClick={() => setMode("event")}>Событие</button>
         <button style={btnStyle(mode === "foreign")} onClick={() => setMode("foreign")}>Ход страны</button>
+        <button style={btnStyle(mode === "stats")} onClick={() => setMode("stats")}>Статы</button>
+        <button style={btnStyle(mode === "initiative")} onClick={() => setMode("initiative")}>Инициатива</button>
       </div>
 
       {mode === "event" && (
         <>
-          <input style={inp} placeholder="Источник (напр. «ЦРУ», «Reuters»)…" value={source} onChange={e => setSource(e.target.value)} />
-          <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Текст события (появится в ленте новостей)…" value={text} onChange={e => setText(e.target.value)} />
+          <input style={inp} placeholder="Источник (напр. «Reuters», «ЦРУ»)…" value={source} onChange={e => setSource(e.target.value)} />
+          <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Текст события…" value={text} onChange={e => setText(e.target.value)} />
+          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 6 }}>ДЕЛЬТЫ СТАТОВ (0 = без изменений):</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginBottom: 10 }}>
+            {STAT_KEYS.map(k => (
+              <label key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="mono-font" style={{ fontSize: 9, color: "#8a8070", width: 80 }}>{STAT_NAMES_RU[k]}</span>
+                <input type="number" style={numInp} min={-20} max={20} value={statDeltas[k]} onChange={e => setStatDeltas(p => ({ ...p, [k]: Number(e.target.value) }))} />
+              </label>
+            ))}
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            <input type="checkbox" checked={immediate} onChange={e => setImmediate(e.target.checked)} />
+            <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Немедленно (иначе — при следующем ходе)</span>
+          </label>
         </>
       )}
 
       {mode === "foreign" && (
         <>
           <input style={inp} placeholder="Страна-агент (напр. «США», «Китай»)…" value={country} onChange={e => setCountry(e.target.value)} />
-          <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Что делает эта страна (ИИ сгенерирует последствия и текст)…" value={action} onChange={e => setAction(e.target.value)} />
+          <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Что делает эта страна (ИИ сгенерирует последствия)…" value={action} onChange={e => setAction(e.target.value)} />
+          <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            <input type="checkbox" checked={immediate} onChange={e => setImmediate(e.target.checked)} />
+            <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Применить немедленно</span>
+          </label>
         </>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+      {mode === "stats" && (
+        <>
+          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8 }}>УСТАНОВИТЬ АБСОЛЮТНЫЕ ЗНАЧЕНИЯ (0–100):</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 12px", marginBottom: 10 }}>
+            {STAT_KEYS.map(k => (
+              <label key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="mono-font" style={{ fontSize: 9, color: "#8a8070", width: 80 }}>{STAT_NAMES_RU[k]}</span>
+                <input type="number" style={numInp} min={0} max={100} value={statsAbsolute[k]} onChange={e => setStatsAbsolute(p => ({ ...p, [k]: Number(e.target.value) }))} />
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+
+      {mode === "initiative" && (
+        <div style={{ marginBottom: 12 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8 }}>УСТАНОВИТЬ ИНИЦИАТИВУ (0–200):</div>
+          <input type="number" style={{ ...numInp, width: 80 }} min={0} max={200} value={initiative} onChange={e => setInitiative(Number(e.target.value))} />
+        </div>
+      )}
+
+      {(mode === "event" || mode === "foreign") && (
+        <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
           <input type="checkbox" checked={secret} onChange={e => setSecret(e.target.checked)} />
-          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Скрытое (влияет на статы, но не появляется в ленте)</span>
+          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Скрытое (не в ленту)</span>
         </label>
-      </div>
+      )}
 
       {error && <div style={{ color: "#e09090", fontSize: 12, marginBottom: 8 }}>{error}</div>}
       {result && <div style={{ color: "#7fae93", fontSize: 12, marginBottom: 8 }}>{result}</div>}
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={send} disabled={sending || (mode === "event" ? !text : !country || !action)}
-          style={{ background: "#a8313a", color: "#ece7d8", border: "none", borderRadius: 4, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-          {sending ? "Отправка…" : "Внедрить →"}
+        <button onClick={send} disabled={sending || !canSend}
+          style={{ background: "#a8313a", color: "#ece7d8", border: "none", borderRadius: 4, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: (!canSend || sending) ? 0.5 : 1 }}>
+          {sending ? "Отправка…" : "Применить →"}
         </button>
         <button onClick={onDone} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 12px", color: "#5a6070", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>
-          Отмена
+          Закрыть
         </button>
       </div>
     </div>
@@ -617,7 +710,7 @@ function AdminPanel({ onClose }) {
                         </div>
                       </div>
                       {isOpen && expandedGameMode === "intervene" && (
-                        <InterventionForm password={password} game={g} onDone={() => setExpandedGame(null)} />
+                        <InterventionForm password={password} game={g} onDone={() => setExpandedGame(null)} onRefresh={loadGames} />
                       )}
                       {isOpen && expandedGameMode === "detail" && (
                         <div style={{ background: "#0d1118", border: "1px solid #2a3040", borderRadius: 6, padding: "14px", marginBottom: 8 }}>
