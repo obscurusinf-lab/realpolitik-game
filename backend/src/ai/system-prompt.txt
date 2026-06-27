@@ -96,6 +96,12 @@
   "policy_update": {
     "is_new_policy": false,
     "title": null,
-    "items": []
+    "items": [],
+    "duration_turns": 4,
+    "completion_conditions": "краткое условие завершения (напр. 'economy > 60') или null"
   }
 }
+
+ПРАВИЛА ДЛЯ policy_update:
+- duration_turns: реалистичный срок исполнения от 2 до 8 ходов (1 ход ≈ 3 месяца). Реформы — 4–8, указы — 2–4.
+- completion_conditions: одно простое условие на русском языке (напр. "Экономика выше 65" или "Стабильность выше 70"). Если условия нет — null.

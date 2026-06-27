@@ -152,3 +152,26 @@ export async function fetchAdminStats(password) {
   if (!res.ok) throw new Error(`fetchAdminStats failed: ${res.status}`);
   return res.json();
 }
+
+export async function fetchStatHistory(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/stat-history`, {}, 10000);
+  if (!res.ok) return { history: [] };
+  return res.json();
+}
+
+export async function fetchPolicyNews(gameId, keyword) {
+  const url = `${API_BASE}/games/${gameId}/policy-news${keyword ? `?keyword=${encodeURIComponent(keyword)}` : ""}`;
+  const res = await fetchWithTimeout(url, {}, 10000);
+  if (!res.ok) return { items: [] };
+  return res.json();
+}
+
+export async function cancelPolicy(gameId, policyTitle) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/cancel-policy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ policyTitle }),
+  }, 10000);
+  if (!res.ok) throw new Error("Ошибка отмены указа");
+  return res.json();
+}

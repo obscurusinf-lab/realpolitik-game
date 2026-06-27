@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -1056,7 +1056,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       <div style={{ background: NK.contentBg, color: NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} />}
         {tab === "map" && <MapTab state={state} />}
-        {tab === "stats" && <StatsTab state={state} />}
+        {tab === "stats" && <StatsTab state={state} gameId={gameId} />}
         {tab === "world" && <WorldTab state={state} />}
         {tab === "advisors" && (
           <AdvisorsTab
@@ -1068,7 +1068,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             onSelectAdvice={(text) => { setDraftInput(text); setTab("overview"); }}
           />
         )}
-        {tab === "policies" && <PoliciesTab state={state} />}
+        {tab === "policies" && <PoliciesTab state={state} gameId={gameId} currentTurn={state.turn} onStateRefresh={loadState} />}
         {tab === "relations" && <RelationsTab state={state} />}
         {tab === "newsfeed" && <NewsfeedTab state={state} />}
         {tab === "log" && <LogTab state={state} />}
@@ -2277,52 +2277,368 @@ function MapTab({ state }) {
   );
 }
 
-function StatsTab({ state }) {
+// Субметрики общества — показываются внутри карточки "Рейтинг"
+const SUBSTAT_META = {
+  elite_satisfaction: { label: "Элиты", color: "#8c6b3a", desc: "Довольство силовиков, олигархов, чиновников" },
+  corruption:         { label: "Коррупция", color: "#a8313a", desc: "Уровень коррупции в госаппарате (выше = хуже)", inverted: true },
+  middle_class:       { label: "Средний класс", color: "#5b6b8c", desc: "Размер и настроение среднего класса" },
+  lower_class_mood:   { label: "Народ", color: "#4a6b5c", desc: "Настроение низших слоёв населения" },
+};
+
+// Спарклайн-график из SVG без библиотек
+function Sparkline({ data, color, width = 120, height = 32 }) {
+  if (!data || data.length < 2) return null;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - ((v - min) / range) * (height - 4) - 2;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      {Object.entries(state.stats).filter(([key]) => statMeta[key]).map(([key, value]) => {
-        const meta = statMeta[key];
-        const Icon = meta.icon;
-        return (
-          <div key={key}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                <Icon size={15} color={meta.color} />
-                <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{meta.label}</span>
-              </div>
-              <span className="mono-font" style={{ fontSize: 14, fontWeight: 700, color: meta.color }}>{value}</span>
-            </div>
-            <Bar value={value} color={meta.color} />
+    <svg width={width} height={height} style={{ display: "block" }}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+      <circle cx={pts.split(" ").pop().split(",")[0]} cy={pts.split(" ").pop().split(",")[1]} r="3" fill={color} />
+    </svg>
+  );
+}
+
+function StatDetailModal({ statKey, state, gameId, onClose }) {
+  const [history, setHistory] = useState(null);
+  const [news, setNews] = useState(null);
+  const meta = statMeta[statKey];
+
+  useEffect(() => {
+    fetchStatHistory(gameId).then(d => setHistory(d.history || []));
+    fetchPolicyNews(gameId, meta?.label).then(d => setNews(d.items || []));
+  }, [gameId, statKey]);
+
+  const currentValue = state.stats[statKey] ?? 0;
+  const historyValues = history ? history.map(h => h.stats_snapshot?.[statKey]).filter(v => v != null) : [];
+
+  // Факторы влияния
+  const FACTORS = {
+    economy:  ["Экономические указы", "Санкции", "Торговые соглашения", "Военные расходы"],
+    military: ["Военные операции", "Оборонные указы", "Разведка", "Союзники"],
+    stability:["Репрессии", "Либерализация", "Военные конфликты", "Экономика"],
+    diplomacy:["Дипломатические контакты", "Санкции", "Союзные договоры", "Конфронтация"],
+    approval: ["Экономическое благополучие", "Военные успехи", "Репрессии", "Мир"],
+  };
+
+  const substats = statKey === "approval"
+    ? Object.entries(SUBSTAT_META).map(([k, sm]) => ({ key: k, ...sm, value: state.stats[k] ?? 50 }))
+    : null;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(20,24,31,0.85)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#f5f1e6", borderRadius: 8, width: "min(95vw,520px)", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+        {/* Header */}
+        <div style={{ background: "#1a1f2c", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: meta?.color }} />
+            <span className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347" }}>{meta?.label?.toUpperCase()} · ДЕТАЛИ</span>
           </div>
-        );
-      })}
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#a8a294", cursor: "pointer", fontSize: 18 }}>×</button>
+        </div>
+        <div style={{ padding: "18px 20px" }}>
+          {/* Текущее значение */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
+            <div style={{ fontSize: 48, fontWeight: 700, color: meta?.color, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1 }}>{currentValue}</div>
+            <div>
+              <div className="doc-font" style={{ fontSize: 15, fontWeight: 700 }}>{meta?.label}</div>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginTop: 2 }}>
+                {currentValue >= 70 ? "ВЫСОКИЙ УРОВЕНЬ" : currentValue >= 40 ? "СРЕДНИЙ УРОВЕНЬ" : "НИЗКИЙ УРОВЕНЬ — ТРЕБУЕТ ВНИМАНИЯ"}
+              </div>
+            </div>
+          </div>
+
+          {/* График */}
+          {historyValues.length >= 2 && (
+            <div style={{ marginBottom: 18, background: "#ece7d8", borderRadius: 4, padding: "12px 14px" }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>ДИНАМИКА ПО ХОДАМ</div>
+              <Sparkline data={historyValues} color={meta?.color} width={440} height={48} />
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {history[0]?.turn_n}</span>
+                <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Сейчас</span>
+              </div>
+            </div>
+          )}
+
+          {/* Субметрики (только для "Одобрение") */}
+          {substats && (
+            <div style={{ marginBottom: 18 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 10 }}>СТРУКТУРА ОБЩЕСТВЕННОЙ ПОДДЕРЖКИ</div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {substats.map(s => (
+                  <div key={s.key}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <div>
+                        <span className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{s.label}</span>
+                        <span className="doc-font" style={{ fontSize: 11, color: "#8a8472", marginLeft: 6 }}>{s.desc}</span>
+                      </div>
+                      <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : (s.value >= 60 ? "#4a6b5c" : s.value >= 40 ? "#9c8347" : "#a8313a") }}>{s.value}</span>
+                    </div>
+                    <Bar value={s.inverted ? 100 - s.value : s.value} color={s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : s.color} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Факторы влияния */}
+          <div style={{ marginBottom: 18 }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>ФАКТОРЫ ВЛИЯНИЯ</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {(FACTORS[statKey] || []).map(f => (
+                <span key={f} style={{ background: "#ece7d8", border: "1px solid #d8d2bf", borderRadius: 3, padding: "3px 8px", fontSize: 11, fontFamily: "'PT Serif',serif", color: "#5c5648" }}>{f}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Последние события */}
+          <div>
+            <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>ПОСЛЕДНИЕ СОБЫТИЯ</div>
+            {news === null && <div className="doc-font" style={{ fontSize: 12, color: "#8a8472" }}>Загрузка…</div>}
+            {news?.length === 0 && <div className="doc-font" style={{ fontSize: 12, color: "#8a8472", fontStyle: "italic" }}>Нет связанных событий.</div>}
+            {news?.slice(0, 4).map((item, i) => (
+              <div key={i} style={{ borderTop: "1px solid #d8d2bf", paddingTop: 8, marginBottom: 8 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ХОД {item.turn_n} · {item.source}</div>
+                <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.4, marginTop: 2 }}>{item.text}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function PoliciesTab({ state }) {
+function StatsTab({ state, gameId }) {
+  const [openStat, setOpenStat] = useState(null);
+
+  return (
+    <>
+      <div style={{ display: "grid", gap: 16 }}>
+        {Object.entries(state.stats).filter(([key]) => statMeta[key]).map(([key, value]) => {
+          const meta = statMeta[key];
+          const Icon = meta.icon;
+          const hasSubstats = key === "approval";
+          const substats = hasSubstats
+            ? Object.entries(SUBSTAT_META).map(([k, sm]) => ({ key: k, ...sm, value: state.stats[k] ?? 50 }))
+            : null;
+          return (
+            <div key={key} onClick={() => setOpenStat(key)} style={{ cursor: "pointer", borderRadius: 6, padding: "10px 12px", background: "#f5f1e6", border: "1px solid #d8d2bf", transition: "border-color 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = meta.color}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <Icon size={15} color={meta.color} />
+                  <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{meta.label}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="mono-font" style={{ fontSize: 14, fontWeight: 700, color: meta.color }}>{value}</span>
+                  <span style={{ fontSize: 10, color: "#8a8472" }}>›</span>
+                </div>
+              </div>
+              <Bar value={value} color={meta.color} />
+              {/* Субметрики для "Рейтинг" — компактно */}
+              {substats && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginTop: 10 }}>
+                  {substats.map(s => (
+                    <div key={s.key}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                        <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>{s.label.toUpperCase()}</span>
+                        <span className="mono-font" style={{ fontSize: 8, color: s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : (s.value >= 60 ? "#4a6b5c" : s.value >= 40 ? "#9c8347" : "#a8313a"), fontWeight: 700 }}>{s.value}</span>
+                      </div>
+                      <div style={{ height: 3, background: "#d8d2bf", borderRadius: 1, overflow: "hidden" }}>
+                        <div style={{ width: `${s.inverted ? 100 - s.value : s.value}%`, height: "100%", background: s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : s.color }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {openStat && <StatDetailModal statKey={openStat} state={state} gameId={gameId} onClose={() => setOpenStat(null)} />}
+    </>
+  );
+}
+
+function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }) {
+  const [news, setNews] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  useEffect(() => {
+    fetchPolicyNews(gameId, policy.title).then(d => setNews(d.items || []));
+  }, [gameId, policy.title]);
+
+  const turnsLeft = policy.target_turn ? Math.max(0, policy.target_turn - currentTurn) : null;
+  const totalDuration = policy.duration_turns || (policy.target_turn ? policy.target_turn - policy.turn : 5);
+  const elapsed = currentTurn - policy.turn;
+  const progress = Math.min(100, Math.round((elapsed / totalDuration) * 100));
+  const isCancelled = policy.status === "cancelled";
+
+  async function handleCancel() {
+    setCancelling(true);
+    try {
+      await cancelPolicy(gameId, policy.title);
+      onCancelled?.();
+      onClose();
+    } catch { setCancelling(false); }
+  }
+
+  const statusColor = isCancelled ? "#8a8472" : policy.status === "completed" ? "#4a6b5c" : "#9c8347";
+  const statusLabel = isCancelled ? "ОТМЕНЁН" : policy.status === "completed" ? "ВЫПОЛНЕН" : "АКТИВНО";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(20,24,31,0.85)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#f5f1e6", borderRadius: 8, width: "min(95vw,520px)", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+        <div style={{ background: "#1a1f2c", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347" }}>УКАЗ · ДЕТАЛИ</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#a8a294", cursor: "pointer", fontSize: 18 }}>×</button>
+        </div>
+        <div style={{ padding: "18px 20px" }}>
+          {/* Заголовок */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div className="doc-font" style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.3, flex: 1, marginRight: 12 }}>{policy.title}</div>
+            <span className="mono-font" style={{ fontSize: 8, padding: "3px 8px", borderRadius: 3, background: isCancelled ? "#d8d2bf" : "#dce5dc", color: statusColor, flexShrink: 0, letterSpacing: "0.06em" }}>{statusLabel}</span>
+          </div>
+
+          {/* Прогресс */}
+          {!isCancelled && (
+            <div style={{ background: "#ece7d8", borderRadius: 4, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ПРОГРЕСС ИСПОЛНЕНИЯ</span>
+                <span className="mono-font" style={{ fontSize: 9, color: "#5c5648", fontWeight: 700 }}>{progress}%</span>
+              </div>
+              <div style={{ height: 8, background: "#d8d2bf", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Введён: Ход {policy.turn}</span>
+                {turnsLeft !== null && (
+                  <span className="mono-font" style={{ fontSize: 8, color: turnsLeft <= 1 ? "#a8313a" : "#5c5648", fontWeight: turnsLeft <= 1 ? 700 : 400 }}>
+                    {turnsLeft === 0 ? "ЗАВЕРШАЕТСЯ" : `Осталось: ${turnsLeft} ход.`} (Ход {policy.target_turn})
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Условие выполнения */}
+          {policy.completion_conditions && (
+            <div style={{ background: "#dce5dc", border: "1px solid #4a6b5c", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 8, color: "#4a6b5c", marginBottom: 3 }}>УСЛОВИЕ ВЫПОЛНЕНИЯ</div>
+              <div className="doc-font" style={{ fontSize: 13 }}>{policy.completion_conditions}</div>
+            </div>
+          )}
+
+          {/* Пункты */}
+          <div style={{ marginBottom: 14 }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>СОДЕРЖАНИЕ УКАЗА</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {(policy.items || []).map((item, i) => (
+                <li key={i} className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 5 }}>{item}</li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Новости */}
+          <div style={{ marginBottom: 16 }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>НОВОСТИ ПО УКАЗУ</div>
+            {news === null && <div className="doc-font" style={{ fontSize: 12, color: "#8a8472" }}>Загрузка…</div>}
+            {news?.length === 0 && <div className="doc-font" style={{ fontSize: 12, color: "#8a8472", fontStyle: "italic" }}>Новостей пока нет.</div>}
+            {news?.slice(0, 5).map((item, i) => (
+              <div key={i} style={{ borderTop: "1px solid #d8d2bf", paddingTop: 8, marginBottom: 8 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ХОД {item.turn_n} · {item.source}</div>
+                <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.4, marginTop: 2 }}>{item.text}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Отмена */}
+          {!isCancelled && policy.status !== "completed" && (
+            !confirmCancel
+              ? <button onClick={() => setConfirmCancel(true)} style={{ background: "none", border: "1px solid #a8313a", borderRadius: 4, padding: "7px 14px", color: "#a8313a", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>Отменить указ</button>
+              : <div style={{ background: "#3a2424", border: "1px solid #a8313a", borderRadius: 4, padding: "12px 14px" }}>
+                  <div className="doc-font" style={{ fontSize: 13, color: "#ece7d8", marginBottom: 10 }}>Отмена указа даст штраф: стабильность −2, рейтинг −1. Продолжить?</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={handleCancel} disabled={cancelling} style={{ background: "#a8313a", color: "#fff", border: "none", borderRadius: 4, padding: "7px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>{cancelling ? "Отмена…" : "Да, отменить"}</button>
+                    <button onClick={() => setConfirmCancel(false)} style={{ background: "none", border: "1px solid #5c5648", borderRadius: 4, padding: "7px 14px", color: "#5c5648", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>Нет</button>
+                  </div>
+                </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
+  const [openPolicy, setOpenPolicy] = useState(null);
+
   if (!state.policies?.length) {
     return <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>Активных политик пока нет.</div>;
   }
+
+  const active = state.policies.filter(p => p.status !== "cancelled");
+  const cancelled = state.policies.filter(p => p.status === "cancelled");
+
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      {[...state.policies].reverse().map((policy, i) => (
-        <div key={i} style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "13px 14px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-            <span className="doc-font" style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{policy.title}</span>
-            <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", borderRadius: 3, background: policy.status === "pilot" ? "#e8dcc0" : "#dce5dc", color: policy.status === "pilot" ? "#8c6b3a" : "#4a6b5c", flexShrink: 0, marginLeft: 8, whiteSpace: "nowrap" }}>
-              {policy.status === "pilot" ? "ПИЛОТ" : "АКТИВНО"}
-            </span>
-          </div>
-          <div className="mono-font" style={{ fontSize: 10, color: "#8a8472", marginBottom: 8 }}>ВВЕДЕНО НА ХОДЕ {policy.turn}</div>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {policy.items.map((item, j) => (
-              <li key={j} className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 5 }}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
+    <>
+      <div style={{ display: "grid", gap: 14 }}>
+        {[...active].reverse().map((policy, i) => {
+          const totalDuration = policy.duration_turns || (policy.target_turn ? policy.target_turn - policy.turn : 5);
+          const elapsed = (currentTurn || 0) - policy.turn;
+          const progress = Math.min(100, Math.round((elapsed / totalDuration) * 100));
+          const turnsLeft = policy.target_turn ? Math.max(0, policy.target_turn - (currentTurn || 0)) : null;
+          return (
+            <div key={i} onClick={() => setOpenPolicy(policy)} style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "13px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <span className="doc-font" style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{policy.title}</span>
+                <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", borderRadius: 3, background: "#dce5dc", color: "#4a6b5c", flexShrink: 0, marginLeft: 8, whiteSpace: "nowrap" }}>АКТИВНО</span>
+              </div>
+              {/* Прогресс-бар */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ height: 5, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
+                  <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {policy.turn} → {policy.target_turn || "?"}</span>
+                  <span className="mono-font" style={{ fontSize: 8, color: turnsLeft !== null && turnsLeft <= 1 ? "#a8313a" : "#8a8472" }}>
+                    {turnsLeft !== null ? (turnsLeft === 0 ? "завершается" : `ост. ${turnsLeft} х.`) : `${progress}%`}
+                  </span>
+                </div>
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 16 }}>
+                {(policy.items || []).slice(0, 2).map((item, j) => (
+                  <li key={j} className="doc-font" style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 3, color: "#5c5648" }}>{item}</li>
+                ))}
+                {(policy.items || []).length > 2 && <li className="mono-font" style={{ fontSize: 9, color: "#8a8472", listStyle: "none" }}>…ещё {policy.items.length - 2}</li>}
+              </ul>
+            </div>
+          );
+        })}
+        {cancelled.length > 0 && (
+          <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginTop: 4 }}>+ {cancelled.length} отменённых</div>
+        )}
+      </div>
+      {openPolicy && (
+        <PolicyDetailModal
+          policy={openPolicy}
+          gameId={gameId}
+          currentTurn={currentTurn || 0}
+          onClose={() => setOpenPolicy(null)}
+          onCancelled={onStateRefresh}
+        />
+      )}
+    </>
   );
 }
 

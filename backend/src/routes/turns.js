@@ -241,8 +241,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const updatedDelayedEffects = [...remainingEffects, ...newDelayedEffects];
 
       await client.query(
-        `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           gameId,
           turnNumber,
@@ -253,18 +253,24 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           JSON.stringify(relationDeltas),
           gmClassification.narrative,
           gmClassification.advisor_objection,
+          JSON.stringify(newStats),
         ]
       );
 
       let updatedPolicies = game.policies || [];
       if (gmClassification.policy_update?.is_new_policy) {
+        const policyDuration = gmClassification.policy_update.duration_turns || 5;
         updatedPolicies = [
           ...updatedPolicies,
           {
             title: gmClassification.policy_update.title,
             turn: turnNumber,
+            target_turn: turnNumber + policyDuration,
+            duration_turns: policyDuration,
             status: "active",
             items: gmClassification.policy_update.items || [],
+            completion_conditions: gmClassification.policy_update.completion_conditions || null,
+            newsfeed_keyword: gmClassification.policy_update.title,
           },
         ];
       }
@@ -494,12 +500,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const narrative = "Президент бездействует. Страна теряет темп — рейтинг и экономика проседают.";
 
       await client.query(
-        `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [gameId, turnNumber, "[Пропуск хода]", "decree",
           JSON.stringify({ action_type: "null_action", severity: 2 }),
           JSON.stringify(statDeltas),
-          "[]", narrative, null]
+          "[]", narrative, null, JSON.stringify(newStats)]
       );
       await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
       await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
@@ -518,6 +524,63 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     } finally {
       client.release();
     }
+  });
+  // GET /games/:gameId/stat-history — история всех статов по ходам
+  fastify.get("/games/:gameId/stat-history", async (request, reply) => {
+    const { gameId } = request.params;
+    const res = await db.query(
+      `SELECT turn_n, stats_snapshot, stat_deltas, gm_classification->>'action_type' AS action_type
+       FROM turns WHERE game_id = $1 AND stats_snapshot IS NOT NULL ORDER BY turn_n ASC`,
+      [gameId]
+    );
+    return reply.send({ history: res.rows });
+  });
+
+  // GET /games/:gameId/policy-news?keyword=X — новости связанные с политикой
+  fastify.get("/games/:gameId/policy-news", async (request, reply) => {
+    const { gameId } = request.params;
+    const { keyword } = request.query;
+    const res = await db.query(
+      `SELECT turn_n, item_type, source, text, created_at FROM newsfeed_items
+       WHERE game_id = $1 AND ($2::text IS NULL OR text ILIKE $3 OR source ILIKE $3)
+       ORDER BY turn_n DESC LIMIT 20`,
+      [gameId, keyword || null, keyword ? `%${keyword}%` : null]
+    );
+    return reply.send({ items: res.rows });
+  });
+
+  // POST /games/:gameId/cancel-policy — отменить активную политику
+  fastify.post("/games/:gameId/cancel-policy", async (request, reply) => {
+    const { gameId } = request.params;
+    const { policyTitle } = request.body || {};
+    if (!policyTitle) return reply.code(400).send({ error: "policyTitle required" });
+
+    const gsRes = await db.query(`SELECT policies, stats FROM game_state WHERE game_id = $1`, [gameId]);
+    if (gsRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
+
+    const policies = gsRes.rows[0].policies || [];
+    const updated = policies.map(p =>
+      p.title === policyTitle ? { ...p, status: "cancelled" } : p
+    );
+
+    // Небольшой штраф за отмену: стабильность -2, рейтинг -1
+    const stats = { ...gsRes.rows[0].stats };
+    stats.stability = Math.max(0, (stats.stability || 50) - 2);
+    stats.approval = Math.max(0, (stats.approval || 50) - 1);
+
+    await db.query(
+      `UPDATE game_state SET policies = $1, stats = $2, updated_at = now() WHERE game_id = $3`,
+      [JSON.stringify(updated), JSON.stringify(stats), gameId]
+    );
+
+    const gameRes = await db.query(`SELECT current_turn FROM games WHERE id = $1`, [gameId]);
+    const turnN = gameRes.rows[0]?.current_turn || 0;
+    await db.query(
+      `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+      [gameId, turnN, "Кремль", `Указ «${policyTitle}» отменён. Стабильность и рейтинг снижены.`]
+    );
+
+    return reply.send({ ok: true, statPenalty: { stability: -2, approval: -1 } });
   });
 }
 

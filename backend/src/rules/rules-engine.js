@@ -16,6 +16,19 @@ const MAX_DELTA_PER_TURN = {
   stability: 5,
   diplomacy: 4,
   approval: 5,
+  // Субметрики общества
+  elite_satisfaction: 5,
+  corruption: 4,
+  middle_class: 4,
+  lower_class_mood: 5,
+};
+
+// Начальные значения субметрик для новых игр (применяются если отсутствуют в stats)
+const SUBSTAT_DEFAULTS = {
+  elite_satisfaction: 55,
+  corruption: 40,
+  middle_class: 50,
+  lower_class_mood: 45,
 };
 
 // Стоимость инициативы по режиму действия
@@ -35,28 +48,28 @@ const MAX_RELATION_DELTA_DIRECT = 8;
 const MAX_RELATION_DELTA_SPILLOVER = 3;
 
 // Диапазоны [min, max] для каждой категории x показателя.
-// Отрицательный max при min=0 трактуется как "только вниз".
+// Субметрики: elite_satisfaction (0=элиты против, 100=за), corruption (0=чисто, 100=коррупция),
+//             middle_class (0=нет среднего класса, 100=большой и довольный),
+//             lower_class_mood (0=народ взбунтовался, 100=доволен)
 const RULES_TABLE = {
-  military_offensive:        { economy: [-2, 0], military: [1, 5],  stability: [-2, 0], diplomacy: [-3, 0], approval: [-1, 2] },
-  military_defensive:        { economy: [-1, 0], military: [0, 3],  stability: [1, 3],  diplomacy: [0, 1],  approval: [1, 3] },
-  diplomacy_outreach:        { economy: [0, 2],  military: [0, 0],  stability: [0, 1],  diplomacy: [2, 5],  approval: [0, 1] },
-  diplomacy_confrontation:   { economy: [-2, 0], military: [0, 0],  stability: [-1, 0], diplomacy: [-4, -1],approval: [-1, 2] },
-  economic_stimulus:         { economy: [1, 4],  military: [0, 0],  stability: [1, 2],  diplomacy: [0, 0],  approval: [1, 3] },
-  economic_austerity:        { economy: [2, 5],  military: [0, 0],  stability: [-3, -1],diplomacy: [0, 0],  approval: [-3, -1] },
-  domestic_repression:       { economy: [0, 0],  military: [0, 1],  stability: [1, 3],  diplomacy: [-2, 0], approval: [-3, -1] },
-  domestic_liberalization:   { economy: [0, 1],  military: [0, 0],  stability: [-1, 2], diplomacy: [1, 2],  approval: [-1, 3] },
-  info_narrative:            { economy: [0, 0],  military: [0, 0],  stability: [0, 2],  diplomacy: [-1, 2], approval: [1, 3] },
-  intelligence_covert:       { economy: [0, 0],  military: [1, 3],  stability: [0, 0],  diplomacy: [-2, 0], approval: [0, 0] },
-  // Варианты исхода разведывательной операции (определяются случайным броском перед preview)
-  intel_success:             { economy: [0, 2],  military: [2, 5],  stability: [0, 1],  diplomacy: [-1, 1], approval: [1, 3] },
-  intel_critical_success:    { economy: [1, 3],  military: [4, 6],  stability: [1, 2],  diplomacy: [0, 2],  approval: [2, 4] },
-  intel_failure:             { economy: [-1, 0], military: [-1, 0], stability: [-2, 0], diplomacy: [-4, -2],approval: [-2, 0] },
-  intel_critical_failure:    { economy: [-2, 0], military: [-2, 0], stability: [-3, -1],diplomacy: [-5, -3],approval: [-3, -1] },
-  peace_initiative:          { economy: [1, 2],  military: [-1, 0], stability: [1, 2],  diplomacy: [2, 4],  approval: [1, 3] },
-  null_action:               { economy: [-1, 0], military: [-1, 0], stability: [0, 0],  diplomacy: [0, 0],  approval: [-1, 0] },
-  // Ядерный удар: катастрофические необратимые последствия — изоляция, крах экономики, внутренний хаос
-  // Значения намеренно превышают MAX_DELTA_PER_TURN — обрабатываются отдельно в applyTurn
-  nuclear_strike:            { economy: [-25, -20], military: [3, 8], stability: [-30, -25], diplomacy: [-40, -35], approval: [-20, -15] },
+  //                                economy     military    stability   diplomacy   approval    elite_sat   corruption  mid_class   low_mood
+  military_offensive:        { economy: [-2, 0], military: [1, 5],  stability: [-2, 0], diplomacy: [-3, 0], approval: [-1, 2],  elite_satisfaction: [1, 3],   corruption: [0, 1],   middle_class: [-2, 0], lower_class_mood: [-2, 1] },
+  military_defensive:        { economy: [-1, 0], military: [0, 3],  stability: [1, 3],  diplomacy: [0, 1],  approval: [1, 3],   elite_satisfaction: [0, 2],   corruption: [0, 0],   middle_class: [0, 1],  lower_class_mood: [1, 3]  },
+  diplomacy_outreach:        { economy: [0, 2],  military: [0, 0],  stability: [0, 1],  diplomacy: [2, 5],  approval: [0, 1],   elite_satisfaction: [1, 3],   corruption: [-1, 0],  middle_class: [1, 2],  lower_class_mood: [0, 1]  },
+  diplomacy_confrontation:   { economy: [-2, 0], military: [0, 0],  stability: [-1, 0], diplomacy: [-4, -1],approval: [-1, 2],  elite_satisfaction: [-2, 1],  corruption: [0, 1],   middle_class: [-1, 0], lower_class_mood: [-1, 1] },
+  economic_stimulus:         { economy: [1, 4],  military: [0, 0],  stability: [1, 2],  diplomacy: [0, 0],  approval: [1, 3],   elite_satisfaction: [-1, 2],  corruption: [-2, 0],  middle_class: [2, 4],  lower_class_mood: [2, 4]  },
+  economic_austerity:        { economy: [2, 5],  military: [0, 0],  stability: [-3, -1],diplomacy: [0, 0],  approval: [-3, -1], elite_satisfaction: [2, 4],   corruption: [-3, -1], middle_class: [-3, -1],lower_class_mood: [-4, -2]},
+  domestic_repression:       { economy: [0, 0],  military: [0, 1],  stability: [1, 3],  diplomacy: [-2, 0], approval: [-3, -1], elite_satisfaction: [2, 4],   corruption: [1, 3],   middle_class: [-2, 0], lower_class_mood: [-3, -1]},
+  domestic_liberalization:   { economy: [0, 1],  military: [0, 0],  stability: [-1, 2], diplomacy: [1, 2],  approval: [-1, 3],  elite_satisfaction: [-3, 0],  corruption: [-2, 0],  middle_class: [2, 4],  lower_class_mood: [2, 4]  },
+  info_narrative:            { economy: [0, 0],  military: [0, 0],  stability: [0, 2],  diplomacy: [-1, 2], approval: [1, 3],   elite_satisfaction: [0, 1],   corruption: [0, 1],   middle_class: [0, 0],  lower_class_mood: [1, 3]  },
+  intelligence_covert:       { economy: [0, 0],  military: [1, 3],  stability: [0, 0],  diplomacy: [-2, 0], approval: [0, 0],   elite_satisfaction: [0, 1],   corruption: [1, 2],   middle_class: [0, 0],  lower_class_mood: [0, 0]  },
+  intel_success:             { economy: [0, 2],  military: [2, 5],  stability: [0, 1],  diplomacy: [-1, 1], approval: [1, 3],   elite_satisfaction: [1, 3],   corruption: [0, 1],   middle_class: [0, 1],  lower_class_mood: [0, 2]  },
+  intel_critical_success:    { economy: [1, 3],  military: [4, 6],  stability: [1, 2],  diplomacy: [0, 2],  approval: [2, 4],   elite_satisfaction: [2, 4],   corruption: [-1, 0],  middle_class: [1, 2],  lower_class_mood: [1, 3]  },
+  intel_failure:             { economy: [-1, 0], military: [-1, 0], stability: [-2, 0], diplomacy: [-4, -2],approval: [-2, 0],  elite_satisfaction: [-2, 0],  corruption: [1, 2],   middle_class: [-1, 0], lower_class_mood: [-2, 0] },
+  intel_critical_failure:    { economy: [-2, 0], military: [-2, 0], stability: [-3, -1],diplomacy: [-5, -3],approval: [-3, -1], elite_satisfaction: [-4, -2], corruption: [2, 4],   middle_class: [-2, -1],lower_class_mood: [-3, -1]},
+  peace_initiative:          { economy: [1, 2],  military: [-1, 0], stability: [1, 2],  diplomacy: [2, 4],  approval: [1, 3],   elite_satisfaction: [-1, 1],  corruption: [-1, 0],  middle_class: [1, 3],  lower_class_mood: [2, 4]  },
+  null_action:               { economy: [-1, 0], military: [-1, 0], stability: [0, 0],  diplomacy: [0, 0],  approval: [-1, 0],  elite_satisfaction: [-1, 0],  corruption: [0, 1],   middle_class: [-1, 0], lower_class_mood: [-1, 0] },
+  nuclear_strike:            { economy: [-25,-20],military: [3, 8], stability: [-30,-25],diplomacy: [-40,-35],approval: [-20,-15],elite_satisfaction: [-15,-10],corruption: [5, 10], middle_class: [-20,-15],lower_class_mood: [-25,-20]},
 };
 
 // Множители severity (середина диапазона — детерминированно, без рандома)
@@ -116,7 +129,8 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   const seed = `${gameId}:${turnNumber}:${action_type}`;
 
   const statDeltas = {};
-  const newStats = { ...state.stats };
+  // Инициализируем субметрики дефолтами если отсутствуют
+  const newStats = { ...SUBSTAT_DEFAULTS, ...state.stats };
 
   // Инициатива: регенерация → трата
   const currentInitiative = typeof newStats.initiative === "number" ? newStats.initiative : INITIATIVE_MAX;
@@ -190,6 +204,7 @@ function computeDelayedEffectDelta({ category, stat, gameId, turnNumber, effectI
 module.exports = {
   RULES_TABLE,
   MAX_DELTA_PER_TURN,
+  SUBSTAT_DEFAULTS,
   INITIATIVE_COST,
   INITIATIVE_REGEN_PER_TURN,
   INITIATIVE_MAX,
