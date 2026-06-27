@@ -26,6 +26,7 @@ const { registerAdvisorRoutes } = require("./routes/advisors");
 const { registerSuggestionRoutes } = require("./routes/suggestions");
 const { registerArgueRoute } = require("./routes/argue");
 const { registerAdminRoutes } = require("./routes/admin");
+const { registerAuthRoutes } = require("./routes/auth");
 const { createPendingTurnStore } = require("./db/pending-turns");
 const { createAdminEventStore } = require("./db/admin-events");
 const { callClaudeApi } = require("./ai/claude-client");
@@ -40,7 +41,7 @@ async function buildServer() {
     methods: ["GET", "POST", "OPTIONS"],
   });
 
-  fastify.get("/health", async () => ({ status: "ok" }));
+  fastify.get("/health", async () => ({ status: "ok", version: "auth-v2" }));
 
   // --- Postgres ---
   if (!process.env.DATABASE_URL) {
@@ -55,6 +56,9 @@ async function buildServer() {
   // Миграции (идемпотентные)
   await db.query(`ALTER TABLE turns ADD COLUMN IF NOT EXISTS action_mode TEXT NOT NULL DEFAULT 'decree'`);
   await db.query(`ALTER TABLE game_state ADD COLUMN IF NOT EXISTS initiative INT NOT NULL DEFAULT 100`);
+  await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT`);
+  await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`);
+  await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username) WHERE username IS NOT NULL`);
 
   // --- Redis ---
   if (!process.env.REDIS_URL) {
@@ -68,6 +72,7 @@ async function buildServer() {
   const adminEventStore = createAdminEventStore(redis);
 
   // --- Роуты ---
+  await registerAuthRoutes(fastify, { db });
   await registerUserRoutes(fastify, { db });
   await registerGameRoutes(fastify, { db, callClaudeApi });
   await registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore });

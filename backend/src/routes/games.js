@@ -11,6 +11,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { verifyToken } = require("../middleware/auth");
 
 const COUNTRIES_DIR = path.join(__dirname, "../db/seed/countries");
 
@@ -36,12 +37,14 @@ const OUTCOME_TITLES = {
 async function registerGameRoutes(fastify, { db, callClaudeApi }) {
   // ---------- POST /games ----------
   fastify.post("/games", async (request, reply) => {
-    const { countryId, userId } = request.body || {};
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+
+    const { countryId } = request.body || {};
+    const userId = payload.userId;
+
     if (!countryId || typeof countryId !== "string") {
       return reply.code(400).send({ error: "countryId is required" });
-    }
-    if (!userId || typeof userId !== "string") {
-      return reply.code(400).send({ error: "userId is required" });
     }
 
     const countryRes = await db.query(
@@ -115,14 +118,29 @@ async function registerGameRoutes(fastify, { db, callClaudeApi }) {
     }
   });
 
+  // ---------- GET /games/my — все партии текущего пользователя ----------
+  fastify.get("/games/my", async (request, reply) => {
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const res = await db.query(
+      `SELECT g.id, g.current_turn, g.status, g.created_at, c.name AS country_name, c.id AS country_id
+       FROM games g JOIN countries c ON c.id = g.country_id
+       WHERE g.owner_user_id = $1 ORDER BY g.updated_at DESC LIMIT 20`,
+      [payload.userId]
+    );
+    return reply.send({ games: res.rows });
+  });
+
   // ---------- GET /games/:gameId ----------
   // Возвращает полное состояние партии в формате, совместимом с App.jsx:
   //   { date, turn, stats, relations, policies, overview, newsfeed, log }
   fastify.get("/games/:gameId", async (request, reply) => {
     const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
 
     const gameRes = await db.query(
-      `SELECT g.id, g.current_turn, g.status, g.created_at,
+      `SELECT g.id, g.current_turn, g.status, g.created_at, g.owner_user_id,
               gs.stats, gs.relations, gs.policies, gs.overview,
               c.name AS country_name, c.context_summary
        FROM games g
@@ -135,6 +153,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi }) {
       return reply.code(404).send({ error: "Game not found" });
     }
     const game = gameRes.rows[0];
+    if (game.owner_user_id !== payload.userId) {
+      return reply.code(403).send({ error: "Нет доступа к этой партии" });
+    }
 
     const newsfeedRes = await db.query(
       `SELECT turn_n, item_type, source, text, reactions

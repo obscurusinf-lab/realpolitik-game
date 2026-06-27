@@ -22,6 +22,7 @@
  */
 
 const { classifyTurn } = require("../ai/gamemaster");
+const { verifyToken } = require("../middleware/auth");
 
 /**
  * Проверяет победные/поражения условия после каждого хода.
@@ -90,6 +91,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
   // ---------- PREVIEW ----------
   fastify.post("/games/:gameId/turns/preview", async (request, reply) => {
     const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
     const { playerInput, actionMode = "decree" } = request.body;
 
     if (!playerInput || typeof playerInput !== "string" || playerInput.trim().length === 0) {
@@ -235,6 +238,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
   // ---------- CONFIRM ----------
   fastify.post("/games/:gameId/turns/confirm", async (request, reply) => {
     const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
 
     const pending = await pendingTurnStore.get(gameId);
     if (!pending) {
