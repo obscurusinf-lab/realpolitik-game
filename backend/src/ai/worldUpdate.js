@@ -1,102 +1,82 @@
 /**
- * worldUpdate.js
- *
- * После каждого подтверждённого хода генерирует:
- *   1. Новый overview (headline + hotspots) — что изменилось в мире
- *   2. Реакции других стран/блоков — идут в newsfeed как item_type='reaction'
- *
- * Вызывается ПОСЛЕ транзакции confirm, не блокирует ответ игроку —
- * результат сохраняется в БД и виден при следующем GET /games/:id.
+ * worldUpdate.js — генерация мировых событий после каждого хода.
+ * ВАЖНО: промпты намеренно краткие — русский текст токенизируется дороже английского,
+ * поэтому каждое поле ограничено 1-2 предложениями чтобы не обрезаться.
  */
 
 function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, narrative }) {
-  return `Ты — система мирового моделирования. Только что произошло невообразимое: президент ${countryName} нанёс ядерный удар.
+  return `Ты — система мирового моделирования. Президент ${countryName} только что нанёс ядерный удар (ход ${turnNumber}).
 
-ХОД ${turnNumber}. Приказ игрока: "${playerInput}"
 Нарратив: "${narrative}"
 
-Это ПЕРВОЕ применение ядерного оружия с 1945 года. Мир в шоке. Ты должен описать немедленную реакцию планеты — максимально реалистично, детально, апокалиптически.
-
-Сгенерируй:
-1. overview — описание нового мира, где сломана ядерная норма. Мрачно, исторически.
-2. world_reactions — МИНИМУМ 10 реакций от разных держав и организаций: США, НАТО, ООН, Китай, Великобритания, Франция, Германия, Израиль, Индия, Пакистан, страна-цель удара, папа римский / религиозные лидеры, финансовые рынки. Реакции должны нарастать: сначала шок и осуждение, потом ультиматумы, потом угрозы ядерного ответного удара. Тон — реалистичный, не пафосный, как реальные пресс-релизы и экстренные заявления.
-3. world_moves — 4-6 конкретных действий стран: экстренные военные меры, приведение ядерных сил в готовность, разрыв дипломатических отношений, экстренные заседания.
-
-Верни ТОЛЬКО валидный JSON без markdown:
+Верни ТОЛЬКО валидный JSON (без markdown, без пояснений):
 {
   "overview": {
-    "headline": "заголовок — ёмко и страшно, 1-2 предложения",
+    "headline": "1 предложение — исторический масштаб случившегося",
     "hotspots": [
-      {"region": "Эпицентр удара", "text": "подробно об ударе, жертвах, разрушениях", "lat": 0.0, "lon": 0.0},
-      {"region": "Мировая реакция", "text": "как реагирует мировое сообщество", "lat": 0.0, "lon": 0.0},
-      {"region": "Ядерная угроза", "text": "страны приводят свои арсеналы в готовность", "lat": 0.0, "lon": 0.0}
+      {"region": "Эпицентр удара", "text": "1-2 предложения о разрушениях и жертвах", "lat": 50.4, "lon": 30.5},
+      {"region": "Ядерная тревога", "text": "1-2 предложения — страны приводят арсеналы в готовность", "lat": 48.9, "lon": 2.3},
+      {"region": "Мировой кризис", "text": "1-2 предложения о реакции мирового сообщества", "lat": 40.7, "lon": -74.0}
     ]
   },
   "world_reactions": [
-    {"source": "страна или организация", "text": "реакция 1-3 предложения", "tone": "neg", "escalation": 1}
+    {"source": "США", "text": "1-2 предложения", "tone": "neg", "escalation": 3},
+    {"source": "НАТО", "text": "1-2 предложения", "tone": "neg", "escalation": 3},
+    {"source": "Совет Безопасности ООН", "text": "1-2 предложения", "tone": "neg", "escalation": 1},
+    {"source": "Китай", "text": "1-2 предложения", "tone": "neg", "escalation": 2},
+    {"source": "Великобритания", "text": "1-2 предложения", "tone": "neg", "escalation": 2},
+    {"source": "Страна-цель удара", "text": "1-2 предложения", "tone": "neg", "escalation": 3},
+    {"source": "Мировые рынки", "text": "1-2 предложения о коллапсе", "tone": "neg", "escalation": 1}
   ],
   "world_moves": [
-    {"country": "...", "action": "...", "impact": "...", "direction": "hostile"}
+    {"country": "США", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile"},
+    {"country": "НАТО", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile"},
+    {"country": "Китай", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile"}
   ]
 }
-Поле escalation в реакциях: 1=шок/осуждение, 2=ультиматум/санкции, 3=прямая угроза ядерного ответа.`;
+escalation: 1=осуждение, 2=ультиматум, 3=угроза ядерного ответа. Заполни реальными текстами вместо шаблонных описаний.`;
 }
 
-function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrative, statDeltas, relationDeltas, currentStats, currentRelations, prevOverview }) {
+function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrative, statDeltas, relationDeltas, currentRelations, prevOverview }) {
   const deltaLines = Object.entries(statDeltas)
     .filter(([, d]) => d !== 0)
-    .map(([k, v]) => `${k}: ${v > 0 ? "+" : ""}${v}`)
-    .join(", ") || "без изменений";
+    .map(([k, v]) => `${k}:${v > 0 ? "+" : ""}${v}`)
+    .join(", ") || "—";
 
-  const relLines = (relationDeltas || [])
-    .map(r => `${r.country}: ${r.delta > 0 ? "+" : ""}${r.delta}`)
-    .join(", ") || "без изменений";
+  const relLines = (relationDeltas || []).slice(0, 5)
+    .map(r => `${r.country}:${r.delta > 0 ? "+" : ""}${r.delta}`)
+    .join(", ") || "—";
 
-  return `Ты — система мирового моделирования в геополитической стратегии. Игрок управляет ${countryName}.
+  const topRelations = (currentRelations || []).slice(0, 8)
+    .map(r => `${r.name || r.country}:${r.value}`)
+    .join(", ");
 
-ХОД ${turnNumber}. Игрок только что принял решение:
-"${playerInput}"
+  return `Геополитическая стратегия. Игрок: ${countryName}, ход ${turnNumber}.
+Решение: "${playerInput}"
+Итог: ${deltaLines} | Отношения: ${relLines}
+Топ-отношения: ${topRelations}
+Контекст: ${prevOverview?.headline || "—"}
 
-Нарратив геймместера: "${narrative}"
-Изменения показателей: ${deltaLines}
-Изменения отношений: ${relLines}
-
-Текущее состояние страны:
-${JSON.stringify(currentStats)}
-
-Текущие отношения:
-${JSON.stringify(currentRelations.slice(0, 10))}
-
-Предыдущая обстановка:
-${JSON.stringify(prevOverview)}
-
-Твоя задача:
-1. Обнови "обстановку" — что изменилось в мире после этого решения. Пиши живо, как сводка разведки. Очаги напряжённости должны быть достаточно подробными чтобы быть интересными.
-2. Сгенерируй 2-4 реакции от других стран/блоков. Каждая — 1-2 предложения, от конкретного актора (США, ЕС, Китай, Украина, НАТО и т.д.). Реакции должны соответствовать направлению решения и реальной геополитике.
-3. Сгенерируй 2-3 "хода мира" — что в этот же период предприняли другие крупные игроки независимо от действий игрока. Это должны быть реалистичные геополитические события (военные манёвры, дипломатические встречи, экономические решения других стран). Они не обязаны быть связаны с действием игрока напрямую.
-
-Верни ТОЛЬКО валидный JSON без markdown:
+Верни ТОЛЬКО валидный JSON (без markdown):
 {
   "overview": {
-    "headline": "1-2 предложения: главное что изменилось в мире после этого хода",
+    "headline": "1 предложение — что изменилось в мире",
     "hotspots": [
-      {"region": "название региона/темы", "text": "2-3 предложения об очаге напряжённости, достаточно подробно чтобы было интересно читать", "lat": 51.5, "lon": 37.2},
-      {"region": "...", "text": "...", "lat": 0.0, "lon": 0.0}
+      {"region": "название", "text": "1-2 предложения", "lat": 0.0, "lon": 0.0},
+      {"region": "название", "text": "1-2 предложения", "lat": 0.0, "lon": 0.0}
     ]
   },
   "world_reactions": [
-    {"source": "название страны или блока", "text": "реакция 1-2 предложения", "tone": "pos|neg|neutral"},
-    {"source": "...", "text": "...", "tone": "..."}
+    {"source": "страна/блок", "text": "1 предложение", "tone": "neg"},
+    {"source": "страна/блок", "text": "1 предложение", "tone": "neutral"},
+    {"source": "страна/блок", "text": "1 предложение", "tone": "pos"}
   ],
   "world_moves": [
-    {
-      "country": "название страны",
-      "action": "что страна предприняла на этом ходу (1-2 предложения, конкретно)",
-      "impact": "как это влияет на ситуацию (1 предложение)",
-      "direction": "hostile|neutral|cooperative"
-    }
+    {"country": "страна", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile|neutral|cooperative"},
+    {"country": "страна", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile|neutral|cooperative"}
   ]
-}`;
+}
+Заполни реальными текстами соответствующими решению игрока и геополитическому контексту.`;
 }
 
 async function generateWorldUpdate({ params, callClaudeApi }) {
@@ -109,12 +89,17 @@ async function generateWorldUpdate({ params, callClaudeApi }) {
   try {
     response = await callClaudeApi({
       model: "claude-sonnet-4-6",
-      max_tokens: isNuclear ? 4096 : 1200,
+      max_tokens: isNuclear ? 6000 : 2500,
       messages: [{ role: "user", content: prompt }],
     });
   } catch (err) {
     console.error("worldUpdate Claude call failed:", err.message);
     return null;
+  }
+
+  // Проверяем stop_reason — если max_tokens, JSON скорее всего обрезан
+  if (response.stop_reason === "max_tokens") {
+    console.error("worldUpdate hit max_tokens limit — response truncated");
   }
 
   const rawText = response.content
@@ -123,23 +108,43 @@ async function generateWorldUpdate({ params, callClaudeApi }) {
     .join("\n");
 
   const cleaned = rawText.replace(/```json\s*|\s*```/g, "").trim();
+
+  // Попытка 1: нормальный JSON.parse
   try {
     return JSON.parse(cleaned);
-  } catch {
-    // Попытка вытащить частичный JSON если ответ обрезан
-    try {
-      const start = cleaned.indexOf("{");
-      if (start === -1) throw new Error("no json");
+  } catch {}
+
+  // Попытка 2: найти первый полный валидный JSON-объект
+  try {
+    const start = cleaned.indexOf("{");
+    if (start !== -1) {
       let depth = 0, end = -1;
       for (let i = start; i < cleaned.length; i++) {
         if (cleaned[i] === "{") depth++;
-        else if (cleaned[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+        else if (cleaned[i] === "}") {
+          depth--;
+          if (depth === 0) { end = i; break; }
+        }
       }
       if (end !== -1) return JSON.parse(cleaned.slice(start, end + 1));
-    } catch {}
-    console.error("worldUpdate JSON parse failed, raw:", cleaned.slice(0, 200));
-    return null;
-  }
+    }
+  } catch {}
+
+  // Попытка 3: вытащить хотя бы overview и reactions по отдельности
+  try {
+    const overviewMatch = cleaned.match(/"overview"\s*:\s*(\{[\s\S]*?\})\s*,\s*"world_reactions"/);
+    const reactionsMatch = cleaned.match(/"world_reactions"\s*:\s*(\[[\s\S]*?\])/);
+    if (overviewMatch || reactionsMatch) {
+      return {
+        overview: overviewMatch ? JSON.parse(overviewMatch[1]) : null,
+        world_reactions: reactionsMatch ? JSON.parse(reactionsMatch[1]) : [],
+        world_moves: [],
+      };
+    }
+  } catch {}
+
+  console.error("worldUpdate JSON parse failed after 3 attempts, raw snippet:", cleaned.slice(0, 300));
+  return null;
 }
 
 module.exports = { generateWorldUpdate };
