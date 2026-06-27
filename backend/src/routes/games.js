@@ -14,11 +14,11 @@ const path = require("path");
 
 const COUNTRIES_DIR = path.join(__dirname, "../db/seed/countries");
 
-function loadOverviewSeed(countryId) {
+function loadCountrySeed(countryId) {
   const files = fs.readdirSync(COUNTRIES_DIR).filter((f) => f.endsWith(".json"));
   for (const file of files) {
     const data = JSON.parse(fs.readFileSync(path.join(COUNTRIES_DIR, file), "utf-8"));
-    if (data.id === countryId) return data.overview_seed || null;
+    if (data.id === countryId) return data;
   }
   return null;
 }
@@ -48,7 +48,12 @@ async function registerGameRoutes(fastify, { db }) {
       return reply.code(404).send({ error: `User '${userId}' not found` });
     }
 
-    const overviewSeed = loadOverviewSeed(countryId) || { headline: "Партия началась.", hotspots: [] };
+    const seed = loadCountrySeed(countryId) || {};
+    const overviewSeed = seed.overview_seed || { headline: "Партия началась.", hotspots: [] };
+    const initialPolicies = seed.initial_policies || [];
+    const initialNewsfeed = seed.initial_newsfeed || [];
+    // Субметрики из сида перекрывают базовые стат
+    const baseStats = { ...(seed.base_stats || country.base_stats) };
 
     const client = await db.connect();
     try {
@@ -63,14 +68,31 @@ async function registerGameRoutes(fastify, { db }) {
 
       await client.query(
         `INSERT INTO game_state (game_id, stats, relations, policies, delayed_effects, overview)
-         VALUES ($1, $2, $3, '[]', '[]', $4)`,
+         VALUES ($1, $2, $3, $4, '[]', $5)`,
         [
           gameId,
-          JSON.stringify(country.base_stats),
+          JSON.stringify(baseStats),
           JSON.stringify(country.base_relations),
+          JSON.stringify(initialPolicies),
           JSON.stringify(overviewSeed),
         ]
       );
+
+      // Сидируем начальные события в ленту новостей
+      for (const item of initialNewsfeed) {
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            gameId,
+            item.turn_n ?? 0,
+            item.item_type || "news",
+            item.source || "Архив",
+            item.text,
+            JSON.stringify(item.reactions || []),
+          ]
+        );
+      }
 
       await client.query("COMMIT");
       return reply.code(201).send({ gameId, countryId, status: "active", currentTurn: 0 });
@@ -137,10 +159,18 @@ async function registerGameRoutes(fastify, { db }) {
       })),
     ];
 
-    // Дата: начало + current_turn * 3 дня (каждый ход = 3 дня)
-    const startDate = new Date(game.created_at);
-    startDate.setDate(startDate.getDate() + game.current_turn * 3);
-    const date = startDate.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+    // Дата из overview (продвигается в turns.js при каждом ходе)
+    let date = game.overview?.date || null;
+    if (date) {
+      try {
+        date = new Date(date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+      } catch { /* оставить строкой */ }
+    } else {
+      // Фоллбэк для старых партий без даты в overview
+      const startDate = new Date(game.created_at);
+      startDate.setMonth(startDate.getMonth() + game.current_turn);
+      date = startDate.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+    }
 
     return reply.send({
       id: game.id,
