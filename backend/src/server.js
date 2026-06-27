@@ -41,7 +41,12 @@ async function buildServer() {
     methods: ["GET", "POST", "OPTIONS"],
   });
 
-  fastify.get("/health", async () => ({ status: "ok", version: "auth-v2" }));
+  fastify.get("/health", async (req, reply) => {
+    const fs = require("fs");
+    const hasAuth = fs.existsSync("/app/src/routes/auth.js");
+    const hasMiddleware = fs.existsSync("/app/src/middleware/auth.js");
+    return { status: "ok", version: "auth-v2", hasAuth, hasMiddleware };
+  });
 
   // --- Postgres ---
   if (!process.env.DATABASE_URL) {
