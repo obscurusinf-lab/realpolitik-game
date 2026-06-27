@@ -2909,42 +2909,138 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
 
 function StatsTab({ state, gameId }) {
   const [openStat, setOpenStat] = useState(null);
+  const [expandedKey, setExpandedKey] = useState(null);
+  const [statHistory, setStatHistory] = useState(null);
+
+  useEffect(() => {
+    fetchStatHistory(gameId).then(d => setStatHistory(d.history || [])).catch(() => {});
+  }, [gameId]);
+
+  // Для каждого стата — последние 3 хода где он значимо изменился (|delta| >= 2)
+  function getStatEvents(key) {
+    if (!statHistory) return [];
+    return statHistory
+      .filter(h => {
+        const d = h.stat_deltas?.[key];
+        return typeof d === "number" && Math.abs(d) >= 2;
+      })
+      .slice(-4)
+      .reverse()
+      .map(h => ({
+        turn: h.turn_n,
+        delta: h.stat_deltas[key],
+        actionType: h.action_type,
+      }));
+  }
+
+  const ACTION_TYPE_LABEL = {
+    military_offensive: "Наступление",
+    military_defensive: "Оборона",
+    diplomacy_outreach: "Дипломатия",
+    diplomacy_confrontation: "Конфронтация",
+    economic_stimulus: "Стимул эк-ки",
+    economic_austerity: "Жёсткая экономия",
+    domestic_repression: "Подавление",
+    domestic_liberalization: "Либерализация",
+    info_narrative: "Нарратив",
+    intelligence_covert: "Разведка",
+    peace_initiative: "Мирная инициатива",
+    null_action: "Бездействие",
+    nuclear_strike: "Ядерный удар",
+  };
 
   return (
     <>
-      <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "grid", gap: 10 }}>
         {Object.entries(state.stats).filter(([key]) => statMeta[key]).map(([key, value]) => {
           const meta = statMeta[key];
           const Icon = meta.icon;
           const substats = (SUBSTAT_META[key] || []).map(sm => ({ ...sm, value: state.stats[sm.key] ?? 50 }));
+          const expanded = expandedKey === key;
+          const events = getStatEvents(key);
+
           return (
-            <div key={key} onClick={() => setOpenStat(key)} style={{ cursor: "pointer", borderRadius: 6, padding: "10px 12px", background: "#f5f1e6", border: "1px solid #d8d2bf", transition: "border-color 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = meta.color}
-              onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div key={key} style={{ borderRadius: 6, background: "#f5f1e6", border: `1px solid ${expanded ? meta.color : "#d8d2bf"}`, transition: "border-color 0.15s", overflow: "hidden" }}>
+              {/* Header — click to expand substats */}
+              <div
+                onClick={() => setExpandedKey(expanded ? null : key)}
+                style={{ cursor: "pointer", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
                 <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                   <Icon size={15} color={meta.color} />
                   <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{meta.label}</span>
+                  {events.length > 0 && (
+                    <span style={{ fontSize: 9, background: "#eee6d0", color: "#8a8472", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>
+                      {events.length} событий
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span className="mono-font" style={{ fontSize: 14, fontWeight: 700, color: meta.color }}>{value}</span>
-                  <span style={{ fontSize: 10, color: "#8a8472" }}>›</span>
+                  <span style={{ fontSize: 11, color: meta.color, transition: "transform 0.2s", display: "inline-block", transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
                 </div>
               </div>
-              <Bar value={value} color={meta.color} />
-              {substats.length > 0 && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginTop: 10 }}>
-                  {substats.map(s => (
-                    <div key={s.key}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                        <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>{s.label.toUpperCase()}</span>
-                        <span className="mono-font" style={{ fontSize: 8, color: s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : (s.value >= 60 ? "#4a6b5c" : s.value >= 40 ? "#9c8347" : "#a8313a"), fontWeight: 700 }}>{s.value}</span>
+              <div style={{ padding: "0 12px 10px" }}>
+                <Bar value={value} color={meta.color} />
+              </div>
+
+              {/* Expanded: substats + events */}
+              {expanded && (
+                <div style={{ borderTop: "1px solid #e8e2d0", padding: "12px 12px 14px" }}>
+                  {/* Substats */}
+                  {substats.length > 0 && (
+                    <>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 8 }}>ДЕТАЛЬНЫЕ ПОКАЗАТЕЛИ</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 14px", marginBottom: events.length > 0 ? 14 : 0 }}>
+                        {substats.map(s => {
+                          const displayVal = s.inverted ? 100 - s.value : s.value;
+                          const clr = displayVal >= 60 ? "#4a6b5c" : displayVal >= 40 ? "#9c8347" : "#a8313a";
+                          return (
+                            <div key={s.key}>
+                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                                <span className="doc-font" style={{ fontSize: 11, color: "#5c5648" }}>{s.label}</span>
+                                <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{s.value}</span>
+                              </div>
+                              <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden" }}>
+                                <div style={{ width: `${displayVal}%`, height: "100%", background: clr }} />
+                              </div>
+                              {s.desc && <div className="mono-font" style={{ fontSize: 8.5, color: "#a8a294", marginTop: 2, lineHeight: 1.3 }}>{s.desc}</div>}
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div style={{ height: 3, background: "#d8d2bf", borderRadius: 1, overflow: "hidden" }}>
-                        <div style={{ width: `${s.inverted ? 100 - s.value : s.value}%`, height: "100%", background: s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : s.color }} />
+                    </>
+                  )}
+
+                  {/* Events affecting this stat */}
+                  {events.length > 0 && (
+                    <>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 6 }}>СОБЫТИЯ</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {events.map((ev, i) => {
+                          const positive = ev.delta > 0;
+                          return (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: positive ? "#f0f5f0" : "#f5f0f0", borderRadius: 3, borderLeft: `3px solid ${positive ? "#4a6b5c" : "#a8313a"}` }}>
+                              <span className="mono-font" style={{ fontSize: 10, fontWeight: 700, color: positive ? "#4a6b5c" : "#a8313a", minWidth: 28 }}>
+                                {positive ? "+" : ""}{ev.delta}
+                              </span>
+                              <span className="doc-font" style={{ fontSize: 11, color: "#5c5648", flex: 1 }}>
+                                {ACTION_TYPE_LABEL[ev.actionType] || ev.actionType}
+                              </span>
+                              <span className="mono-font" style={{ fontSize: 9, color: "#a8a294" }}>х.{ev.turn}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
-                  ))}
+                    </>
+                  )}
+
+                  <button
+                    onClick={e => { e.stopPropagation(); setOpenStat(key); }}
+                    style={{ marginTop: 12, background: "none", border: `1px solid ${meta.color}`, borderRadius: 3, padding: "5px 12px", fontSize: 11, color: meta.color, cursor: "pointer", fontFamily: "'PT Serif',serif" }}
+                  >
+                    Подробный анализ →
+                  </button>
                 </div>
               )}
             </div>

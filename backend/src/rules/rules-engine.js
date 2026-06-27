@@ -44,33 +44,35 @@ const MAX_DELTA_PER_TURN = {
   regional_unity: 4,
 };
 
-// Начальные значения субметрик для новых игр (применяются если отсутствуют в stats)
+// Начальные значения субметрик — Россия 2026 (применяются если отсутствуют в stats)
 const SUBSTAT_DEFAULTS = {
   // approval
-  elite_satisfaction: 55,
-  corruption: 40,
-  middle_class: 50,
-  lower_class_mood: 45,
+  elite_satisfaction: 62,
+  corruption: 55,
+  middle_class: 44,
+  lower_class_mood: 41,
   // economy
-  gdp_growth: 45,
-  inflation: 45,
-  employment: 65,
-  reserves: 50,
+  gdp_growth: 36,
+  inflation: 64,
+  employment: 74,
+  reserves: 48,
   // military
-  army_morale: 55,
-  equipment: 55,
-  readiness: 60,
-  veterans: 50,
+  army_morale: 62,
+  equipment: 65,
+  readiness: 70,
+  veterans: 72,
   // diplomacy
-  ally_trust: 45,
-  isolation: 40,
-  soft_power: 45,
-  reputation: 45,
+  ally_trust: 42,
+  isolation: 68,
+  soft_power: 32,
+  reputation: 28,
   // stability
-  law_order: 55,
-  social_tension: 40,
-  media_control: 55,
-  regional_unity: 55,
+  law_order: 72,
+  social_tension: 38,
+  media_control: 76,
+  regional_unity: 64,
+  // peace
+  peace_progress: 12,
 };
 
 // Стоимость инициативы по типу действия
