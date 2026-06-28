@@ -180,6 +180,15 @@ export async function consultAdvisors(gameId, playerDraft, actionMode) {
   return res.json();
 }
 
+export async function regroupTurn(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/regroup`, { method: "POST" }, 60000);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `regroupTurn failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function skipTurn(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/skip`, { method: "POST" }, 60000);
   if (!res.ok) {

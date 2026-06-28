@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -783,12 +783,12 @@ function generateSmartHints(stats, turn) {
 
   // --- ИНИЦИАТИВА ---
   if (init < 30 && hints.length < 4) hints.push({
-    priority: 7, icon: "⏸",
-    title: "Инициатива на исходе",
-    why: `Инициатива ${init}. Пропусти ход — восстановишь +25 инициативы вместо штрафа.`,
-    mode: "skip",
+    priority: 7, icon: "⚙",
+    title: "Инициатива на исходе — перегруппировка",
+    why: `Инициатива ${init}. Перегруппировка восстанавливает +75 инициативы: армия отдыхает, мораль растёт. Без жёстких штрафов пропуска.`,
+    mode: "regroup",
     example: null,
-    effect: "инициатива +25",
+    effect: "инициатива +75, мораль +3..+5",
   });
 
   // --- РАЗВЕДКА ---
@@ -818,15 +818,15 @@ function SmartHintsPanel({ stats, turn, onSelectHint, onClose }) {
         {hints.map((h, i) => (
           <div
             key={i}
-            onClick={() => h.mode !== "skip" && onSelectHint(h)}
+            onClick={() => onSelectHint(h)}
             style={{
               background: h.urgency ? "#1a0c0c" : "#141b24",
               border: `1px solid ${h.urgency ? "#5a1a1a" : "#2a3545"}`,
               borderLeft: `3px solid ${h.urgency ? "#a8313a" : "#9c8347"}`,
               borderRadius: 5, padding: "8px 10px",
-              cursor: h.mode !== "skip" ? "pointer" : "default",
+              cursor: "pointer",
             }}
-            onMouseEnter={e => h.mode !== "skip" && (e.currentTarget.style.borderColor = "#9c8347")}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = "#9c8347")}
             onMouseLeave={e => (e.currentTarget.style.border = `1px solid ${h.urgency ? "#5a1a1a" : "#2a3545"}`, e.currentTarget.style.borderLeft = `3px solid ${h.urgency ? "#a8313a" : "#9c8347"}`)}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -1779,6 +1779,25 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     }
   }
 
+  async function handleRegroupTurn() {
+    if (confirming) return;
+    setConfirming(true);
+    setTurnError(null);
+    try {
+      const result = await regroupTurn(gameId);
+      setEndTurnResult({
+        narrative: result.narrative || "Войска переформированы.",
+        statDeltasPreview: result.statDeltas || {},
+        actionMode: "regroup",
+      });
+      setDraftInput("");
+    } catch (err) {
+      setTurnError(err.message);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
   function handleEndTurn() {
     if (lastActionResult) {
       // Игрок уже совершил действия — показываем EndTurnScreen без нового skip-запроса
@@ -2059,6 +2078,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               stats={state?.stats}
               turn={state?.turn ?? 0}
               onSelectHint={(h) => {
+              if (h.mode === "regroup") { handleRegroupTurn(); return; }
               setActionMode(h.mode);
               const raw = h.example || "";
               const modeLabels = {
@@ -2229,18 +2249,35 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           {/* Завершить ход */}
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
             {!lastActionResult && (
-              <div className="mono-font" style={{ fontSize: 9, color: "#6a4030", textAlign: "right" }}>
-                ⚠ Без действия: инициатива +30, но штраф к статам
+              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button
+                  onClick={handleRegroupTurn}
+                  disabled={confirming}
+                  title="Перегруппировка — инициатива +75, армия отдыхает. Мягкие эффекты, нет штрафов"
+                  style={{ ...btnStyle("#1a2a1a", "#5a8050"), border: "1px solid #2a4030", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+                >
+                  {confirming ? "…" : "⚙ Перегруппировка (+75 инициативы)"}
+                </button>
+                <button
+                  onClick={handleEndTurn}
+                  disabled={confirming}
+                  title="Пропустить ход — инициатива +55, но штраф к показателям"
+                  style={{ ...btnStyle("#1f2733", "#5a6070"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+                >
+                  {confirming ? "…" : "⏭ Пропустить ход (+55 инициативы)"}
+                </button>
               </div>
             )}
-            <button
-              onClick={handleEndTurn}
-              disabled={confirming}
-              title={lastActionResult ? "Завершить ход и увидеть реакцию мира" : "Пропустить ход — инициатива +30, штраф к показателям"}
-              style={{ ...btnStyle("#1f2733", lastActionResult ? "#9c8347" : "#5a6070"), border: `1px solid ${lastActionResult ? "#3a3020" : "#2a3040"}`, fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
-            >
-              {confirming ? "…" : lastActionResult ? "⏭ Завершить ход → реакция мира" : "⏭ Пропустить ход (+30 инициативы)"}
-            </button>
+            {lastActionResult && (
+              <button
+                onClick={handleEndTurn}
+                disabled={confirming}
+                title="Завершить ход и увидеть реакцию мира"
+                style={{ ...btnStyle("#1f2733", "#9c8347"), border: "1px solid #3a3020", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+              >
+                {confirming ? "…" : "⏭ Завершить ход → реакция мира"}
+              </button>
+            )}
           </div>
         </div>
       )}

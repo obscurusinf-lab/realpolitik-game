@@ -1082,6 +1082,106 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       client.release();
     }
   });
+  // ---------- REGROUP (перегруппировка) ----------
+  // Восстанавливает 50 инициативы, даёт армии передышку, минимальные штрафы
+  fastify.post("/games/:gameId/turns/regroup", async (request, reply) => {
+    const { gameId } = request.params;
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const turnNumber = game.current_turn + 1;
+      const currentStats = game.stats || {};
+      const { INITIATIVE_MAX, INITIATIVE_REGROUP_REGEN, applyTurn } = require("../rules/rules-engine");
+
+      // Применяем military_regroup через rules-engine — мягкие позитивные эффекты для армии
+      const { newStats, statDeltas } = applyTurn({
+        state: { stats: currentStats, relations: game.relations || [] },
+        gmClassification: { action_type: "military_regroup", severity: 2, affected_relations: [] },
+        gameId,
+        turnNumber,
+        actionMode: "regroup",
+      });
+
+      // Перегруппировка: пассивная регенерация + бонус REGROUP_REGEN, без стоимости
+      const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
+      const passiveRegen = 25;
+      newStats.initiative = Math.min(INITIATIVE_MAX, currentInit + passiveRegen + INITIATIVE_REGROUP_REGEN);
+      statDeltas.initiative = newStats.initiative - currentInit;
+
+      const narrative = "Войска отведены на переформирование. Армия восстанавливает боеспособность — фронт стабилизирован, подтягивается снабжение и резервы.";
+
+      await client.query(
+        `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [gameId, turnNumber, "[Перегруппировка]", "regroup",
+          JSON.stringify({ action_type: "military_regroup", severity: 2 }),
+          JSON.stringify(statDeltas),
+          "[]", narrative, null, JSON.stringify(newStats)]
+      );
+      await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+      await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
+      await client.query("COMMIT");
+
+      // Ukraine action (такая же механика как в confirm)
+      fastify.log.info({ gameId, turnNumber }, "regroup: triggering world update async");
+      setImmediate(async () => {
+        try {
+          const { generateWorldUpdate } = require("../ai/worldUpdate");
+          const db2 = require("../server").getDb ? require("../server").getDb() : db;
+          const worldResult = await generateWorldUpdate({
+            params: {
+              countryName: game.country_name || "Россия",
+              turnNumber,
+              playerInput: "[Перегруппировка войск]",
+              narrative,
+              statDeltas,
+              relationDeltas: [],
+              currentRelations: game.relations || [],
+              actionType: "regroup",
+            },
+            callClaudeApi: require("../ai/claude-client").callClaudeApi,
+          });
+          if (worldResult) {
+            const client2 = await db.connect();
+            try {
+              await client2.query("BEGIN");
+              for (const reaction of (worldResult.world_reactions || [])) {
+                await client2.query(
+                  `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'reaction',$3,$4,'[]')`,
+                  [gameId, turnNumber, reaction.source, reaction.text]
+                );
+              }
+              await client2.query("COMMIT");
+            } catch (e) {
+              await client2.query("ROLLBACK");
+              fastify.log.error({ err: e }, "regroup worldUpdate DB write failed");
+            } finally {
+              client2.release();
+            }
+          }
+        } catch (e) {
+          fastify.log.error({ err: e }, "regroup worldUpdate failed");
+        }
+      });
+
+      return reply.send({
+        turnNumber,
+        narrative,
+        statDeltas,
+        regrouped: true,
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Regroup failed" });
+    } finally {
+      client.release();
+    }
+  });
+
   // GET /games/:gameId/stat-history — история всех статов по ходам
   fastify.get("/games/:gameId/stat-history", async (request, reply) => {
     const { gameId } = request.params;

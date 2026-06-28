@@ -9,6 +9,7 @@
 const ALLOWED_CATEGORIES = [
   "military_offensive",
   "military_defensive",
+  "military_regroup",
   "diplomacy_outreach",
   "diplomacy_confrontation",
   "economic_stimulus",

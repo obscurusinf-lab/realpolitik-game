@@ -88,6 +88,7 @@ const INITIATIVE_COST = {
   military:       55,
   crisis:         15,
   diplomacy_op:   35, // дипломатическая операция
+  regroup:         0, // перегруппировка: инициатива не тратится, а восстанавливается
 };
 
 // Сроки (в ходах = месяцах) по типу указа
@@ -105,6 +106,7 @@ const NORMAL_TURN_WEEKS = 4; // 1 месяц
 const INITIATIVE_REGEN_PER_TURN = 25;
 const INITIATIVE_REGEN_CRISIS   = 35; // быстрее восстанавливается в кризисе
 const INITIATIVE_SKIP_REGEN = 30;
+const INITIATIVE_REGROUP_REGEN = 50; // перегруппировка: восстанавливает 50 поверх пассивного
 const INITIATIVE_MAX = 100;
 
 const MAX_RELATION_DELTA_DIRECT = 8;
@@ -131,6 +133,7 @@ const RULES_TABLE = {
   intel_failure:           { economy:[-1,0],  military:[-1,0], stability:[-2,0], diplomacy:[-4,-2],approval:[-2,0],  elite_satisfaction:[-2,0], corruption:[1,2],  middle_class:[-1,0], lower_class_mood:[-2,0],  gdp_growth:[-1,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[-2,-1],equipment:[0,0],  readiness:[-1,0], veterans:[0,0],  ally_trust:[-2,-1],isolation:[1,2],  soft_power:[-2,-1],reputation:[-2,-1], law_order:[-1,0], social_tension:[1,2],  media_control:[0,0],  regional_unity:[-1,0] },
   intel_critical_failure:  { economy:[-2,0],  military:[-2,0], stability:[-3,-1],diplomacy:[-5,-3],approval:[-3,-1], elite_satisfaction:[-4,-2],corruption:[2,4],  middle_class:[-2,-1],lower_class_mood:[-3,-1], gdp_growth:[-2,-1],inflation:[1,2],  employment:[-1,0], reserves:[-2,-1],army_morale:[-3,-2],equipment:[-1,0], readiness:[-2,-1],veterans:[0,0],  ally_trust:[-3,-2],isolation:[2,4],  soft_power:[-3,-2],reputation:[-4,-3], law_order:[-2,-1],social_tension:[2,3],  media_control:[-1,0], regional_unity:[-2,-1]},
   peace_initiative:        { economy:[1,2],   military:[-1,0], stability:[1,2],  diplomacy:[2,4],  approval:[1,3],   elite_satisfaction:[-1,1], corruption:[-1,0], middle_class:[1,3],  lower_class_mood:[2,4],   gdp_growth:[1,3],  inflation:[-1,0], employment:[0,2],  reserves:[0,2],  army_morale:[-2,0], equipment:[-1,0], readiness:[-1,1], veterans:[0,1],  ally_trust:[2,4],  isolation:[-3,-1],soft_power:[2,4],  reputation:[3,5],   law_order:[0,1],  social_tension:[-3,-1],media_control:[0,0],  regional_unity:[1,3]  },
+  military_regroup:        { economy:[0,1],   military:[0,1],  stability:[1,2],  diplomacy:[0,0],  approval:[0,1],   elite_satisfaction:[0,1],  corruption:[0,0],  middle_class:[0,0],  lower_class_mood:[0,1],   gdp_growth:[0,1],  inflation:[-1,0], employment:[0,0],  reserves:[0,1],  army_morale:[3,5],  equipment:[1,3],  readiness:[2,4],  veterans:[1,2],  ally_trust:[0,0],  isolation:[0,0],  soft_power:[0,0],  reputation:[0,0],   law_order:[0,1],  social_tension:[-1,0], media_control:[0,0],  regional_unity:[0,1]  },
   null_action:             { economy:[-3,-1], military:[-2,-1],stability:[-2,-1],diplomacy:[-1,0], approval:[-3,-1], elite_satisfaction:[-2,-1],corruption:[0,2],  middle_class:[-2,-1],lower_class_mood:[-2,-1], gdp_growth:[-2,-1],inflation:[0,2],  employment:[-2,-1],reserves:[-2,-1],army_morale:[-2,-1],equipment:[-2,-1],readiness:[-2,-1],veterans:[0,0],  ally_trust:[-2,-1],isolation:[0,2],  soft_power:[-2,-1],reputation:[-2,-1], law_order:[-2,-1],social_tension:[0,2],  media_control:[-2,-1],regional_unity:[-2,-1]},
   nuclear_strike:          { economy:[-25,-20],military:[3,8],stability:[-30,-25],diplomacy:[-40,-35],approval:[-20,-15],elite_satisfaction:[-15,-10],corruption:[5,10],middle_class:[-20,-15],lower_class_mood:[-25,-20], gdp_growth:[-25,-20],inflation:[15,25],employment:[-20,-15],reserves:[-20,-15],army_morale:[5,10],equipment:[-5,-2],readiness:[5,10],veterans:[-5,-2],ally_trust:[-30,-25],isolation:[25,35],soft_power:[-30,-25],reputation:[-40,-35],law_order:[-10,-5],social_tension:[20,30],media_control:[5,10],regional_unity:[-15,-10]},
 };
@@ -308,6 +311,7 @@ module.exports = {
   NORMAL_TURN_WEEKS,
   INITIATIVE_REGEN_PER_TURN,
   INITIATIVE_REGEN_CRISIS,
+  INITIATIVE_REGROUP_REGEN,
   INITIATIVE_MAX,
   MAX_RELATION_DELTA_DIRECT,
   MAX_RELATION_DELTA_SPILLOVER,
