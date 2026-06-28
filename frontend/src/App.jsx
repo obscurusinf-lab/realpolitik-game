@@ -698,6 +698,170 @@ function UkraineResponseScreen({ items, onDone, gameId }) {
   );
 }
 
+// ---------- SmartHintsPanel ----------
+function generateSmartHints(stats, turn) {
+  if (!stats) return [];
+  const mil = stats.military ?? 50;
+  const eco = stats.economy ?? 50;
+  const stab = stats.stability ?? 50;
+  const appr = stats.approval ?? 50;
+  const dip = stats.diplomacy ?? 50;
+  const peace = stats.peace_progress ?? 0;
+  const init = stats.initiative ?? 100;
+  const don = stats.donetsk_control ?? 78;
+  const luh = stats.luhansk_control ?? 96;
+  const zap = stats.zaporizhzhia_control ?? 68;
+  const khe = stats.kherson_control ?? 58;
+  const kha = stats.kharkiv_control ?? 12;
+
+  const hints = [];
+
+  // --- КРИТИЧЕСКИЕ УГРОЗЫ (приоритет 10) ---
+  if (appr < 38) hints.push({
+    priority: 10, icon: "📊", urgency: true,
+    title: "Рейтинг опасно низкий",
+    why: `Рейтинг ${appr}. При падении ниже 30 — переворот и поражение.`,
+    mode: "decree_fast",
+    example: "Объявить о повышении выплат семьям военнослужащих и пенсионерам",
+    effect: "рейтинг +3..+5",
+  });
+  if (eco < 36) hints.push({
+    priority: 10, icon: "💸", urgency: true,
+    title: "Экономика на грани коллапса",
+    why: `Экономика ${eco}. При падении ниже 30 — экономическая катастрофа.`,
+    mode: "decree_program",
+    example: "Запустить программу импортозамещения и поддержки стратегических отраслей",
+    effect: "экономика +3..+5",
+  });
+  if (stab < 32) hints.push({
+    priority: 10, icon: "⚠️", urgency: true,
+    title: "Нестабильность — риск волнений",
+    why: `Стабильность ${stab}. При падении ниже 25 — народные волнения.`,
+    mode: "decree_fast",
+    example: "Ввести усиленный режим безопасности и подавить антивоенные выступления",
+    effect: "стабильность +2..+4",
+  });
+  if (dip < 22) hints.push({
+    priority: 10, icon: "🚫", urgency: true,
+    title: "Дипломатическая изоляция",
+    why: `Дипломатия ${dip}. При падении ниже 15 — полная изоляция, поражение.`,
+    mode: "diplomacy_op",
+    example: "Экстренный визит в Пекин — договориться о совместной позиции против санкций",
+    effect: "дипломатия +3..+5",
+  });
+
+  // --- ВОЕННЫЙ ПУТЬ К ПОБЕДЕ ---
+  if (mil >= 68 && init >= 55) {
+    const needMore = [don < 100, luh < 100].filter(Boolean).length + [zap < 85, khe < 65, kha < 50].filter(Boolean).length;
+    if (needMore > 0) hints.push({
+      priority: 8, icon: "⚔️",
+      title: "Армия готова — наступать",
+      why: `Армия ${mil}, инициатива ${init}. Наступление двигает территориальный контроль. Нужно: Донецк 100%, Луганск 100%, + 2 из 3 регионов.`,
+      mode: "military",
+      example: "Начать скоординированное наступление по всей линии фронта с акцентом на Донецк",
+      effect: `территории +5..+10`,
+    });
+  }
+  if (mil < 65) hints.push({
+    priority: 5, icon: "🪖",
+    title: "Укрепить армию перед наступлением",
+    why: `Армия ${mil}. Для успешного наступления и военной победы нужно 70+.`,
+    mode: "decree_reform",
+    example: "Реформировать систему боевой подготовки и снабжения войск",
+    effect: "армия +4..+6, мораль +2..+4",
+  });
+
+  // --- МИРНЫЙ ПУТЬ К ПОБЕДЕ ---
+  if (peace < 30 && turn >= 4) hints.push({
+    priority: 4, icon: "🕊",
+    title: "Мирный трек деградирует",
+    why: `Мирный трек ${peace}. Без дипломатии он падает −4 каждый ход. Для мирной победы нужно 100+.`,
+    mode: "diplomacy_op",
+    example: "Провести закрытые переговоры через турецких посредников — предложить план перемирия",
+    effect: "мирный трек +4..+8",
+  });
+
+  // --- ИНИЦИАТИВА ---
+  if (init < 30 && hints.length < 4) hints.push({
+    priority: 7, icon: "⏸",
+    title: "Инициатива на исходе",
+    why: `Инициатива ${init}. Пропусти ход — восстановишь +25 инициативы вместо штрафа.`,
+    mode: "skip",
+    example: null,
+    effect: "инициатива +25",
+  });
+
+  // --- РАЗВЕДКА ---
+  if (mil >= 55 && hints.length < 4 && appr < 55) hints.push({
+    priority: 3, icon: "🕵️",
+    title: "Разведывательная операция",
+    why: "Тайная операция может получить компромат на противника или укрепить военный потенциал.",
+    mode: "intel",
+    example: "Провести операцию по сбору разведданных о западных поставках оружия Украине",
+    effect: "случайный исход: армия +2..+5 или дипломатия −2..−5",
+  });
+
+  return hints.sort((a, b) => b.priority - a.priority).slice(0, 4);
+}
+
+function SmartHintsPanel({ stats, turn, onSelectHint, onClose }) {
+  const hints = generateSmartHints(stats, turn);
+  if (hints.length === 0) return null;
+
+  return (
+    <div style={{ background: "#0e1520", border: "1px solid #2a3a50", borderRadius: 6, padding: "12px 14px", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.12em" }}>💡 СОВЕТНИК — ЧТО ДЕЛАТЬ СЕЙЧАС</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "#3a4050", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {hints.map((h, i) => (
+          <div
+            key={i}
+            onClick={() => h.mode !== "skip" && onSelectHint(h)}
+            style={{
+              background: h.urgency ? "#1a0c0c" : "#141b24",
+              border: `1px solid ${h.urgency ? "#5a1a1a" : "#2a3545"}`,
+              borderLeft: `3px solid ${h.urgency ? "#a8313a" : "#9c8347"}`,
+              borderRadius: 5, padding: "8px 10px",
+              cursor: h.mode !== "skip" ? "pointer" : "default",
+            }}
+            onMouseEnter={e => h.mode !== "skip" && (e.currentTarget.style.borderColor = "#9c8347")}
+            onMouseLeave={e => (e.currentTarget.style.border = `1px solid ${h.urgency ? "#5a1a1a" : "#2a3545"}`, e.currentTarget.style.borderLeft = `3px solid ${h.urgency ? "#a8313a" : "#9c8347"}`)}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
+                  <span>{h.icon}</span>
+                  <span className="mono-font" style={{ fontSize: 10, color: h.urgency ? "#e09090" : "#c8b87a", fontWeight: 700 }}>{h.title}</span>
+                  {h.urgency && <span className="mono-font" style={{ fontSize: 8, color: "#a8313a", background: "#2a0808", padding: "1px 5px", borderRadius: 2 }}>СРОЧНО</span>}
+                </div>
+                <div className="doc-font" style={{ fontSize: 11.5, color: "#7a8898", lineHeight: 1.4, marginBottom: 4 }}>{h.why}</div>
+                {h.example && (
+                  <div className="doc-font" style={{ fontSize: 12, color: "#a8b8c8", fontStyle: "italic", lineHeight: 1.4 }}>
+                    Пример: «{h.example}»
+                  </div>
+                )}
+              </div>
+              <div style={{ flexShrink: 0, textAlign: "right" }}>
+                <div className="mono-font" style={{ fontSize: 8, color: "#5a7a5a", whiteSpace: "nowrap" }}>{h.effect}</div>
+                {h.mode !== "skip" && (
+                  <div className="mono-font" style={{ fontSize: 8, color: "#4a5a70", marginTop: 2 }}>
+                    {{"military":"⚔️ военная","decree_fast":"📜 быстрый","decree_reform":"📋 реформа","decree_program":"🏛 программа","diplomacy_op":"🤝 дипломатия","intel":"🕵️ разведка"}[h.mode]}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mono-font" style={{ fontSize: 8, color: "#2a3540", marginTop: 8, textAlign: "right" }}>
+        Нажмите на совет — он заполнит форму автоматически
+      </div>
+    </div>
+  );
+}
+
 // ---------- Modal ----------
 function Modal({ title, children, onClose }) {
   useEffect(() => {
@@ -1371,6 +1535,14 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const [draftInput, setDraftInput] = useState("");
   const [actionMode, setActionMode] = useState("decree_fast");
+  const [tutorialMode, setTutorialMode] = useState(() => {
+    try { return localStorage.getItem("rp_tutorial") !== "off"; } catch { return true; }
+  });
+  const toggleTutorial = () => setTutorialMode(v => {
+    const next = !v;
+    try { localStorage.setItem("rp_tutorial", next ? "on" : "off"); } catch {}
+    return next;
+  });
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -1854,23 +2026,42 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </div>
           )}
 
-          {/* Заголовок действия */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            {lastActionResult ? (
-              <div className="mono-font" style={{ fontSize: 10, color: "#7fae93", letterSpacing: "0.08em", background: "#0a1a0d", border: "1px solid #2a4030", borderRadius: 3, padding: "4px 10px" }}>
-                ➕ ДОБАВЬТЕ ЕЩЁ ОДНО ДЕЙСТВИЕ — ИЛИ ЗАВЕРШИТЕ ХОД
-              </div>
-            ) : (
-              <>
-                <StepBadge n={1} active />
-                <div style={{ height: 1, width: 20, background: "#3a4156" }} />
-                <StepBadge n={2} />
-                <div className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.08em", marginLeft: 6 }}>
-                  СФОРМУЛИРУЙТЕ РЕШЕНИЕ И НАЖМИТЕ «РАССМОТРЕТЬ»
+          {/* Заголовок действия + переключатель режима */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {lastActionResult ? (
+                <div className="mono-font" style={{ fontSize: 10, color: "#7fae93", letterSpacing: "0.08em", background: "#0a1a0d", border: "1px solid #2a4030", borderRadius: 3, padding: "4px 10px" }}>
+                  ➕ ДОБАВЬТЕ ЕЩЁ ОДНО ДЕЙСТВИЕ — ИЛИ ЗАВЕРШИТЕ ХОД
                 </div>
-              </>
-            )}
+              ) : (
+                <>
+                  <StepBadge n={1} active />
+                  <div style={{ height: 1, width: 20, background: "#3a4156" }} />
+                  <StepBadge n={2} />
+                  <div className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.08em", marginLeft: 6 }}>
+                    СФОРМУЛИРУЙТЕ РЕШЕНИЕ И НАЖМИТЕ «РАССМОТРЕТЬ»
+                  </div>
+                </>
+              )}
+            </div>
+            <button
+              onClick={toggleTutorial}
+              title={tutorialMode ? "Советник включён — нажмите чтобы выключить" : "Советник выключен — нажмите чтобы включить"}
+              style={{ background: tutorialMode ? "#0e1a10" : "transparent", border: `1px solid ${tutorialMode ? "#2a5030" : "#2a3040"}`, borderRadius: 4, padding: "3px 8px", fontFamily: "monospace", fontSize: 9, color: tutorialMode ? "#4a9c6a" : "#3a4050", cursor: "pointer", flexShrink: 0, letterSpacing: "0.04em" }}
+            >
+              {tutorialMode ? "💡 советник" : "💡 off"}
+            </button>
           </div>
+
+          {/* Панель подсказок */}
+          {tutorialMode && !lastActionResult && (
+            <SmartHintsPanel
+              stats={state?.stats}
+              turn={state?.turn ?? 0}
+              onSelectHint={(h) => { setActionMode(h.mode); setDraftInput(h.example || ""); }}
+              onClose={() => setTutorialMode(false)}
+            />
+          )}
 
           {turnError && (
             <div className="doc-font" style={{ color: "#e09090", fontSize: 12.5, marginBottom: 8 }}>
