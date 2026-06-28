@@ -368,6 +368,25 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           }
           newStats["zaporizhzhia_control"] = Math.max(0, (newStats["zaporizhzhia_control"] ?? 68) - 1);
         }
+
+        // --- Украинское сопротивление при наступлении ---
+        // Каждый offensive — ВСУ и союзники контратакуют: случайный откат 1-3 территорий
+        if (at === "military_offensive") {
+          const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50)) / 2;
+          // Интенсивность ответа зависит от западной поддержки (diplomacy_vs_west прокси = relations с США/ЕС)
+          const resistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
+          // Украина контратакует преимущественно на слабых флангах (Харьков, Херсон)
+          const contestedKeys = ["kharkiv_control", "kherson_control", "zaporizhzhia_control"];
+          const numContested = Math.min(contestedKeys.length, 1 + Math.floor(Math.random() * resistanceIntensity));
+          const shuffled = contestedKeys.sort(() => Math.random() - 0.5).slice(0, numContested);
+          for (const key of shuffled) {
+            const current = newStats[key] ?? 0;
+            const pushback = Math.round(1 + Math.random() * (resistanceIntensity * 2));
+            newStats[key] = Math.max(0, current - pushback);
+          }
+          // Потери от боёв: армейский моральный откат
+          newStats.army_morale = Math.max(0, (newStats.army_morale ?? 50) - Math.round(1 + Math.random() * 3));
+        }
       }
       // --- конец территорий ---
 
