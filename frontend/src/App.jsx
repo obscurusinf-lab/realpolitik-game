@@ -741,7 +741,7 @@ function MissionPanel({ stats, turn, maxTurns = 24 }) {
           <div style={{ width: `${peace}%`, height: "100%", background: peaceColor, transition: "width 0.6s" }} />
         </div>
         <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>
-          Дипломатия или военная победа (армия &gt;70) движет трек вперёд
+          Диппереговоры и мирные инициативы двигают трек. Военное наступление — откатывает.
         </div>
       </div>
 
@@ -2065,14 +2065,24 @@ function WelcomeModal({ state, playerName, onClose }) {
               ))}
             </div>
 
-            {/* Мирный путь */}
-            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>КАК ДВИГАТЬ МИРНЫЙ ТРЕК</div>
+            {/* Два пути к победе */}
+            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ДВА ПУТИ К ПОБЕДЕ</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+              {[
+                { label: "☮ Дипломатический путь", desc: "Диппереговоры (+4..+8) и Мирная инициатива (+10..+20) заполняют мирный трек до 100. Требует: экономика ≥65, рейтинг ≥65, стабильность ≥65", color: "#4a6b8c" },
+                { label: "⚔️ Военный путь", desc: "Занять Донецк 100%, Луганск 100%, Запорожье ≥85%, Херсон ≥80%, Харьков ≥65%. Требует: армия ≥85, страна жива", color: "#9c6347" },
+              ].map(({ label, desc, color }) => (
+                <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
+                  <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>
+                  <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", lineHeight: 1.3 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ВАЖНО ПРО МИРНЫЙ ТРЕК</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 16 }}>
               {[
-                { label: "🤝 Диппереговоры", desc: "Главный инструмент — двигает трек +4..+8 за ход", color: "#5b8cb0" },
-                { label: "☮ Мирная инициатива", desc: "Сильнейший шаг — +10..+20 к треку", color: "#4a6b8c" },
-                { label: "⚔️ Военное наступление", desc: "Каждый удар откатывает трек назад (-7). Блоуэффект: санкции, протесты", color: "#9c6347" },
-                { label: "☢️ Ядерный удар", desc: "Катастрофический откат (-40). Международная изоляция", color: "#a8313a" },
+                { label: "⚔️ Военное наступление", desc: "Срывает переговоры — мирный трек откатывается назад (-7). Это не значит что наступление плохо: оно двигает территории, но мир придётся строить дипломатией", color: "#9c6347" },
+                { label: "☢️ Ядерный удар", desc: "Катастрофический откат мирного трека (-40). Международная изоляция", color: "#a8313a" },
               ].map(({ label, desc, color }) => (
                 <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
                   <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>
