@@ -45,6 +45,11 @@ async function buildServer() {
   });
 
   fastify.get("/health", async () => ({ status: "ok", version: "auth-v3" }));
+  fastify.get("/debug-routes", async () => {
+    const routes = [];
+    fastify.printRoutes({ includeHooks: false, includeMeta: false, commonPrefix: false }).split("\n").slice(0, 30).forEach(l => routes.push(l));
+    return { routes };
+  });
 
   // --- Postgres ---
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL env var is required");
