@@ -39,21 +39,13 @@ const { classifyTurn } = require("../ai/gamemaster");
  *   - stability < 20 → "defeat_unrest"
  */
 function detectGameOutcome(stats, turnNumber, maxTurns) {
-  // Поражение — проверяем каждый ход
-  if (stats.approval < 30)   return "defeat_coup";       // повысили порог с 25
-  if (stats.economy < 35)    return "defeat_collapse";   // повысили с 30
-  if (stats.stability < 25)  return "defeat_unrest";     // повысили с 20
-  if ((stats.diplomacy ?? 50) < 15) return "defeat_isolation"; // новый тип: изоляция
-  if ((stats.war_escalation_counter ?? 0) >= 3) return "defeat_war"; // спираль войны
-
-  // Военная победа: доступна с хода 8
-  // Полный контроль над Донбассом + ещё минимум 2 региона + армия держится + дом не развалился
+  // Военная победа проверяется ПЕРВОЙ — если контроль над территориями достигнут,
+  // война закончена ДО того как экономика успела рухнуть.
   if (turnNumber >= 8) {
     const militaryDominance = (stats.military ?? 50) >= 85;
     const armyReady = (stats.army_morale ?? 50) >= 70 && (stats.readiness ?? 50) >= 70;
     const homeStable = (stats.stability ?? 50) >= 52 && (stats.approval ?? 50) >= 52;
-    const economyHolds = (stats.economy ?? 50) >= 36; // war economy — lower bar, just above collapse
-    // Территориальные условия: Донбасс (оба) + хотя бы ещё два региона
+    const economyHolds = (stats.economy ?? 50) >= 36;
     const donbassSecured = (stats.donetsk_control ?? 0) >= 92 && (stats.luhansk_control ?? 0) >= 98;
     const otherRegions = [
       (stats.zaporizhzhia_control ?? 0) >= 85,
@@ -64,6 +56,13 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
       return "victory_military";
     }
   }
+
+  // Поражение — проверяем каждый ход
+  if (stats.approval < 30)   return "defeat_coup";       // повысили порог с 25
+  if (stats.economy < 30)    return "defeat_collapse";   // вернули к 30 (реальный коллапс)
+  if (stats.stability < 25)  return "defeat_unrest";     // повысили с 20
+  if ((stats.diplomacy ?? 50) < 15) return "defeat_isolation"; // новый тип: изоляция
+  if ((stats.war_escalation_counter ?? 0) >= 3) return "defeat_war"; // спираль войны
 
   // Досрочная мирная победа: доступна начиная с хода 12
   if (turnNumber >= 12) {
