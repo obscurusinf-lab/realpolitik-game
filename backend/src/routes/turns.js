@@ -46,7 +46,7 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
     const armyReady = (stats.army_morale ?? 50) >= 70 && (stats.readiness ?? 50) >= 70;
     const homeStable = (stats.stability ?? 50) >= 52 && (stats.approval ?? 50) >= 52;
     const economyHolds = (stats.economy ?? 50) >= 36;
-    const donbassSecured = (stats.donetsk_control ?? 0) >= 92 && (stats.luhansk_control ?? 0) >= 98;
+    const donbassSecured = (stats.donetsk_control ?? 0) >= 100 && (stats.luhansk_control ?? 0) >= 100;
     const otherRegions = [
       (stats.zaporizhzhia_control ?? 0) >= 85,
       (stats.kherson_control ?? 0) >= 80,
@@ -127,7 +127,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     if (!playerInput || typeof playerInput !== "string" || playerInput.trim().length === 0) {
       return reply.code(400).send({ error: "playerInput is required" });
     }
-    const VALID_MODES = ["decree", "decree_fast", "decree_reform", "decree_program", "crisis", "intel", "military"];
+    const VALID_MODES = ["decree", "decree_fast", "decree_reform", "decree_program", "crisis", "intel", "military", "diplomacy_op"];
     if (!VALID_MODES.includes(actionMode)) {
       return reply.code(400).send({ error: `actionMode must be one of: ${VALID_MODES.join("|")}` });
     }
@@ -174,7 +174,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
     }
 
-    const effectiveActionMode = /ядерн|термоядер|nuclear|атомн.*удар/i.test(playerInput) ? "military" : actionMode;
+    // diplomacy_op → передаём AI как diplomacy_outreach (классификация та же, инициатива другая)
+    const effectiveActionMode = /ядерн|термоядер|nuclear|атомн.*удар/i.test(playerInput)
+      ? "military"
+      : actionMode === "diplomacy_op" ? "diplomacy_outreach"
+      : actionMode;
 
     const gmClassification = await classifyTurn({
       params: {
@@ -341,8 +345,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               newStats[key] = Math.min(60, current + 2);
             }
           }
-        } else if (at === "peace_initiative" || at === "diplomacy_outreach") {
-          // Мирный трек — незначительные уступки на спорных территориях
+        } else if (at === "peace_initiative" || at === "diplomacy_outreach" || pendingActionMode === "diplomacy_op") {
+          // Мирный/дипломатический трек — небольшие уступки на спорных территориях
           const concession = sev === 3 ? 4 : sev === 2 ? 2 : 1;
           for (const key of ["kharkiv_control", "kherson_control"]) {
             const current = newStats[key] ?? 50;
@@ -452,6 +456,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       // Для тайных операций — без публичных комментариев, только внутренний брифинг
       const isSecret = pendingActionMode === "intel";
+      const isDiplomacy = pendingActionMode === "diplomacy_op";
       const isDecree = pendingActionMode.startsWith("decree") || pendingActionMode === "crisis";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
@@ -460,7 +465,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           gameId,
           turnNumber,
           isSecret ? "news" : (gmClassification.policy_update?.is_new_policy ? "decree" : "news"),
-          isSecret ? "Служба внешней разведки" : (isDecree ? "Президентский указ" : "Брифинг штаба"),
+          isSecret ? "Служба внешней разведки" : isDiplomacy ? "МИД России" : (isDecree ? "Президентский указ" : "Брифинг штаба"),
           isSecret ? `[СЕКРЕТНО] ${gmClassification.narrative}` : gmClassification.narrative,
           isSecret ? "[]" : JSON.stringify(gmClassification.newsfeed_reactions || []),
         ]

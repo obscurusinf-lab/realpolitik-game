@@ -801,7 +801,7 @@ function TerritoryPanel({ stats }) {
   if (!hasData) return null;
 
   const milVictoryReqs = {
-    donetsk_control: 92, luhansk_control: 98, zaporizhzhia_control: 85,
+    donetsk_control: 100, luhansk_control: 100, zaporizhzhia_control: 85,
     kherson_control: 80, kharkiv_control: 65,
   };
 
@@ -835,7 +835,10 @@ function TerritoryPanel({ stats }) {
         })}
       </div>
       <div style={{ marginTop: 8, fontSize: 10, color: "#555" }}>
-        Военная победа: Донбасс ≥92/98% + ещё 2 региона выше цели
+        ⚔️ Военная победа: Донецк 100% + Луганск 100% + ещё 2 региона выше цели (синяя черта)
+      </div>
+      <div style={{ marginTop: 4, fontSize: 10, color: "#555" }}>
+        ⚠️ Бездействие и дипломатические уступки отдают территории Украине
       </div>
     </div>
   );
@@ -1685,8 +1688,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 ];
             const allButtons = [
               ...decreeButtons,
-              { id: "intel",    label: "🕵️ Разведка",    cost: 20, tip: "Тайная операция. Компромат, агентура, провокации.", dur: null },
-              { id: "military", label: "⚔️ Военная оп.", cost: 55, tip: "Прямое применение силы или угроза.", dur: null },
+              { id: "intel",    label: "🕵️ Разведка",     cost: 20, tip: "Тайная операция. Компромат, агентура, провокации. Случайный исход.", dur: null },
+              { id: "military", label: "⚔️ Военная оп.",  cost: 55, tip: "Прямое применение силы. Двигает территориальный контроль. Эскалирует, получает отпор.", dur: null },
+              { id: "diplomacy_op", label: "🤝 Диппереговоры", cost: 35, tip: "Прямые контакты с партнёрами. Двигает мирный трек. Не влияет на территории.", dur: null },
             ];
             // Если текущий режим несовместим с кризисом — сбросить на crisis
             return (
@@ -1816,6 +1820,7 @@ const ACTION_MODE_BADGE = {
   decree_program: { label: "🏛 Крупная программа", color: "#9c7ab0" },
   intel:          { label: "🕵️ Разведка",          color: "#7a9cb0" },
   military:       { label: "⚔️ Военная операция",  color: "#c07070" },
+  diplomacy_op:   { label: "🤝 Диппереговоры",     color: "#5b8cb0" },
   crisis:         { label: "⚡ Антикризисный",     color: "#c09030" },
 };
 
@@ -2060,10 +2065,10 @@ function WelcomeModal({ state, playerName, onClose }) {
             <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>КАК ДВИГАТЬ МИРНЫЙ ТРЕК</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 16 }}>
               {[
-                { label: "Дипломатия", desc: "Всегда продвигает трек вперёд", color: "#5b6b8c" },
-                { label: "Армия > 70", desc: "Наступление с позиции силы ускоряет мир", color: "#4a6b5c" },
-                { label: "Армия ≤ 70", desc: "Наступление откатывает переговоры назад", color: "#9c8347" },
-                { label: "Ядерный удар", desc: "Катастрофический откат трека (-40)", color: "#a8313a" },
+                { label: "🤝 Диппереговоры", desc: "Главный инструмент — двигает трек +4..+8 за ход", color: "#5b8cb0" },
+                { label: "☮ Мирная инициатива", desc: "Сильнейший шаг — +10..+20 к треку", color: "#4a6b8c" },
+                { label: "⚔️ Военное наступление", desc: "Каждый удар откатывает трек назад (-7). Блоуэффект: санкции, протесты", color: "#9c6347" },
+                { label: "☢️ Ядерный удар", desc: "Катастрофический откат (-40). Международная изоляция", color: "#a8313a" },
               ].map(({ label, desc, color }) => (
                 <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
                   <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>
@@ -2074,11 +2079,13 @@ function WelcomeModal({ state, playerName, onClose }) {
 
             {/* Условия поражения */}
             <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 8 }}>ПОРАЖЕНИЕ (любое из условий)</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
               {[
-                { cond: "Рейтинг < 25", res: "Переворот", color: "#a8313a" },
+                { cond: "Рейтинг < 30", res: "Переворот", color: "#a8313a" },
                 { cond: "Экономика < 30", res: "Коллапс", color: "#a8313a" },
-                { cond: "Стабильность < 20", res: "Волнения", color: "#a8313a" },
+                { cond: "Стабильность < 25", res: "Волнения", color: "#a8313a" },
+                { cond: "Дипломатия < 15", res: "Изоляция", color: "#ab47bc" },
+                { cond: "3+ наступления подряд без отдыха", res: "Спираль войны", color: "#ff5722" },
               ].map(({ cond, res, color }) => (
                 <div key={cond} style={{ background: "#2a1a1a", borderRadius: 3, padding: "7px 9px", borderTop: `2px solid ${color}` }}>
                   <div className="mono-font" style={{ fontSize: 8.5, color: "#6a4040", marginBottom: 2 }}>{cond}</div>
