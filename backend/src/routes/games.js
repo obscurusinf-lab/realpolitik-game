@@ -237,6 +237,34 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
     }
 
+    // Merge full relations list for games created before extra countries were added
+    const FULL_RELATIONS = [
+      { name: "США",            value: 38, trend: "flat" },
+      { name: "Украина",        value: 8,  trend: "down" },
+      { name: "Китай",          value: 84, trend: "up"   },
+      { name: "ЕС",             value: 14, trend: "down" },
+      { name: "Турция",         value: 58, trend: "flat" },
+      { name: "Индия",          value: 72, trend: "up"   },
+      { name: "Германия",       value: 12, trend: "down" },
+      { name: "Франция",        value: 16, trend: "flat" },
+      { name: "Израиль",        value: 44, trend: "down" },
+      { name: "Иран",           value: 62, trend: "up"   },
+      { name: "Саудовская Аравия", value: 38, trend: "flat" },
+      { name: "Беларусь",       value: 88, trend: "flat" },
+      { name: "Польша",         value: 6,  trend: "down" },
+      { name: "Великобритания", value: 8,  trend: "down" },
+      { name: "Япония",         value: 18, trend: "down" },
+      { name: "КНДР",           value: 52, trend: "up"   },
+      { name: "Венгрия",        value: 64, trend: "flat" },
+      { name: "ОАЭ",            value: 46, trend: "flat" },
+    ];
+    const existingRelations = Array.isArray(game.relations) ? game.relations : [];
+    const existingNames = new Set(existingRelations.map(r => r.name));
+    const mergedRelations = [
+      ...existingRelations,
+      ...FULL_RELATIONS.filter(r => !existingNames.has(r.name)),
+    ];
+
     return reply.send({
       id: game.id,
       status: game.status,
@@ -244,7 +272,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       turn: game.current_turn,
       date,
       stats: statsWithTerritories,
-      relations: game.relations,
+      relations: mergedRelations,
       policies: game.policies || [],
       overview: game.overview || {},
       contextSummary: game.context_summary || null,
