@@ -1129,13 +1129,119 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       fastify.log.info({ gameId, turnNumber }, "regroup: triggering world update async");
       setImmediate(async () => {
         try {
+          // --- ДЕЙСТВИЯ УКРАИНЫ при перегруппировке ---
+          // Разведка Киева фиксирует отход войск → контрудар или усиление давления
+          // Веса повышены: перегруппировка = уязвимость
+          {
+            const s = newStats;
+            const mil = s.military ?? 50;
+            const eco = s.economy ?? 50;
+            const kha = s.kharkiv_control ?? 12;
+            const don = s.donetsk_control ?? 78;
+
+            const UA_REGROUP_ACTIONS = [
+              // Контрнаступление — главная реакция на паузу
+              {
+                type: "counterattack", weight: 5,
+                title: "ВСУ используют паузу для контрудара",
+                text: "Разведка ВСУ зафиксировала отход российских частей на переформирование. Командование немедленно бросило в брешь резервные бригады. Контрудар поддержан артиллерией НАТО — российские позиции под давлением.",
+                kharkivDelta: -4, army_moraleDelta: -3, readinessDelta: -2,
+                responses: [
+                  { label: "Экстренно перебросить резервы — остановить прорыв любой ценой", type: "defend" },
+                  { label: "Дать контрудар превосходящими силами — окружить прорвавшихся", type: "retaliate" },
+                  { label: "Выровнять линию обороны, сохранить силы для следующего наступления", type: "accept" },
+                ],
+              },
+              // Диверсия в тылу — бьют пока мы восстанавливаемся
+              {
+                type: "rail_sabotage", weight: 4,
+                title: "Диверсии в тылу во время паузы",
+                text: "Украинские диверсионные группы активизировались в приграничных регионах. Взрывы на железнодорожных узлах и складах. Разведка докладывает: противник специально выбрал момент нашей перегруппировки.",
+                militaryDelta: -2, readinessDelta: -4, economyDelta: -1,
+                responses: [
+                  { label: "Перевести тыловые районы на режим контрдиверсионных операций", type: "defend" },
+                  { label: "Нанести ответные удары по украинской логистике и штабам", type: "retaliate" },
+                  { label: "Форсировать перегруппировку и как можно быстрее вернуть инициативу", type: "accept" },
+                ],
+              },
+              // Дроны — пока армия стоит, цели стационарны
+              {
+                type: "drone_strike", weight: 4,
+                title: "Массированная атака дронов на позиции",
+                text: "Украина запустила рой из 200+ FPV-дронов по сосредоточенным на переформировании российским частям. Скопление техники на марше — идеальная цель. Потери в технике значительные.",
+                army_moraleDelta: -4, readinessDelta: -3, economyDelta: -2,
+                responses: [
+                  { label: "Рассредоточить войска, усилить РЭБ — не давать дронам захватить цели", type: "defend" },
+                  { label: "Уничтожить украинские склады и производство дронов ответным ударом", type: "retaliate" },
+                  { label: "Принять потери как неизбежные при перегруппировке, продолжить план", type: "accept" },
+                ],
+              },
+              // Дипломатическое давление — момент «слабости» используют на Западе
+              {
+                type: "diplomatic_offensive", weight: 3,
+                title: "Киев объявляет о «переломе» в войне",
+                text: "МИД Украины экстренно созвал пресс-конференцию, заявив о «вынужденном отступлении» российских войск. Западные СМИ подхватили нарратив. Давление на Москву в Совете Безопасности резко возросло.",
+                peace_progressDelta: -8, diplomacyDelta: -3, approvalDelta: -2,
+                responses: [
+                  { label: "Немедленно опровергнуть — провести брифинг Генштаба о плановой ротации", type: "defend" },
+                  { label: "Ускорить возвращение в наступление — действия лучше слов", type: "retaliate" },
+                  { label: "Проигнорировать — информационные войны не меняют карту", type: "accept" },
+                ],
+              },
+            ];
+
+            const totalWeight = UA_REGROUP_ACTIONS.reduce((s, a) => s + a.weight, 0);
+            let rnd = Math.random() * totalWeight;
+            let uaAction = UA_REGROUP_ACTIONS[0];
+            for (const a of UA_REGROUP_ACTIONS) {
+              rnd -= a.weight;
+              if (rnd <= 0) { uaAction = a; break; }
+            }
+
+            // Применяем эффекты к stats и сохраняем в БД
+            const UA_STAT_MAP = {
+              economyDelta: "economy", stabilityDelta: "stability", approvalDelta: "approval",
+              diplomacyDelta: "diplomacy", militaryDelta: "military", peace_progressDelta: "peace_progress",
+              army_moraleDelta: "army_morale", readinessDelta: "readiness",
+              kharkivDelta: "kharkiv_control", khersonDelta: "kherson_control",
+            };
+            const uaStats = { ...newStats };
+            for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
+              if (typeof uaAction[deltaKey] === "number") {
+                uaStats[statKey] = Math.max(0, Math.min(100, (uaStats[statKey] ?? 50) + uaAction[deltaKey]));
+              }
+            }
+
+            const client3 = await db.connect();
+            try {
+              await client3.query("BEGIN");
+              await client3.query(
+                `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
+                 VALUES ($1, $2, 'ukraine_action', $3, $4, $5)`,
+                [gameId, turnNumber, `Украина · ${uaAction.title}`, uaAction.text,
+                 JSON.stringify({ type: uaAction.type, responses: uaAction.responses })]
+              );
+              await client3.query(
+                `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
+                [JSON.stringify(uaStats), gameId]
+              );
+              await client3.query("COMMIT");
+              fastify.log.info({ gameId, uaAction: uaAction.type }, "regroup: Ukraine counter-action fired");
+            } catch (e) {
+              await client3.query("ROLLBACK");
+              fastify.log.error({ err: e }, "regroup: Ukraine action DB write failed");
+            } finally {
+              client3.release();
+            }
+          }
+          // --- конец действий Украины ---
+
           const { generateWorldUpdate } = require("../ai/worldUpdate");
-          const db2 = require("../server").getDb ? require("../server").getDb() : db;
           const worldResult = await generateWorldUpdate({
             params: {
               countryName: game.country_name || "Россия",
               turnNumber,
-              playerInput: "[Перегруппировка войск]",
+              playerInput: "[Перегруппировка войск — разведка противника фиксирует паузу]",
               narrative,
               statDeltas,
               relationDeltas: [],
