@@ -380,6 +380,61 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         ]
       );
 
+      // --- ВМЕШАТЕЛЬСТВО ТРЕТЬИХ АКТОРОВ ---
+      // Когда мирный трек растёт, акторы с интересом в войне начинают мешать.
+      // Вероятность растёт с peace_progress: 15% при 30, до 45% при 90+.
+      const peaceNow = newStats.peace_progress ?? 0;
+      if (peaceNow >= 30) {
+        const interferenceChance = Math.min(0.45, 0.15 + (peaceNow - 30) * 0.005);
+        if (Math.random() < interferenceChance) {
+          const INTERFERENCE_ACTORS = [
+            { minPeace: 30, source: "Reuters", penalty: 12, diplomacyDelta: -3,
+              text: "Министр иностранных дел Великобритании Лэмонд экстренно прилетел в Киев. По данным источников, Лондон настаивает на продолжении боевых действий и обещает увеличить поставки вооружений — «не время для переговоров»." },
+            { minPeace: 30, source: "Bloomberg", penalty: 10, diplomacyDelta: 0,
+              text: "Американский ВПК объявил о новом контракте на поставку Украине вооружений на $7,5 млрд. Конгресс одобрил экстренный пакет военной помощи в обход обычных процедур." },
+            { minPeace: 40, source: "Коммерсантъ", penalty: 9, stabilityDelta: -3,
+              text: "Силовой блок выразил несогласие с мирными инициативами президента. Директор ФСБ Патров провёл закрытое совещание — источники говорят о «красных линиях», которые не должны быть пересечены ни при каких условиях." },
+            { minPeace: 50, source: "AP", penalty: 15, diplomacyDelta: -5,
+              text: "Экстренное заседание НАТО в Брюсселе: альянс потребовал от Киева отклонить российские мирные условия. Генсек Альянса Руттерс заявил — любой договор без полного вывода российских войск неприемлем." },
+            { minPeace: 50, source: "РБК", penalty: 8, stabilityDelta: -4,
+              text: "Группа депутатов Государственной думы потребовала денонсации мирных инициатив. «Мы отдали слишком много жизней, чтобы сейчас договариваться» — заявил глава комитета по обороне Соколин на экстренном заседании." },
+            { minPeace: 60, source: "Politico", penalty: 14, diplomacyDelta: -4,
+              text: "Польша и страны Балтии сформировали «Коалицию несогласных» против переговоров. Варшава пригрозила наложить вето на любое решение ЕС, легитимизирующее российские территориальные претензии." },
+            { minPeace: 70, source: "BBC", penalty: 18, diplomacyDelta: -6,
+              text: "Премьер-министр Великобритании Стармер экстренно вылетел в Киев — второй визит за месяц. Лондон обещает Украине гарантии безопасности в обмен на отказ от переговоров с Россией." },
+            { minPeace: 75, source: "NYT", penalty: 13, diplomacyDelta: -3,
+              text: "Сенатор Хоукс инициировал слушания в Сенате США: «Любое мирное соглашение с Россией — это Мюнхен-2». Администрация Белого дома под давлением заморозила контакты с российской стороной." },
+            { minPeace: 80, source: "Le Monde", penalty: 16, diplomacyDelta: -5,
+              text: "Экстренный саммит G7: лидеры семёрки потребовали от Киева отклонить российские инициативы и пригрозили санкциями любым странам-посредникам, содействующим «несправедливому миру»." },
+            { minPeace: 85, source: "Der Spiegel", penalty: 20, stabilityDelta: -5,
+              text: "Утечка из немецкой разведки: США рассматривают возможность прямого участия в конфликте если Украина подпишет мирный договор. «Стратегическое поражение» неприемлемо для Вашингтона." },
+          ].filter(a => a.minPeace <= peaceNow);
+
+          if (INTERFERENCE_ACTORS.length > 0) {
+            const actor = INTERFERENCE_ACTORS[Math.floor(Math.random() * INTERFERENCE_ACTORS.length)];
+            newStats.peace_progress = Math.max(0, peaceNow - actor.penalty);
+            if (actor.diplomacyDelta) newStats.diplomacy = Math.max(0, Math.min(100, (newStats.diplomacy ?? 50) + actor.diplomacyDelta));
+            if (actor.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + actor.stabilityDelta));
+            // Обновляем stats в game_state (он ещё не записан в этой транзакции — перезапишем ниже через общий UPDATE)
+            // Добавляем событие в ленту новостей
+            await client.query(
+              `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+              [gameId, turnNumber, "news", actor.source, actor.text, JSON.stringify([
+                { emoji: "😤", label: "возмущение", count: Math.floor(Math.random() * 80) + 40 },
+                { emoji: "😟", label: "беспокойство", count: Math.floor(Math.random() * 60) + 20 },
+              ])]
+            );
+            // Обновляем stats с учётом вмешательства (перезаписываем ранее поставленный UPDATE)
+            await client.query(
+              `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
+              [JSON.stringify(newStats), gameId]
+            );
+            fastify.log.info({ gameId, actor: actor.source, penalty: actor.penalty }, "Third-party interference fired");
+          }
+        }
+      }
+      // --- конец вмешательства ---
+
       // Записываем снапшот для лидерборда (score = среднее ключевых показателей)
       const scoreKeys = ["stability", "economy", "military", "diplomacy", "approval"];
       const scoreVals = scoreKeys.map(k => newStats[k] ?? 50);
