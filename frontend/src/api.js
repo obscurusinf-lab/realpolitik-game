@@ -228,6 +228,16 @@ export async function fetchLegacy(gameId, outcome) {
   return res.json();
 }
 
+export async function sendUkraineResponse(gameId, responseType, actionType) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/ukraine-response`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ responseType, actionType }),
+  }, 8000);
+  if (!res.ok) return { ok: false, delta: {}, outcome: "neutral", outcomeText: "" };
+  return res.json();
+}
+
 export async function sendWorldResponse(gameId, responseType, source) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/world-response`, {
     method: "POST",

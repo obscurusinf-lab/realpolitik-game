@@ -446,6 +446,65 @@ ${historyLines || "(история пуста)"}
     return reply.send({ ok: true, delta, outcome });
   });
 
+  // ---------- POST /games/:gameId/ukraine-response ----------
+  // Игрок отвечает на действие Украины — применяет вероятностный эффект
+  fastify.post("/games/:gameId/ukraine-response", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { responseType, actionType } = request.body || {};
+
+    const gsRes = await db.query(`SELECT stats FROM game_state WHERE game_id = $1`, [gameId]);
+    if (gsRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
+
+    const stats = { ...gsRes.rows[0].stats };
+    const roll = Math.random();
+    let delta = {};
+    let outcome = "neutral";
+    let outcomeText = "";
+
+    if (responseType === "defend") {
+      // Защита: высокая вероятность частичного смягчения, мал. риск провала
+      if (roll < 0.55) {
+        delta.economy = 1; delta.stability = 1;
+        outcome = "positive"; outcomeText = "Оборонные меры сработали — часть ущерба нейтрализована.";
+      } else if (roll < 0.85) {
+        delta.military = -1;
+        outcome = "mixed"; outcomeText = "Оборонные меры частично снизили ущерб.";
+      } else {
+        delta.approval = -1;
+        outcome = "negative"; outcomeText = "Оборонные меры не дали результата — население разочаровано.";
+      }
+      // Защитные операции стоят ресурсов
+      delta.economy = (delta.economy ?? 0) - 1;
+    } else if (responseType === "retaliate") {
+      // Ответный удар: высокий риск, высокая награда
+      if (roll < 0.35) {
+        delta.military = 2; delta.approval = 2; delta.army_morale = 2;
+        outcome = "positive"; outcomeText = "Ответный удар достиг целей — армия воодушевлена, рейтинг вырос.";
+      } else if (roll < 0.65) {
+        delta.military = 1; delta.diplomacy = -2;
+        outcome = "mixed"; outcomeText = "Удар нанесён, но международная реакция ухудшила дипломатический климат.";
+      } else {
+        delta.diplomacy = -3; delta.stability = -1; delta.peace_progress = -5;
+        outcome = "negative"; outcomeText = "Ответный удар спровоцировал эскалацию — западные партнёры заморозили контакты.";
+      }
+    } else {
+      // accept / ignore — небольшой рандом
+      if (roll < 0.25) { delta.approval = -1; outcome = "negative"; outcomeText = "Бездействие замечено — рейтинг слегка просел."; }
+      else { outcome = "neutral"; outcomeText = "Ситуация стабилизируется сама по себе."; }
+    }
+
+    for (const [k, v] of Object.entries(delta)) {
+      if (typeof stats[k] === "number") {
+        stats[k] = Math.max(0, Math.min(100, stats[k] + v));
+      }
+    }
+    await db.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
+
+    return reply.send({ ok: true, delta, outcome, outcomeText });
+  });
+
   // ---------- GET /leaderboard ----------
   fastify.get("/leaderboard", async (request, reply) => {
     const { countryId, limit = 20 } = request.query;

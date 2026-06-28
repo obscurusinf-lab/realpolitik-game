@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -20,6 +20,8 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
+  const [ukraineItems, setUkraineItems] = useState([]);
+
   // Polling game state пока не появятся world reactions
   useEffect(() => {
     let attempts = 0;
@@ -31,9 +33,11 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
         const baseTurn = fromTurn ?? (prevState?.turn ?? 0);
         const reactions = (s.newsfeed || []).filter(n => (n.type === "reaction" || n.type === "nuclear_reaction") && n.turn > baseTurn);
         const moves = (s.newsfeed || []).filter(n => n.type === "world_move" && n.turn > baseTurn);
-        if (reactions.length > 0 || moves.length > 0 || attempts >= maxAttempts) {
+        const ukraine = (s.newsfeed || []).filter(n => n.type === "ukraine_action" && n.turn > baseTurn);
+        if (reactions.length > 0 || moves.length > 0 || ukraine.length > 0 || attempts >= maxAttempts) {
           setWorldItems(reactions);
           setWorldMoves(moves);
+          setUkraineItems(ukraine);
           setPolling(false);
           setPhase(3);
           clearInterval(pollRef.current);
@@ -111,10 +115,23 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
               </div>
             )}
 
-            {/* Удары и действия противников */}
+            {/* Действия Украины — всегда присутствуют */}
+            {!polling && ukraineItems.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", marginBottom: 10, letterSpacing: "0.1em" }}>🇺🇦 ДЕЙСТВИЯ УКРАИНЫ</div>
+                {ukraineItems.map((item, i) => (
+                  <div key={i} className="et-fade" style={{ background: "#1a0a0a", border: "1px solid #5a1a1a", borderLeft: "3px solid #a8313a", borderRadius: 6, padding: "12px 16px", marginBottom: 8 }}>
+                    <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", marginBottom: 4 }}>{item.source?.toUpperCase()}</div>
+                    <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55, color: "#d0b0b0" }}>{item.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Удары и действия третьих сторон */}
             {!polling && worldMoves.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div className="mono-font" style={{ fontSize: 9, color: "#8c4a2a", marginBottom: 10, letterSpacing: "0.1em" }}>⚡ ДЕЙСТВИЯ ПРОТИВНИКОВ</div>
+                <div className="mono-font" style={{ fontSize: 9, color: "#8c4a2a", marginBottom: 10, letterSpacing: "0.1em" }}>⚡ ДЕЙСТВИЯ МИРОВЫХ ИГРОКОВ</div>
                 {worldMoves.map((item, i) => {
                   const analystNote = item.reactions?.[0];
                   const delta = analystNote?.stat_delta || {};
@@ -145,7 +162,7 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
               </div>
             )}
 
-            {!polling && worldItems.length === 0 && worldMoves.length === 0 && (
+            {!polling && worldItems.length === 0 && worldMoves.length === 0 && ukraineItems.length === 0 && (
               <div className="doc-font" style={{ fontSize: 12, color: "#4a5060", textAlign: "center", padding: "16px 0", fontStyle: "italic" }}>Мировые реакции ещё формируются или отсутствуют.</div>
             )}
           </div>
@@ -155,16 +172,16 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
         {phase >= 2 && !polling && (
           <div className="et-fade" style={{ marginTop: 24, textAlign: "center" }}>
             <button
-              onClick={() => onDone(newState, worldItems)}
+              onClick={() => onDone(newState, worldItems, ukraineItems)}
               style={{ background: "#9c8347", color: "#0a0d12", border: "none", borderRadius: 6, padding: "14px 36px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
             >
-              {worldItems.length > 0 ? "Ответить на реакции →" : "Следующий ход →"}
+              {ukraineItems.length > 0 ? "Ответить Украине →" : worldItems.length > 0 ? "Ответить на реакции →" : "Следующий ход →"}
             </button>
           </div>
         )}
         {phase >= 2 && polling && (
           <div style={{ marginTop: 24, textAlign: "center" }}>
-            <button onClick={() => onDone(newState, [])} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 6, padding: "10px 24px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer" }}>
+            <button onClick={() => onDone(newState, [], [])} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 6, padding: "10px 24px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer" }}>
               Пропустить →
             </button>
           </div>
@@ -540,6 +557,141 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId }) {
 
         <button onClick={onSkip} style={{ marginTop: effectResult ? 0 : 8, background: "none", border: "none", color: "#3a4050", fontFamily: "monospace", fontSize: 10, cursor: "pointer", display: "block", width: "100%", textAlign: "center" }}>
           Пропустить все реакции →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- UkraineResponseScreen ----------
+const UA_OUTCOME_LABELS = {
+  positive: { text: "Контрмеры сработали", color: "#4a9c6a" },
+  mixed:    { text: "Смешанный результат", color: "#9c8347" },
+  negative: { text: "Ситуация осложнилась", color: "#a8313a" },
+  neutral:  { text: "Без изменений", color: "#5a6070" },
+};
+
+const STAT_RU = { diplomacy: "Дипломатия", approval: "Рейтинг", economy: "Экономика", stability: "Стабильность", military: "Армия", army_morale: "Мораль армии", peace_progress: "Мирный трек" };
+
+function UkraineResponseScreen({ items, onDone, gameId }) {
+  const [idx, setIdx] = useState(0);
+  const [choosing, setChoosing] = useState(false);
+  const [effectResult, setEffectResult] = useState(null);
+
+  const item = items[idx];
+  if (!item) { onDone(); return null; }
+
+  // Варианты ответа сохранены в reactions как JSON-объект
+  const meta = (() => { try { return typeof item.reactions === "string" ? JSON.parse(item.reactions) : item.reactions; } catch { return {}; } })();
+  const responses = meta?.responses || [
+    { label: "Принять защитные меры", type: "defend" },
+    { label: "Нанести ответный удар", type: "retaliate" },
+    { label: "Принять потери и продолжить курс", type: "accept" },
+  ];
+
+  async function handleChoice(responseType, actionType) {
+    if (choosing) return;
+    setChoosing(true);
+    try {
+      const result = await sendUkraineResponse(gameId, responseType, actionType || meta?.type);
+      setEffectResult({ delta: result.delta || {}, outcome: result.outcome || "neutral", outcomeText: result.outcomeText || "" });
+    } catch {
+      setEffectResult({ delta: {}, outcome: "neutral", outcomeText: "" });
+    }
+  }
+
+  function handleNext() {
+    setEffectResult(null);
+    setChoosing(false);
+    if (idx + 1 < items.length) setIdx(i => i + 1);
+    else onDone();
+  }
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "#0d0608", zIndex: 8200,
+      fontFamily: "'PT Serif',Georgia,serif", color: "#ece7d8",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+      overflowY: "auto", padding: "32px 16px 48px",
+    }}>
+      <style>{`@keyframes ua-pulse { 0%,100%{border-color:#5a1a1a} 50%{border-color:#a8313a} } .ua-pulse { animation: ua-pulse 2s infinite; }`}</style>
+      <div style={{ maxWidth: 520, width: "100%" }}>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 6, textAlign: "center" }}>
+          🇺🇦 ОТВЕТНЫЕ ДЕЙСТВИЯ УКРАИНЫ · {idx + 1} / {items.length}
+        </div>
+        <div className="doc-font" style={{ fontSize: 20, fontWeight: 700, textAlign: "center", marginBottom: 20 }}>ДЕЙСТВИЕ ПРОТИВНИКА</div>
+
+        {/* Карточка действия */}
+        <div className="ua-pulse" style={{ background: "#1a0808", border: "1px solid #5a1a1a", borderLeft: "3px solid #a8313a", borderRadius: 6, padding: "14px 16px", marginBottom: 16 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", marginBottom: 6, letterSpacing: "0.1em" }}>
+            {item.source?.toUpperCase()}
+          </div>
+          <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6, color: "#e0c0c0" }}>{item.text}</div>
+        </div>
+
+        {/* Результат выбора */}
+        {effectResult && (() => {
+          const out = UA_OUTCOME_LABELS[effectResult.outcome] || UA_OUTCOME_LABELS.neutral;
+          const deltas = Object.entries(effectResult.delta).filter(([,v]) => v !== 0);
+          return (
+            <div style={{ background: "#0e1a10", border: `1px solid ${out.color}`, borderRadius: 6, padding: "14px 16px", marginBottom: 16 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: out.color, marginBottom: 8, letterSpacing: "0.1em" }}>{out.text}</div>
+              {effectResult.outcomeText && (
+                <div className="doc-font" style={{ fontSize: 13, color: "#c0d0b0", lineHeight: 1.55, marginBottom: 8 }}>{effectResult.outcomeText}</div>
+              )}
+              {deltas.length > 0 ? (
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {deltas.map(([k, v]) => (
+                    <span key={k} className="mono-font" style={{ fontSize: 11, color: v > 0 ? "#7fae93" : "#e09090" }}>
+                      {STAT_RU[k] || k}: {v > 0 ? "+" : ""}{v}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="doc-font" style={{ fontSize: 12, color: "#5a6070", fontStyle: "italic" }}>Без немедленных изменений показателей.</div>
+              )}
+              <button
+                onClick={handleNext}
+                style={{ marginTop: 12, background: "#a8313a", color: "#fff", border: "none", borderRadius: 5, padding: "10px 24px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+              >
+                {idx + 1 < items.length ? "Следующее действие →" : "Продолжить →"}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* Варианты ответа */}
+        {!effectResult && (
+          <>
+            <div className="mono-font" style={{ fontSize: 9, color: "#7a4040", marginBottom: 10, letterSpacing: "0.08em" }}>ВЫБЕРИТЕ ОТВЕТНЫЕ МЕРЫ:</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+              {responses.map((r, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleChoice(r.type, meta?.type)}
+                  disabled={choosing}
+                  style={{ background: "#1a0e0e", border: "1px solid #3a1a1a", borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13.5, color: choosing ? "#4a3030" : "#e8d8d8", cursor: choosing ? "default" : "pointer", textAlign: "left", lineHeight: 1.45 }}
+                  onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#a8313a")}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#3a1a1a")}
+                >
+                  <span style={{ color: "#a8313a", marginRight: 8 }}>{i + 1}.</span>{r.label}
+                </button>
+              ))}
+              <button
+                onClick={() => handleChoice("accept", meta?.type)}
+                disabled={choosing}
+                style={{ background: "none", border: "1px solid #2a1a1a", borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#6a4040", cursor: choosing ? "default" : "pointer", textAlign: "left" }}
+                onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#6a3030")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a1a1a")}
+              >
+                Принять ситуацию и продолжить курс
+              </button>
+            </div>
+          </>
+        )}
+
+        <button onClick={onDone} style={{ marginTop: 8, background: "none", border: "none", color: "#3a2020", fontFamily: "monospace", fontSize: 10, cursor: "pointer", display: "block", width: "100%", textAlign: "center" }}>
+          Пропустить все →
         </button>
       </div>
     </div>
@@ -1360,8 +1512,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     }
   }
 
-  function handleEndTurnDone(newState, worldReactions) {
-    setSessionTurnStart(null); // сбрасываем всегда — следующая сессия начнётся заново
+  const [ukraineReactions, setUkraineReactions] = useState(null);
+
+  function handleEndTurnDone(newState, worldReactions, ukraineActions) {
+    setSessionTurnStart(null);
     const nuclear = (worldReactions || []).filter(r => r.item_type === "nuclear_reaction" || r.type === "nuclear_reaction");
     const isNuclearTurnDone = endTurnResult?.gmActionType === "nuclear_strike";
     if (nuclear.length > 0 || isNuclearTurnDone) {
@@ -1380,20 +1534,41 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       setEndTurnResult(null);
       return;
     }
-    // Обычные значимые реакции — дипломатический ответ
+
+    // Сначала: экран ответа Украине, если есть её действия
+    const uaItems = (ukraineActions || []).filter(u => u.text);
+    if (uaItems.length > 0) {
+      setPendingNextState(newState);
+      setUkraineReactions({ items: uaItems, pendingWorld: (worldReactions || []).filter(r => r.text && r.source) });
+      setEndTurnResult(null);
+      return;
+    }
+
+    // Потом: дипломатические реакции мира
     const notable = (worldReactions || []).filter(r => r.text && r.source);
     if (notable.length > 0) {
       setPendingNextState(newState);
       setDiplomaticReactions(notable);
       setEndTurnResult(null);
     } else {
-      loadState(); // всегда свежий запрос — worldUpdate мог обновить overview после поллинга
+      loadState();
       setEndTurnResult(null);
     }
   }
 
+  function handleUkraineDone() {
+    const pendingWorld = ukraineReactions?.pendingWorld || [];
+    setUkraineReactions(null);
+    if (pendingWorld.length > 0) {
+      setDiplomaticReactions(pendingWorld);
+    } else {
+      if (pendingNextState) setState(pendingNextState);
+      else loadState();
+      setPendingNextState(null);
+    }
+  }
+
   function handleDiplomaticRespond(responseText, reaction) {
-    // Подставляем ответ в черновик следующего хода
     setDraftInput(`[Ответ на: ${reaction.source}] ${responseText}`);
   }
 
@@ -1512,6 +1687,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   if (endTurnResult) {
     return <EndTurnScreen prevState={state} turnResult={endTurnResult} gameId={gameId} onDone={handleEndTurnDone} fromTurn={sessionTurnStart} />;
+  }
+
+  if (ukraineReactions) {
+    return <UkraineResponseScreen items={ukraineReactions.items} onDone={handleUkraineDone} gameId={gameId} />;
   }
 
   if (diplomaticReactions) {
