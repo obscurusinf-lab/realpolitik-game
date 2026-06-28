@@ -786,12 +786,10 @@ const TERRITORIES = [
   { key: "kharkiv_control",     label: "Харьков",    short: "ХРК" },
 ];
 
-function territoryColor(pct) {
-  if (pct >= 95) return "#4caf50";
-  if (pct >= 80) return "#8bc34a";
-  if (pct >= 60) return "#ffc107";
-  if (pct >= 35) return "#ff7043";
-  return "#ef5350";
+function territoryColor(pct, req) {
+  if (pct >= req) return "#7a9c7a";      // выполнено — приглушённый зелёный
+  if (pct >= req * 0.75) return "#8a8060"; // близко — тёмное золото
+  return "#7a5050";                        // далеко — тёмный красный
 }
 
 const TERRITORY_DEFAULTS = {
@@ -799,51 +797,62 @@ const TERRITORY_DEFAULTS = {
   zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
 };
 
-function TerritoryPanel({ stats }) {
-  if (!stats) return null;
-  // Merge with defaults so old games also show the panel
-  const s = { ...TERRITORY_DEFAULTS, ...stats };
+const MIL_VICTORY_REQS = {
+  donetsk_control: 100, luhansk_control: 100, zaporizhzhia_control: 85,
+  kherson_control: 65, kharkiv_control: 50,
+};
 
-  const milVictoryReqs = {
-    donetsk_control: 100, luhansk_control: 100, zaporizhzhia_control: 85,
-    kherson_control: 80, kharkiv_control: 65,
-  };
+function TerritoryPanel({ stats }) {
+  const [open, setOpen] = React.useState(false);
+  if (!stats) return null;
+  const s = { ...TERRITORY_DEFAULTS, ...stats };
+  const allMet = TERRITORIES.every(({ key }) => (s[key] ?? 0) >= MIL_VICTORY_REQS[key]);
+  const metCount = TERRITORIES.filter(({ key }) => (s[key] ?? 0) >= MIL_VICTORY_REQS[key]).length;
 
   return (
-    <div style={{ background: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 6, padding: "10px 14px", fontSize: 11.5, color: "#bbb", fontFamily: "'PT Serif',serif" }}>
-      <div style={{ color: "#90caf9", fontWeight: 700, fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>
-        🗺 ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {TERRITORIES.map(({ key, label }) => {
-          const pct = s[key] ?? 0;
-          const req = milVictoryReqs[key];
-          const color = territoryColor(pct);
-          const meetsReq = pct >= req;
-          return (
-            <div key={key}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                <span style={{ color: "#ccc", fontSize: 11 }}>{label}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, color: "#555" }}>цель {req}%</span>
-                  <span style={{ color, fontWeight: 700, fontSize: 11 }}>{Math.round(pct)}% {meetsReq ? "✓" : ""}</span>
+    <div style={{ background: "#16161e", border: "1px solid #2a2a38", borderRadius: 6, marginTop: 6, fontFamily: "'PT Serif',serif" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        <span style={{ color: "#8a9ab0", fontWeight: 700, fontSize: 11, letterSpacing: "0.08em" }}>
+          ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, color: allMet ? "#7a9c7a" : "#5a6070" }}>
+            {metCount}/5 целей
+          </span>
+          <span style={{ fontSize: 10, color: "#3a4156" }}>{open ? "▲" : "▼"}</span>
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 12px 10px", display: "flex", flexDirection: "column", gap: 7 }}>
+          {TERRITORIES.map(({ key, label }) => {
+            const pct = s[key] ?? 0;
+            const req = MIL_VICTORY_REQS[key];
+            const color = territoryColor(pct, req);
+            const meetsReq = pct >= req;
+            return (
+              <div key={key}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                  <span style={{ color: "#7a8090", fontSize: 11 }}>{label}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 10, color: "#3a4050" }}>цель {req}%</span>
+                    <span style={{ color, fontWeight: 700, fontSize: 11 }}>{Math.round(pct)}%{meetsReq ? " ✓" : ""}</span>
+                  </div>
+                </div>
+                <div style={{ background: "#0e0e14", borderRadius: 2, height: 4, overflow: "hidden", position: "relative" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.5s" }} />
+                  <div style={{ position: "absolute", top: 0, left: `${req}%`, width: 1, height: "100%", background: "#4a5878" }} />
                 </div>
               </div>
-              <div style={{ background: "#111", borderRadius: 3, height: 5, overflow: "hidden", position: "relative" }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.6s" }} />
-                {/* marker for victory requirement */}
-                <div style={{ position: "absolute", top: 0, left: `${req}%`, width: 1, height: "100%", background: "#90caf9", opacity: 0.5 }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ marginTop: 8, fontSize: 10, color: "#555" }}>
-        ⚔️ Военная победа: Донецк 100% + Луганск 100% + ещё 2 региона выше цели (синяя черта)
-      </div>
-      <div style={{ marginTop: 4, fontSize: 10, color: "#555" }}>
-        ⚠️ Бездействие и дипломатические уступки отдают территории Украине
-      </div>
+            );
+          })}
+          <div style={{ marginTop: 4, fontSize: 10, color: "#3a4050", lineHeight: 1.4 }}>
+            Военная победа: Донецк+Луганск по 100% и ещё 2 региона выше цели · Бездействие отдаёт территории
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2070,7 +2079,7 @@ function WelcomeModal({ state, playerName, onClose }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
               {[
                 { label: "☮ Дипломатический путь", desc: "Диппереговоры (+4..+8) и Мирная инициатива (+10..+20) заполняют мирный трек до 100. Требует: экономика ≥65, рейтинг ≥65, стабильность ≥65", color: "#4a6b8c" },
-                { label: "⚔️ Военный путь", desc: "Занять Донецк 100%, Луганск 100%, Запорожье ≥85%, Херсон ≥80%, Харьков ≥65%. Требует: армия ≥85, страна жива", color: "#9c6347" },
+                { label: "⚔️ Военный путь", desc: "Занять Донецк 100%, Луганск 100%, Запорожье ≥85%, Херсон ≥65%, Харьков ≥50%. Требует: армия ≥85, страна жива", color: "#9c6347" },
               ].map(({ label, desc, color }) => (
                 <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
                   <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>

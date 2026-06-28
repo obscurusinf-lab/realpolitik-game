@@ -49,8 +49,8 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
     const donbassSecured = (stats.donetsk_control ?? 0) >= 100 && (stats.luhansk_control ?? 0) >= 100;
     const otherRegions = [
       (stats.zaporizhzhia_control ?? 0) >= 85,
-      (stats.kherson_control ?? 0) >= 80,
-      (stats.kharkiv_control ?? 0) >= 65,
+      (stats.kherson_control ?? 0) >= 65,
+      (stats.kharkiv_control ?? 0) >= 50,
     ].filter(Boolean).length;
     if (militaryDominance && armyReady && homeStable && economyHolds && donbassSecured && otherRegions >= 2) {
       return "victory_military";
@@ -381,7 +381,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           const shuffled = contestedKeys.sort(() => Math.random() - 0.5).slice(0, numContested);
           for (const key of shuffled) {
             const current = newStats[key] ?? 0;
-            const pushback = Math.round(1 + Math.random() * (resistanceIntensity * 2));
+            const pushback = Math.round(1 + Math.random() * resistanceIntensity);
             newStats[key] = Math.max(0, current - pushback);
           }
           // Потери от боёв: армейский моральный откат
@@ -503,7 +503,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       // --- ВОЕННЫЙ БЛОУЭФФЕКТ ---
       // Военные наступления с вероятностью 35% вызывают эскалацию и международное осуждение
-      if (gmClassification.action_type === "military_offensive" && Math.random() < 0.35) {
+      if (gmClassification.action_type === "military_offensive" && Math.random() < 0.20) {
         const BLOWBACK_EVENTS = [
           { source: "AP", penalty: 8, diplomacyDelta: -5, approvalDelta: -4,
             text: "Международный суд ООН открыл расследование в связи с последними военными операциями. Верховный комиссар по правам человека ООН Гомес потребовал немедленного прекращения огня." },
