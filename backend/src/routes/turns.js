@@ -52,7 +52,7 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
     const militaryDominance = (stats.military ?? 50) >= 85;
     const armyReady = (stats.army_morale ?? 50) >= 70 && (stats.readiness ?? 50) >= 70;
     const homeStable = (stats.stability ?? 50) >= 52 && (stats.approval ?? 50) >= 52;
-    const economyHolds = (stats.economy ?? 50) >= 42;
+    const economyHolds = (stats.economy ?? 50) >= 36; // war economy — lower bar, just above collapse
     // Территориальные условия: Донбасс (оба) + хотя бы ещё два региона
     const donbassSecured = (stats.donetsk_control ?? 0) >= 92 && (stats.luhansk_control ?? 0) >= 98;
     const otherRegions = [
