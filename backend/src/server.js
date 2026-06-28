@@ -41,7 +41,7 @@ async function buildServer() {
     origin: process.env.CORS_ORIGIN
       ? process.env.CORS_ORIGIN.split(",").map(s => s.trim())
       : true,
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
   });
 
   fastify.get("/health", async () => ({ status: "ok", version: "auth-v3" }));

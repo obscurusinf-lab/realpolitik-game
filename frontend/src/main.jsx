@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { createGame, createUser, fetchLeaderboard, fetchAdminStats } from "./api";
+import { createGame, createUser, deleteGame, fetchLeaderboard, fetchAdminStats, login, register, setToken, getToken, fetchMyGames } from "./api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://realpolitik-game-production.up.railway.app";
 
@@ -214,16 +214,22 @@ function NewsVideoPanel() {
   );
 }
 
-function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClearAll, onLeaderboard, onAdminOpen, savedPlayerName = "", onPlayerNameChange }) {
-  const [playerName, setPlayerName] = useState(savedPlayerName);
+const GAME_SLOT_LIMIT = 5;
 
-  function handleNameChange(v) {
-    setPlayerName(v);
-    onPlayerNameChange?.(v);
-  }
+function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onLeaderboard, onAdminOpen, onLogout }) {
+  // auth form state
+  const [authMode, setAuthMode] = useState("login"); // "login" | "register"
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState(null);
+
+  // game start state (shown after auth)
   const [selectedCountry, setSelectedCountry] = useState("RU");
   const [starting, setStarting] = useState(false);
-  const [error, setError] = useState(null);
+  const [startError, setStartError] = useState(null);
+
   const [tapCount, setTapCount] = useState(0);
   const tapTimer = React.useRef(null);
 
@@ -231,32 +237,50 @@ function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClea
     const next = tapCount + 1;
     setTapCount(next);
     clearTimeout(tapTimer.current);
-    if (next >= 5) {
-      setTapCount(0);
-      onAdminOpen?.();
-    } else {
-      tapTimer.current = setTimeout(() => setTapCount(0), 1500);
+    if (next >= 5) { setTapCount(0); onAdminOpen?.(); }
+    else tapTimer.current = setTimeout(() => setTapCount(0), 1500);
+  }
+
+  async function handleAuth() {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      let result;
+      if (authMode === "login") {
+        result = await login(username.trim(), password);
+      } else {
+        result = await register(username.trim(), password, displayName.trim() || username.trim());
+      }
+      setToken(result.token);
+      onAuthSuccess(result);
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
     }
   }
 
   async function handleStart() {
-    if (!playerName.trim()) { setError("Введите ваше имя"); return; }
     const country = COUNTRIES.find(c => c.id === selectedCountry);
-    if (!country?.available) { setError("Эта страна пока недоступна"); return; }
-
+    if (!country?.available) { setStartError("Эта страна пока недоступна"); return; }
     setStarting(true);
-    setError(null);
+    setStartError(null);
     try {
-      const { id: userId } = await createUser(playerName.trim());
-
-      const { gameId } = await createGame(selectedCountry, userId);
-      onStart(gameId, playerName.trim(), selectedCountry);
+      const { gameId } = await createGame(selectedCountry);
+      onStart(gameId, authUser.displayName, selectedCountry);
     } catch (err) {
-      setError(err.message);
+      setStartError(err.message);
     } finally {
       setStarting(false);
     }
   }
+
+  const inputStyle = {
+    width: "100%", background: "#ece7d8", color: "#262420",
+    border: "2px solid #3a4156", borderRadius: 4,
+    padding: "11px 14px", fontFamily: "'PT Serif',serif", fontSize: 15,
+    outline: "none", marginBottom: 10,
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "#1a1f2c", fontFamily: "'PT Serif',Georgia,serif", color: "#ece7d8" }}>
@@ -277,142 +301,157 @@ function StartScreen({ onStart, sessions = [], onResume, onDeleteSession, onClea
         <h1 className="doc-font" style={{ margin: "0 0 6px", fontSize: 36, fontWeight: 700, letterSpacing: "0.04em" }}>REALPOLITIK</h1>
         <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", letterSpacing: "0.08em" }}>геополитическая стратегия</div>
       </div>
+
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px 48px", display: "flex", gap: 32, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
 
-        <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 4, padding: "16px 18px", marginBottom: 28 }}>
-          <div className="doc-font" style={{ fontSize: 15, color: "#ece7d8", lineHeight: 1.6, fontStyle: "italic" }}>
-            Устал от бессилия, что не можешь ни на что повлиять?
+          <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 4, padding: "16px 18px", marginBottom: 28 }}>
+            <div className="doc-font" style={{ fontSize: 15, color: "#ece7d8", lineHeight: 1.6, fontStyle: "italic" }}>
+              Устал от бессилия, что не можешь ни на что повлиять?
+            </div>
+            <div className="doc-font" style={{ fontSize: 15, color: "#9c8347", lineHeight: 1.6, marginTop: 6, fontWeight: 700 }}>
+              REALPOLITIK даёт тебе шанс сделать всё правильно — стань президентом.
+            </div>
           </div>
-          <div className="doc-font" style={{ fontSize: 15, color: "#9c8347", lineHeight: 1.6, marginTop: 6, fontWeight: 700 }}>
-            REALPOLITIK даёт тебе шанс сделать всё правильно — стань президентом.
-          </div>
-        </div>
 
-        {sessions.length > 0 && (
-          <div style={{ marginBottom: 28 }}>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 10 }}>ПРОДОЛЖИТЬ ИГРУ</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {sessions.map(s => (
-                <div
-                  key={s.id}
-                  onClick={() => onResume(s)}
-                  style={{ display: "flex", alignItems: "center", gap: 12, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "12px 14px", cursor: "pointer" }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = "#2a3040"}
-                >
-                  <div style={{ fontSize: 22, flexShrink: 0 }}>{COUNTRY_FLAG[s.countryId] || "🌐"}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="doc-font" style={{ fontSize: 14, color: "#ece7d8", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.playerName}</div>
-                    <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
-                      {new Date(s.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+          {!authUser ? (
+            /* ——— AUTH FORM ——— */
+            <div>
+              <div style={{ display: "flex", gap: 0, marginBottom: 20, border: "1px solid #2a3040", borderRadius: 4, overflow: "hidden" }}>
+                {["login", "register"].map(m => (
+                  <button key={m} onClick={() => { setAuthMode(m); setAuthError(null); }}
+                    style={{ flex: 1, background: authMode === m ? "#9c8347" : "#1f2733", color: authMode === m ? "#14181f" : "#5a6070", border: "none", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", letterSpacing: "0.08em", fontWeight: 700 }}>
+                    {m === "login" ? "ВХОД" : "РЕГИСТРАЦИЯ"}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ЛОГИН</div>
+              <input value={username} onChange={e => setUsername(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleAuth()}
+                placeholder="имя пользователя" autoFocus style={inputStyle} />
+
+              {authMode === "register" && (
+                <>
+                  <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ПОЗЫВНОЙ (отображаемое имя)</div>
+                  <input value={displayName} onChange={e => setDisplayName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleAuth()}
+                    placeholder="Имя президента…" style={inputStyle} />
+                </>
+              )}
+
+              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ПАРОЛЬ</div>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleAuth()}
+                placeholder="••••••" style={inputStyle} />
+
+              {authError && <div className="doc-font" style={{ color: "#e09090", fontSize: 13.5, marginBottom: 14 }}>{authError}</div>}
+
+              <button onClick={handleAuth} disabled={authLoading || !username.trim() || !password}
+                style={{ width: "100%", background: authLoading || !username.trim() || !password ? "#2a3040" : "#9c8347", color: authLoading || !username.trim() || !password ? "#5a6070" : "#1a1f2c", border: "none", borderRadius: 4, padding: "14px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: authLoading || !username.trim() || !password ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
+                {authLoading ? "Проверка допуска…" : authMode === "login" ? "Войти →" : "Зарегистрироваться →"}
+              </button>
+            </div>
+          ) : (
+            /* ——— GAME SELECTION (after auth) ——— */
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "10px 14px" }}>
+                <div>
+                  <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em" }}>ДОПУСК ПОДТВЕРЖДЁН · </span>
+                  <span className="doc-font" style={{ fontSize: 14, color: "#9c8347", fontWeight: 700 }}>{authUser.displayName}</span>
+                  <span className="mono-font" style={{ fontSize: 9, color: "#3a4050", marginLeft: 6 }}>@{authUser.username}</span>
+                </div>
+                <button onClick={onLogout} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 3, color: "#4a5060", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", padding: "4px 8px" }}>ВЫЙТИ</button>
+              </div>
+
+              {myGamesLoading ? (
+                <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginBottom: 24 }}>Загрузка партий…</div>
+              ) : (
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347" }}>СОХРАНЁННЫЕ ПАРТИИ</div>
+                    <div className="mono-font" style={{ fontSize: 9, color: myGames.length >= GAME_SLOT_LIMIT ? "#e09090" : "#5a6070" }}>
+                      {myGames.length}/{GAME_SLOT_LIMIT} слотов
                     </div>
                   </div>
-                  <div className="mono-font" style={{ fontSize: 11, color: "#9c8347", flexShrink: 0 }}>Продолжить →</div>
-                  <button
-                    onClick={e => onDeleteSession(e, s.id)}
-                    style={{ background: "none", border: "none", color: "#4a5060", cursor: "pointer", padding: "2px 4px", fontSize: 14, lineHeight: 1, flexShrink: 0 }}
-                    title="Удалить сохранение"
-                  >×</button>
+                  {myGames.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {myGames.map(g => (
+                        <div key={g.id}
+                          style={{ display: "flex", alignItems: "center", gap: 12, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "12px 14px" }}
+                          onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
+                          onMouseLeave={e => e.currentTarget.style.borderColor = "#2a3040"}>
+                          <div style={{ fontSize: 22, flexShrink: 0, cursor: "pointer" }} onClick={() => onResume(g)}>{COUNTRY_FLAG[g.country_id] || "🌐"}</div>
+                          <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => onResume(g)}>
+                            <div className="doc-font" style={{ fontSize: 14, color: "#ece7d8", fontWeight: 700 }}>{g.country_name}</div>
+                            <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
+                              Ход {g.current_turn} · {new Date(g.created_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+                              {g.status !== "active" && <span style={{ color: "#a8313a", marginLeft: 6 }}>{g.status}</span>}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                            <div className="mono-font" style={{ fontSize: 11, color: "#9c8347", cursor: "pointer" }} onClick={() => onResume(g)}>Продолжить →</div>
+                            <button
+                              onClick={e => { e.stopPropagation(); onDeleteGame(g.id); }}
+                              style={{ background: "none", border: "1px solid #3a2020", borderRadius: 3, color: "#6a3535", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", padding: "3px 6px", lineHeight: 1 }}
+                              onMouseEnter={e => { e.currentTarget.style.borderColor = "#a8313a"; e.currentTarget.style.color = "#e09090"; }}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = "#3a2020"; e.currentTarget.style.color = "#6a3535"; }}
+                              title="Удалить партию">✕</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mono-font" style={{ fontSize: 10, color: "#3a4050", padding: "10px 0" }}>Нет сохранённых партий</div>
+                  )}
                 </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#3a4050", letterSpacing: "0.06em" }}>ИЛИ НАЧНИТЕ НОВУЮ ИГРУ НИЖЕ</div>
-              <button onClick={onClearAll} style={{ background: "none", border: "none", color: "#3a4050", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer" }}>× очистить всё</button>
-            </div>
-          </div>
-        )}
+              )}
 
-        <div style={{ marginBottom: 24 }}>
-          <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ВАШ ПОЗЫВНОЙ</div>
-          <input
-            value={playerName}
-            onChange={e => handleNameChange(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleStart()}
-            placeholder="Имя президента…"
-            autoFocus
-            style={{
-              width: "100%", background: "#ece7d8", color: "#262420",
-              border: "2px solid #3a4156", borderRadius: 4,
-              padding: "11px 14px", fontFamily: "'PT Serif',serif", fontSize: 15,
-              outline: "none",
-            }}
-          />
-        </div>
-
-        <div style={{ marginBottom: 28 }}>
-          <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>ВЫБЕРИТЕ СТРАНУ</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {COUNTRIES.map(c => (
-              <div
-                key={c.id}
-                className={`c-card${!c.available ? " locked" : ""}${selectedCountry === c.id ? " selected" : ""}`}
-                onClick={() => c.available && setSelectedCountry(c.id)}
-                style={{
-                  background: selectedCountry === c.id ? "#1a2a1a" : "#1f2733",
-                  border: `2px solid ${selectedCountry === c.id ? "#9c8347" : "#2a3040"}`,
-                  borderRadius: 6, padding: "14px",
-                  cursor: c.available ? "pointer" : "not-allowed",
-                  opacity: c.available ? 1 : 0.4,
-                  position: "relative",
-                }}
-              >
-                {!c.available && (
-                  <div className="mono-font" style={{ position: "absolute", top: 8, right: 8, fontSize: 8, color: "#4a5060", background: "#14181f", padding: "2px 5px", borderRadius: 2 }}>
-                    СКОРО
-                  </div>
-                )}
-                <div style={{ fontSize: 26, marginBottom: 6 }}>{c.flag}</div>
-                <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.08em", color: DIFFICULTY_COLOR[c.difficulty] || "#9c8347", marginBottom: 6 }}>
-                  {c.difficulty.toUpperCase()}
+              <div style={{ marginBottom: 28 }}>
+                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>ВЫБЕРИТЕ СТРАНУ</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {COUNTRIES.map(c => (
+                    <div key={c.id}
+                      className={`c-card${!c.available ? " locked" : ""}${selectedCountry === c.id ? " selected" : ""}`}
+                      onClick={() => c.available && setSelectedCountry(c.id)}
+                      style={{ background: selectedCountry === c.id ? "#1a2a1a" : "#1f2733", border: `2px solid ${selectedCountry === c.id ? "#9c8347" : "#2a3040"}`, borderRadius: 6, padding: "14px", cursor: c.available ? "pointer" : "not-allowed", opacity: c.available ? 1 : 0.4, position: "relative" }}>
+                      {!c.available && <div className="mono-font" style={{ position: "absolute", top: 8, right: 8, fontSize: 8, color: "#4a5060", background: "#14181f", padding: "2px 5px", borderRadius: 2 }}>СКОРО</div>}
+                      <div style={{ fontSize: 26, marginBottom: 6 }}>{c.flag}</div>
+                      <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.08em", color: DIFFICULTY_COLOR[c.difficulty] || "#9c8347", marginBottom: 6 }}>{c.difficulty.toUpperCase()}</div>
+                      <div className="doc-font" style={{ fontSize: 12, color: "#a8a294", lineHeight: 1.4 }}>{c.desc}</div>
+                    </div>
+                  ))}
                 </div>
-                <div className="doc-font" style={{ fontSize: 12, color: "#a8a294", lineHeight: 1.4 }}>{c.desc}</div>
               </div>
-            ))}
+
+              {startError && <div className="doc-font" style={{ color: "#e09090", fontSize: 13.5, marginBottom: 14 }}>{startError}</div>}
+
+              {myGames.length >= GAME_SLOT_LIMIT ? (
+                <div className="mono-font" style={{ textAlign: "center", color: "#6a3535", fontSize: 10, border: "1px solid #3a2020", borderRadius: 4, padding: "14px", letterSpacing: "0.06em" }}>
+                  ВСЕ {GAME_SLOT_LIMIT} СЛОТОВ ЗАНЯТЫ — УДАЛИТЕ ОДНУ ПАРТИЮ
+                </div>
+              ) : (
+                <button onClick={handleStart} disabled={starting}
+                  style={{ width: "100%", background: starting ? "#2a3040" : "#9c8347", color: starting ? "#5a6070" : "#1a1f2c", border: "none", borderRadius: 4, padding: "14px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: starting ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
+                  {starting ? "Инициализация досье…" : "Принять командование →"}
+                </button>
+              )}
+            </div>
+          )}
+
+          <button onClick={onLeaderboard}
+            style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
+            ЗАЛА СЛАВЫ — ТОП ПРЕЗИДЕНТОВ
+          </button>
+
+          <div className="mono-font" onClick={handleSecretTap}
+            style={{ textAlign: "center", fontSize: 9, color: "#2a3040", marginTop: 18, letterSpacing: "0.08em", userSelect: "none", cursor: "default" }}>
+            ДАННЫЕ НА ИЮНЬ 2026 · ВСЕ СОВПАДЕНИЯ СЛУЧАЙНЫ{tapCount > 0 ? ` ·` + "·".repeat(tapCount) : ""}
           </div>
         </div>
 
-        {error && (
-          <div className="doc-font" style={{ color: "#e09090", fontSize: 13.5, marginBottom: 14 }}>{error}</div>
-        )}
-
-        <button
-          onClick={handleStart}
-          disabled={starting || !playerName.trim()}
-          style={{
-            width: "100%",
-            background: starting || !playerName.trim() ? "#2a3040" : "#9c8347",
-            color: starting || !playerName.trim() ? "#5a6070" : "#1a1f2c",
-            border: "none", borderRadius: 4,
-            padding: "14px", fontFamily: "'PT Serif',serif",
-            fontSize: 16, fontWeight: 700,
-            cursor: starting || !playerName.trim() ? "not-allowed" : "pointer",
-            letterSpacing: "0.04em",
-          }}
-        >
-          {starting ? "Инициализация досье…" : "Принять командование →"}
-        </button>
-
-        <button
-          onClick={onLeaderboard}
-          style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}
-        >
-          ЗАЛА СЛАВЫ — ТОП ПРЕЗИДЕНТОВ
-        </button>
-
-        <div
-          className="mono-font"
-          onClick={handleSecretTap}
-          style={{ textAlign: "center", fontSize: 9, color: "#2a3040", marginTop: 18, letterSpacing: "0.08em", userSelect: "none", cursor: "default" }}
-        >
-          ДАННЫЕ НА ИЮНЬ 2026 · ВСЕ СОВПАДЕНИЯ СЛУЧАЙНЫ{tapCount > 0 ? ` ·` + "·".repeat(tapCount) : ""}
-        </div>
-        </div>{/* end flex:1 left column */}
-
-        {/* Правая колонка: видео */}
         <div className="news-panel" style={{ flex: "0 0 380px", minWidth: 0 }}>
           <NewsVideoPanel />
         </div>
@@ -841,48 +880,74 @@ function saveActiveGame(game) {
 
 function Root() {
   const [game, setGame] = useState(loadActiveGame);
-  const [sessions, setSessions] = useState(loadSessions);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [savedPlayerName, setSavedPlayerName] = useState("");
+  const [authUser, setAuthUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [myGames, setMyGames] = useState([]);
+  const [myGamesLoading, setMyGamesLoading] = useState(false);
+
+  // Verify existing token on mount
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setAuthChecked(true); return; }
+    fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.id) {
+          setAuthUser({ userId: data.id, username: data.username, displayName: data.display_name });
+          loadMyGames();
+        } else {
+          setToken(null);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  async function loadMyGames() {
+    setMyGamesLoading(true);
+    try {
+      const { games } = await fetchMyGames();
+      setMyGames(games || []);
+    } catch {}
+    finally { setMyGamesLoading(false); }
+  }
 
   useEffect(() => {
-    // Desktop: Ctrl+Shift+A
     function onKey(e) {
-      if (e.ctrlKey && e.shiftKey && e.code === "KeyA") {
-        e.preventDefault();
-        setShowAdmin(v => !v);
-      }
+      if (e.ctrlKey && e.shiftKey && e.code === "KeyA") { e.preventDefault(); setShowAdmin(v => !v); }
     }
     window.addEventListener("keydown", onKey);
-    // URL param: ?admin (для мобильного)
-    if (new URLSearchParams(window.location.search).has("admin")) {
-      setShowAdmin(true);
-    }
+    if (new URLSearchParams(window.location.search).has("admin")) setShowAdmin(true);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  function handleAuthSuccess(result) {
+    setAuthUser({ userId: result.userId, username: result.username, displayName: result.displayName });
+    loadMyGames();
+  }
+
+  function handleLogout() {
+    setToken(null);
+    setAuthUser(null);
+    setMyGames([]);
+    saveActiveGame(null);
+    setGame(null);
+  }
+
   function handleStart(id, playerName, countryId) {
-    const entry = { id, playerName, countryId: countryId || "RU", createdAt: new Date().toISOString() };
-    const updated = [entry, ...sessions.filter(s => s.id !== id)].slice(0, 5);
-    saveSessions(updated);
-    setSessions(updated);
     const g = { id, name: playerName, isNew: true };
     saveActiveGame(g);
     setGame(g);
+    // refresh my games list in background
+    loadMyGames();
   }
 
-  function handleResume(session) {
-    const g = { id: session.id, name: session.playerName, isNew: false };
-    saveActiveGame(g);
-    setGame(g);
-  }
-
-  function handleDeleteSession(e, id) {
-    e.stopPropagation();
-    const updated = sessions.filter(s => s.id !== id);
-    saveSessions(updated);
-    setSessions(updated);
+  function handleResume(g) {
+    const entry = { id: g.id, name: authUser?.displayName || "Президент", isNew: false };
+    saveActiveGame(entry);
+    setGame(entry);
   }
 
   function handleNewGame() {
@@ -890,17 +955,28 @@ function Root() {
     setGame(null);
   }
 
-  function handleClearAll() {
-    if (window.confirm("Очистить все сохранённые игры?")) {
-      saveSessions([]);
-      setSessions([]);
+  async function handleDeleteGame(gameId) {
+    if (!confirm("Удалить эту партию? Прогресс будет потерян навсегда.")) return;
+    try {
+      await deleteGame(gameId);
+      setMyGames(prev => prev.filter(g => g.id !== gameId));
+    } catch (err) {
+      alert(err.message);
     }
+  }
+
+  if (!authChecked) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#1a1f2c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#5a6070", letterSpacing: "0.1em" }}>ПРОВЕРКА ДОПУСКА…</div>
+      </div>
+    );
   }
 
   let screen;
   if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} showWelcome={game.isNew === true} />;
   else if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
-  else screen = <StartScreen onStart={handleStart} sessions={sessions} onResume={handleResume} onDeleteSession={handleDeleteSession} onClearAll={handleClearAll} onLeaderboard={() => setShowLeaderboard(true)} onAdminOpen={() => setShowAdmin(true)} savedPlayerName={savedPlayerName} onPlayerNameChange={setSavedPlayerName} />;
+  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onLeaderboard={() => setShowLeaderboard(true)} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} />;
 
   return (
     <>

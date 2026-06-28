@@ -6,12 +6,25 @@
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://realpolitik-game-production.up.railway.app";
 
-// Fetch с таймаутом. AI-запросы (preview, confirm, suggestions) могут занимать 20-40 сек.
+// ---------- Auth token ----------
+export function getToken() {
+  try { return localStorage.getItem("authToken") || null; } catch { return null; }
+}
+export function setToken(token) {
+  try { if (token) localStorage.setItem("authToken", token); else localStorage.removeItem("authToken"); } catch {}
+}
+
+// Fetch с таймаутом + автоматический Authorization header
 async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const token = getToken();
+  const headers = {
+    ...(options.headers || {}),
+    ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+  };
   try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
+    const res = await fetch(url, { ...options, headers, signal: controller.signal });
     return res;
   } catch (err) {
     if (err.name === "AbortError") throw new Error("Запрос занял слишком долго — попробуйте ещё раз.");
@@ -20,6 +33,35 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ---------- Auth API ----------
+export async function register(username, password, displayName) {
+  const res = await fetchWithTimeout(`${API_BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password, displayName }),
+  }, 15000);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || "Ошибка регистрации");
+  return body;
+}
+
+export async function login(username, password) {
+  const res = await fetchWithTimeout(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  }, 15000);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || "Ошибка входа");
+  return body;
+}
+
+export async function fetchMyGames() {
+  const res = await fetchWithTimeout(`${API_BASE}/games/my`, {}, 15000);
+  if (!res.ok) throw new Error("Не удалось загрузить партии");
+  return res.json();
 }
 
 export async function fetchGameState(gameId) {
@@ -82,13 +124,23 @@ export async function createUser(displayName) {
   return res.json();
 }
 
-export async function createGame(countryId, userId) {
+export async function createGame(countryId) {
   const res = await fetchWithTimeout(`${API_BASE}/games`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ countryId, userId }),
+    body: JSON.stringify({ countryId }),
   }, 30000);
-  if (!res.ok) throw new Error(`createGame failed: ${res.status}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || `createGame failed: ${res.status}`);
+  return body;
+}
+
+export async function deleteGame(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}`, { method: "DELETE" }, 15000);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "Ошибка удаления партии");
+  }
   return res.json();
 }
 

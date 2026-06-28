@@ -34,6 +34,8 @@ const OUTCOME_TITLES = {
   defeat_unrest:  "Народные волнения сметают власть",
 };
 
+const GAME_SLOT_LIMIT = 5;
+
 async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
   // ---------- POST /games ----------
   fastify.post("/games", async (request, reply) => {
@@ -42,6 +44,14 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
 
     const { countryId } = request.body || {};
     const userId = payload.userId;
+
+    const countRes = await db.query(
+      `SELECT COUNT(*) AS cnt FROM games WHERE owner_user_id = $1 AND status = 'active'`,
+      [userId]
+    );
+    if (parseInt(countRes.rows[0].cnt, 10) >= GAME_SLOT_LIMIT) {
+      return reply.code(409).send({ error: `Лимит слотов: у вас уже ${GAME_SLOT_LIMIT} активных партий. Удалите одну, чтобы начать новую.` });
+    }
 
     if (!countryId || typeof countryId !== "string") {
       return reply.code(400).send({ error: "countryId is required" });
@@ -129,6 +139,20 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       [payload.userId]
     );
     return reply.send({ games: res.rows });
+  });
+
+  // ---------- DELETE /games/:gameId ----------
+  fastify.delete("/games/:gameId", async (request, reply) => {
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { gameId } = request.params;
+    const check = await db.query(
+      `SELECT id FROM games WHERE id = $1 AND owner_user_id = $2`,
+      [gameId, payload.userId]
+    );
+    if (check.rowCount === 0) return reply.code(404).send({ error: "Партия не найдена" });
+    await db.query(`DELETE FROM games WHERE id = $1`, [gameId]);
+    return reply.send({ ok: true });
   });
 
   // ---------- GET /games/:gameId ----------
