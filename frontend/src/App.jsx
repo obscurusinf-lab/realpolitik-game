@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -373,37 +373,82 @@ function NuclearConfirmScreen({ onConfirm, onCancel, confirming, error }) {
 }
 
 // ---------- DiplomaticResponseScreen ----------
-function DiplomaticResponseScreen({ reactions, onRespond, onSkip }) {
+const ALLY_SOURCES = ["Беларусь","Казахстан","Северная Корея","КНДР","Кыргызстан","Таджикистан","Куба","Никарагуа","Сирия","Иран","Венесуэла"];
+const NEUTRAL_SOURCES = ["Индия","Китай","ОАЭ","Турция","ЮАР","Бразилия","Венгрия","Пакистан","Египет","Саудовская Аравия"];
+
+function classifySource(source) {
+  if (!source) return "hostile";
+  if (ALLY_SOURCES.some(a => source.includes(a))) return "ally";
+  if (NEUTRAL_SOURCES.some(n => source.includes(n))) return "neutral";
+  return "hostile";
+}
+
+// Определяем тему реакции по ключевым словам в тексте
+function detectReactionTheme(text = "") {
+  const t = text.toLowerCase();
+  if (t.includes("санкц") || t.includes("заморозил") || t.includes("банк") || t.includes("торговл")) return "sanctions";
+  if (t.includes("войск") || t.includes("военн") || t.includes("наступлени") || t.includes("оружи")) return "military";
+  if (t.includes("перегово") || t.includes("мирн") || t.includes("примирени") || t.includes("диалог")) return "peace";
+  if (t.includes("поддержк") || t.includes("солидарн") || t.includes("сотрудничеств")) return "support";
+  if (t.includes("осуди") || t.includes("осужда") || t.includes("недопустим") || t.includes("требу")) return "condemnation";
+  return "generic";
+}
+
+const RESPONSE_OPTIONS = {
+  ally: {
+    support:      [{ label: "Выразить взаимную солидарность и предложить расширить сотрудничество", type: "cooperate" }, { label: "Скоординировать совместные действия на ближайший период", type: "cooperate" }, { label: "Поблагодарить и обсудить экономические преференции", type: "cooperate" }],
+    generic:      [{ label: "Выразить признательность и углубить союзные связи", type: "cooperate" }, { label: "Предложить встречу на высшем уровне для координации", type: "cooperate" }, { label: "Принять поддержку и скоординировать информационную повестку", type: "cooperate" }],
+  },
+  neutral: {
+    peace:        [{ label: "Поддержать инициативу и предложить переговорную платформу", type: "cooperate" }, { label: "Принять к сведению и выразить готовность к диалогу", type: "deescalate" }, { label: "Вежливо отклонить, сославшись на собственный мирный план", type: "ignore" }],
+    sanctions:    [{ label: "Предложить двустороннее соглашение в обход санкционного давления", type: "cooperate" }, { label: "Выразить обеспокоенность через дипломатические каналы", type: "deescalate" }, { label: "Жёстко отвергнуть — это вмешательство во внутренние дела", type: "confront" }],
+    military:     [{ label: "Разъяснить оборонительный характер операций через МИД", type: "deescalate" }, { label: "Предложить гарантии безопасности в обмен на нейтралитет", type: "cooperate" }, { label: "Проигнорировать — их позиция ситуативная и нестабильная", type: "ignore" }],
+    generic:      [{ label: "Направить дипломатического представителя для выяснения позиции", type: "deescalate" }, { label: "Предложить взаимовыгодное сотрудничество как альтернативу", type: "cooperate" }, { label: "Принять к сведению без официальной реакции", type: "ignore" }],
+  },
+  hostile: {
+    sanctions:    [{ label: "Задействовать ответные меры — симметричные контрсанкции", type: "confront" }, { label: "Направить ноту протеста через дипломатические каналы", type: "deescalate" }, { label: "Проигнорировать — демонстрация стойкости важнее реакции", type: "ignore" }],
+    military:     [{ label: "Созвать экстренное совещание и подготовить ответные меры", type: "confront" }, { label: "Выразить обеспокоенность через нейтральную третью сторону", type: "deescalate" }, { label: "Продолжать курс — их позиция не меняет наши планы", type: "ignore" }],
+    condemnation: [{ label: "Дать жёсткий публичный ответ через государственные СМИ", type: "confront" }, { label: "Направить официальное опровержение в их посольство", type: "deescalate" }, { label: "Проигнорировать провокацию — ответ только усилит их позицию", type: "ignore" }],
+    peace:        [{ label: "Выдвинуть встречные условия и занять переговорную позицию", type: "deescalate" }, { label: "Жёстко отклонить — их мирная инициатива неприемлема", type: "confront" }, { label: "Изучить предложение через закрытые каналы", type: "cooperate" }],
+    generic:      [{ label: "Выразить официальный протест через посольство", type: "confront" }, { label: "Инициировать дипломатический диалог для деэскалации", type: "deescalate" }, { label: "Проигнорировать — ответ придаст им излишний вес", type: "ignore" }],
+  },
+};
+
+const OUTCOME_LABELS = {
+  positive: { text: "Дипломатический успех", color: "#4a9c6a" },
+  mixed:    { text: "Смешанный результат", color: "#9c8347" },
+  negative: { text: "Осложнение отношений", color: "#a8313a" },
+  neutral:  { text: "Без изменений", color: "#5a6070" },
+};
+
+function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId }) {
   const [idx, setIdx] = useState(0);
-  const [custom, setCustom] = useState("");
-  const [showCustom, setShowCustom] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const [effectResult, setEffectResult] = useState(null); // { delta, outcome, label }
 
   const reaction = reactions[idx];
-  if (!reaction) { onSkip(); return null; }
+  if (!reaction && !effectResult) { onSkip(); return null; }
 
-  const isAlly = reaction.source && ["Беларусь","Казахстан","Северная Корея","Кыргызстан","Таджикистан"].some(a => reaction.source.includes(a));
+  const stance = classifySource(reaction?.source);
+  const theme = detectReactionTheme(reaction?.text);
+  const optionSet = RESPONSE_OPTIONS[stance]?.[theme] || RESPONSE_OPTIONS[stance]?.generic || RESPONSE_OPTIONS.hostile.generic;
 
-  // Предустановленные ответы по тональности
-  const presets = isAlly ? [
-    "Выразить солидарность и предложить углубить сотрудничество",
-    "Принять к сведению и скоординировать дальнейшие действия",
-    "Поблагодарить за поддержку и предложить встречу на высшем уровне",
-  ] : [
-    "Выразить обеспокоенность через дипломатические каналы",
-    "Игнорировать провокацию — ответ только усилит их позицию",
-    "Созвать экстренное совещание и подготовить ответные меры",
-  ];
-
-  function handlePreset(text) {
-    onRespond(text, reaction);
-    if (idx + 1 < reactions.length) setIdx(i => i + 1);
-    else onSkip();
+  async function handleChoice(responseType) {
+    if (choosing) return;
+    setChoosing(true);
+    try {
+      const result = await sendWorldResponse(gameId, responseType, reaction?.source);
+      setEffectResult({ delta: result.delta || {}, outcome: result.outcome || "neutral", responseType });
+    } catch {
+      setEffectResult({ delta: {}, outcome: "neutral", responseType });
+    }
   }
 
-  function handleCustom() {
-    if (!custom.trim()) return;
-    onRespond(custom.trim(), reaction);
-    if (idx + 1 < reactions.length) { setIdx(i => i + 1); setCustom(""); setShowCustom(false); }
+  function handleNext() {
+    if (effectResult) onRespond(effectResult.responseType, reaction);
+    setEffectResult(null);
+    setChoosing(false);
+    if (idx + 1 < reactions.length) setIdx(i => i + 1);
     else onSkip();
   }
 
@@ -414,6 +459,9 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip }) {
     overflowY: "auto", padding: "32px 16px 48px",
   };
 
+  const stanceColor = stance === "ally" ? "#4a9c6a" : stance === "neutral" ? "#9c8347" : "#a8313a";
+  const stanceLabel = stance === "ally" ? "СОЮЗНИК" : stance === "neutral" ? "НЕЙТРАЛЬНЫЙ" : "ПРОТИВНИК";
+
   return (
     <div style={overlayStyle}>
       <div style={{ maxWidth: 520, width: "100%" }}>
@@ -423,51 +471,74 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip }) {
         <div className="doc-font" style={{ fontSize: 20, fontWeight: 700, textAlign: "center", marginBottom: 20 }}>РЕАКЦИЯ МИРА</div>
 
         {/* Карточка реакции */}
-        <div style={{ background: "#14181f", border: `1px solid ${isAlly ? "#3a6a4a" : "#3a2a2a"}`, borderLeft: `3px solid ${isAlly ? "#4a9c6a" : "#a8313a"}`, borderRadius: 6, padding: "14px 16px", marginBottom: 16 }}>
-          <div className="mono-font" style={{ fontSize: 9, color: isAlly ? "#4a9c6a" : "#a8313a", marginBottom: 6, letterSpacing: "0.1em" }}>
-            {reaction.source?.toUpperCase()} · {isAlly ? "СОЮЗНИК" : "ВНЕШНЯЯ РЕАКЦИЯ"}
+        <div style={{ background: "#14181f", border: `1px solid ${stance === "ally" ? "#3a6a4a" : stance === "neutral" ? "#4a3a20" : "#3a2a2a"}`, borderLeft: `3px solid ${stanceColor}`, borderRadius: 6, padding: "14px 16px", marginBottom: 16 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: stanceColor, marginBottom: 6, letterSpacing: "0.1em" }}>
+            {reaction?.source?.toUpperCase()} · {stanceLabel}
           </div>
-          <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6 }}>{reaction.text}</div>
+          <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6 }}>{reaction?.text}</div>
         </div>
+
+        {/* Результат выбора */}
+        {effectResult && (() => {
+          const out = OUTCOME_LABELS[effectResult.outcome] || OUTCOME_LABELS.neutral;
+          const deltas = Object.entries(effectResult.delta).filter(([,v]) => v !== 0);
+          const STAT_RU = { diplomacy: "Дипломатия", approval: "Рейтинг", economy: "Экономика", stability: "Стабильность", military: "Армия" };
+          return (
+            <div style={{ background: "#1a2010", border: `1px solid ${out.color}`, borderRadius: 6, padding: "14px 16px", marginBottom: 16 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: out.color, marginBottom: 8, letterSpacing: "0.1em" }}>{out.text}</div>
+              {deltas.length > 0 ? (
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {deltas.map(([k, v]) => (
+                    <span key={k} className="mono-font" style={{ fontSize: 11, color: v > 0 ? "#7fae93" : "#e09090" }}>
+                      {STAT_RU[k] || k}: {v > 0 ? "+" : ""}{v}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="doc-font" style={{ fontSize: 12, color: "#5a6070", fontStyle: "italic" }}>Без немедленных изменений показателей.</div>
+              )}
+              <button
+                onClick={handleNext}
+                style={{ marginTop: 12, background: "#9c8347", color: "#0a0d12", border: "none", borderRadius: 5, padding: "10px 24px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+              >
+                {idx + 1 < reactions.length ? "Следующая реакция →" : "Продолжить →"}
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Варианты ответа */}
-        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.08em" }}>ВЫБЕРИТЕ ОТВЕТНУЮ ПОЗИЦИЮ:</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-          {presets.map((p, i) => (
-            <button
-              key={i}
-              onClick={() => handlePreset(p)}
-              style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13.5, color: "#ece7d8", cursor: "pointer", textAlign: "left", lineHeight: 1.45 }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
-              onMouseLeave={e => e.currentTarget.style.borderColor = "#2a3040"}
-            >
-              <span style={{ color: "#9c8347", marginRight: 8 }}>{i + 1}.</span>{p}
-            </button>
-          ))}
-        </div>
-
-        {/* Свой вариант */}
-        {showCustom ? (
-          <div>
-            <textarea
-              value={custom}
-              onChange={e => setCustom(e.target.value)}
-              placeholder="Опишите вашу дипломатическую позицию…"
-              rows={2}
-              style={{ width: "100%", resize: "none", background: "#1f2733", color: "#ece7d8", border: "1px solid #3a4156", borderRadius: 4, padding: "8px 10px", fontFamily: "'PT Serif',serif", fontSize: 13, marginBottom: 8 }}
-            />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={handleCustom} disabled={!custom.trim()} style={{ background: "#9c8347", color: "#0a0d12", border: "none", borderRadius: 4, padding: "8px 18px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: custom.trim() ? 1 : 0.5 }}>Отправить</button>
-              <button onClick={() => setShowCustom(false)} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 14px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer" }}>Назад</button>
+        {!effectResult && (
+          <>
+            <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.08em" }}>ВЫБЕРИТЕ ОТВЕТНУЮ ПОЗИЦИЮ:</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+              {optionSet.map((opt, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleChoice(opt.type)}
+                  disabled={choosing}
+                  style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13.5, color: choosing ? "#4a5060" : "#ece7d8", cursor: choosing ? "default" : "pointer", textAlign: "left", lineHeight: 1.45 }}
+                  onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#9c8347")}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a3040")}
+                >
+                  <span style={{ color: "#9c8347", marginRight: 8 }}>{i + 1}.</span>{opt.label}
+                </button>
+              ))}
+              {/* Всегда доступно: принять к сведению */}
+              <button
+                onClick={() => handleChoice("ignore")}
+                disabled={choosing}
+                style={{ background: "none", border: "1px solid #2a3040", borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: choosing ? "default" : "pointer", textAlign: "left" }}
+                onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#5a6070")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a3040")}
+              >
+                Принять к сведению
+              </button>
             </div>
-          </div>
-        ) : (
-          <button onClick={() => setShowCustom(true)} style={{ background: "none", border: "1px dashed #3a4156", borderRadius: 4, padding: "8px 14px", fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a6070", cursor: "pointer", width: "100%" }}>
-            ✏ Написать свою позицию…
-          </button>
+          </>
         )}
 
-        <button onClick={onSkip} style={{ marginTop: 16, background: "none", border: "none", color: "#3a4050", fontFamily: "monospace", fontSize: 10, cursor: "pointer", display: "block", width: "100%", textAlign: "center" }}>
+        <button onClick={onSkip} style={{ marginTop: effectResult ? 0 : 8, background: "none", border: "none", color: "#3a4050", fontFamily: "monospace", fontSize: 10, cursor: "pointer", display: "block", width: "100%", textAlign: "center" }}>
           Пропустить все реакции →
         </button>
       </div>
@@ -1444,7 +1515,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }
 
   if (diplomaticReactions) {
-    return <DiplomaticResponseScreen reactions={diplomaticReactions} onRespond={handleDiplomaticRespond} onSkip={handleDiplomaticDone} />;
+    return <DiplomaticResponseScreen reactions={diplomaticReactions} onRespond={handleDiplomaticRespond} onSkip={handleDiplomaticDone} gameId={gameId} />;
   }
 
   const tabs = [
@@ -2974,9 +3045,18 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
   const [news, setNews] = useState(null);
   const meta = statMeta[statKey];
 
+  const STAT_KEYWORDS = {
+    economy:   null, // все новости — экономические события и так часто в ленте
+    military:  null,
+    stability: null,
+    diplomacy: null,
+    approval:  null,
+  };
+
   useEffect(() => {
     fetchStatHistory(gameId).then(d => setHistory(d.history || []));
-    fetchPolicyNews(gameId, meta?.label).then(d => setNews(d.items || []));
+    // Показываем последние новости без фильтра — фильтр по ключевому слову слишком узкий
+    fetchPolicyNews(gameId, null).then(d => setNews(d.items || []));
   }, [gameId, statKey]);
 
   const currentValue = state.stats[statKey] ?? 0;

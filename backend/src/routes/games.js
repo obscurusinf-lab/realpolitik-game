@@ -393,6 +393,59 @@ ${historyLines || "(история пуста)"}
     }
   });
 
+  // ---------- POST /games/:gameId/world-response ----------
+  // Применяет небольшой стат-эффект от выбранной дипломатической реакции игрока
+  fastify.post("/games/:gameId/world-response", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { responseType, source } = request.body || {};
+    // responseType: "cooperate" | "deescalate" | "confront" | "ignore"
+
+    const gsRes = await db.query(`SELECT stats FROM game_state WHERE game_id = $1`, [gameId]);
+    if (gsRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
+
+    const stats = { ...gsRes.rows[0].stats };
+    const roll = Math.random();
+    let delta = {};
+    let outcome = "neutral";
+
+    if (responseType === "cooperate") {
+      // Сотрудничество — дипломатия растёт, вероятность бонуса к экономике
+      delta.diplomacy = 2 + (roll < 0.4 ? 1 : 0);
+      if (roll < 0.5) delta.economy = 1;
+      if (roll < 0.15) { delta.approval = -1; outcome = "negative"; } else outcome = "positive";
+    } else if (responseType === "deescalate") {
+      // Деэскалация — дипломатия растёт, одобрение может упасть
+      delta.diplomacy = 1 + (roll < 0.5 ? 1 : 0);
+      if (roll < 0.35) { delta.approval = -1; outcome = "mixed"; }
+      else if (roll < 0.7) { outcome = "positive"; }
+      else { delta.stability = 1; outcome = "positive"; }
+    } else if (responseType === "confront") {
+      // Конфронтация — одобрение растёт, дипломатия страдает
+      delta.approval = 1 + (roll < 0.45 ? 1 : 0);
+      delta.diplomacy = roll < 0.6 ? -2 : -1;
+      if (roll < 0.25) { delta.stability = -1; outcome = "mixed"; }
+      else if (roll < 0.7) { outcome = "mixed"; }
+      else { delta.military = 1; outcome = "positive"; }
+    } else {
+      // ignore — нет эффекта, случайный мелкий штраф или ничего
+      if (roll < 0.3) delta.diplomacy = -1;
+      outcome = roll < 0.3 ? "negative" : "neutral";
+    }
+
+    // Применяем дельту
+    for (const [k, v] of Object.entries(delta)) {
+      if (typeof stats[k] === "number") {
+        stats[k] = Math.max(0, Math.min(100, stats[k] + v));
+      }
+    }
+
+    await db.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
+
+    return reply.send({ ok: true, delta, outcome });
+  });
+
   // ---------- GET /leaderboard ----------
   fastify.get("/leaderboard", async (request, reply) => {
     const { countryId, limit = 20 } = request.query;

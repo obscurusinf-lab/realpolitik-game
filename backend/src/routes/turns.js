@@ -883,6 +883,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       newStats.initiative = Math.min(INITIATIVE_MAX, currentInit + INITIATIVE_SKIP_REGEN);
       statDeltas.initiative = newStats.initiative - currentInit;
 
+      // Территориальные потери при бездействии — ВСУ контратакуют
+      for (const key of ["kharkiv_control", "kherson_control"]) {
+        const cur = newStats[key] ?? 0;
+        if (cur > 0) newStats[key] = Math.max(0, cur - 3);
+      }
+      newStats["zaporizhzhia_control"] = Math.max(0, (newStats["zaporizhzhia_control"] ?? 68) - 1);
+      // Peace decay при бездействии
+      newStats.peace_progress = Math.max(0, (newStats.peace_progress ?? 0) - 4);
+
       const narrative = "Президент бездействует. Страна теряет темп — рейтинг и экономика проседают.";
 
       await client.query(
