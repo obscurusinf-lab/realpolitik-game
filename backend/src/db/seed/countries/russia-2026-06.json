@@ -29,7 +29,12 @@
     "law_order": 72,
     "social_tension": 38,
     "media_control": 76,
-    "regional_unity": 64
+    "regional_unity": 64,
+    "donetsk_control": 78,
+    "luhansk_control": 96,
+    "zaporizhzhia_control": 68,
+    "kherson_control": 58,
+    "kharkiv_control": 12
   },
 
   "stat_rationale": {

@@ -47,13 +47,22 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
   if ((stats.war_escalation_counter ?? 0) >= 3) return "defeat_war"; // спираль войны
 
   // Военная победа: доступна с хода 8
-  // Полное военное доминирование — противник сломлен, территории под контролем
+  // Полный контроль над Донбассом + ещё минимум 2 региона + армия держится + дом не развалился
   if (turnNumber >= 8) {
-    const militaryDominance = (stats.military ?? 50) >= 88;
-    const armyReady = (stats.army_morale ?? 50) >= 75 && (stats.readiness ?? 50) >= 75;
-    const homeStable = (stats.stability ?? 50) >= 55 && (stats.approval ?? 50) >= 55;
-    const economyHolds = (stats.economy ?? 50) >= 45;
-    if (militaryDominance && armyReady && homeStable && economyHolds) return "victory_military";
+    const militaryDominance = (stats.military ?? 50) >= 85;
+    const armyReady = (stats.army_morale ?? 50) >= 70 && (stats.readiness ?? 50) >= 70;
+    const homeStable = (stats.stability ?? 50) >= 52 && (stats.approval ?? 50) >= 52;
+    const economyHolds = (stats.economy ?? 50) >= 42;
+    // Территориальные условия: Донбасс (оба) + хотя бы ещё два региона
+    const donbassSecured = (stats.donetsk_control ?? 0) >= 92 && (stats.luhansk_control ?? 0) >= 98;
+    const otherRegions = [
+      (stats.zaporizhzhia_control ?? 0) >= 85,
+      (stats.kherson_control ?? 0) >= 80,
+      (stats.kharkiv_control ?? 0) >= 65,
+    ].filter(Boolean).length;
+    if (militaryDominance && armyReady && homeStable && economyHolds && donbassSecured && otherRegions >= 2) {
+      return "victory_military";
+    }
   }
 
   // Досрочная мирная победа: доступна начиная с хода 12
@@ -301,6 +310,63 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         actionMode: pendingActionMode,
         crisisMode,
       });
+
+      // --- ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ---
+      // military_offensive продвигает фронт, peace/diplomacy могут фиксировать или уступать территории
+      {
+        const TERRITORY_KEYS = ["donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"];
+        const TERRITORY_HARDNESS = { donetsk: 1.0, luhansk: 0.6, zaporizhzhia: 1.2, kherson: 1.3, kharkiv: 1.5 };
+        const at = gmClassification.action_type;
+        const sev = gmClassification.severity || 2;
+
+        if (at === "military_offensive") {
+          // Прогресс зависит от армии и severity
+          const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50) + (newStats.equipment ?? 50)) / 3;
+          const baseGain = sev * 3 + Math.max(0, (armyQuality - 60) / 5); // 3-12 pts
+          for (const key of TERRITORY_KEYS) {
+            const regionName = key.replace("_control", "");
+            const hardness = TERRITORY_HARDNESS[regionName] || 1.0;
+            const current = newStats[key] ?? 50;
+            if (current < 100) {
+              // Труднее брать уже занятые территории и более укреплённые
+              const effectiveness = Math.max(0.1, 1 - (current / 100) * 0.5);
+              const gain = Math.round((baseGain / hardness) * effectiveness);
+              newStats[key] = Math.min(100, current + Math.max(1, gain));
+            }
+          }
+        } else if (at === "military_defensive") {
+          // Оборона — удержание. Небольшое восстановление потерянных позиций
+          for (const key of TERRITORY_KEYS) {
+            const current = newStats[key] ?? 50;
+            if (current < 60 && current > 0) {
+              newStats[key] = Math.min(60, current + 2);
+            }
+          }
+        } else if (at === "peace_initiative" || at === "diplomacy_outreach") {
+          // Мирный трек — незначительные уступки на спорных территориях
+          const concession = sev === 3 ? 4 : sev === 2 ? 2 : 1;
+          for (const key of ["kharkiv_control", "kherson_control"]) {
+            const current = newStats[key] ?? 50;
+            // Уступаем только спорное — не более 20 пунктов за всю игру
+            if (current > 5) {
+              newStats[key] = Math.max(5, current - concession);
+            }
+          }
+        } else if (at === "diplomacy_confrontation") {
+          // Жёсткая риторика — обострение, мелкие тактические потери
+          const kh = "kharkiv_control";
+          const current = newStats[kh] ?? 12;
+          newStats[kh] = Math.max(0, current - 3);
+        } else if (at === "null_action") {
+          // Бездействие — контрнаступление Украины на спорных направлениях
+          for (const key of ["kharkiv_control", "kherson_control"]) {
+            const current = newStats[key] ?? 50;
+            newStats[key] = Math.max(0, current - 3);
+          }
+          newStats["zaporizhzhia_control"] = Math.max(0, (newStats["zaporizhzhia_control"] ?? 68) - 1);
+        }
+      }
+      // --- конец территорий ---
 
       // Автоматический выход из кризиса если стабильность восстановилась
       if (crisisMode && newStats.stability >= 40) {

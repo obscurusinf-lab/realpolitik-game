@@ -777,6 +777,70 @@ function MissionPanel({ stats, turn, maxTurns = 24 }) {
   );
 }
 
+// ---------- TerritoryPanel ----------
+const TERRITORIES = [
+  { key: "donetsk_control",     label: "Донецк",     short: "ДНР" },
+  { key: "luhansk_control",     label: "Луганск",    short: "ЛНР" },
+  { key: "zaporizhzhia_control",label: "Запорожье",  short: "ЗПЗ" },
+  { key: "kherson_control",     label: "Херсон",     short: "ХРС" },
+  { key: "kharkiv_control",     label: "Харьков",    short: "ХРК" },
+];
+
+function territoryColor(pct) {
+  if (pct >= 95) return "#4caf50";
+  if (pct >= 80) return "#8bc34a";
+  if (pct >= 60) return "#ffc107";
+  if (pct >= 35) return "#ff7043";
+  return "#ef5350";
+}
+
+function TerritoryPanel({ stats }) {
+  if (!stats) return null;
+  // Only show if at least one territory key exists
+  const hasData = TERRITORIES.some(t => stats[t.key] !== undefined);
+  if (!hasData) return null;
+
+  const milVictoryReqs = {
+    donetsk_control: 92, luhansk_control: 98, zaporizhzhia_control: 85,
+    kherson_control: 80, kharkiv_control: 65,
+  };
+
+  return (
+    <div style={{ background: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 6, padding: "10px 14px", fontSize: 11.5, color: "#bbb", fontFamily: "'PT Serif',serif" }}>
+      <div style={{ color: "#90caf9", fontWeight: 700, fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>
+        🗺 ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {TERRITORIES.map(({ key, label }) => {
+          const pct = stats[key] ?? 0;
+          const req = milVictoryReqs[key];
+          const color = territoryColor(pct);
+          const meetsReq = pct >= req;
+          return (
+            <div key={key}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                <span style={{ color: "#ccc", fontSize: 11 }}>{label}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 10, color: "#555" }}>цель {req}%</span>
+                  <span style={{ color, fontWeight: 700, fontSize: 11 }}>{Math.round(pct)}% {meetsReq ? "✓" : ""}</span>
+                </div>
+              </div>
+              <div style={{ background: "#111", borderRadius: 3, height: 5, overflow: "hidden", position: "relative" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.6s" }} />
+                {/* marker for victory requirement */}
+                <div style={{ position: "absolute", top: 0, left: `${req}%`, width: 1, height: "100%", background: "#90caf9", opacity: 0.5 }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 8, fontSize: 10, color: "#555" }}>
+        Военная победа: Донбасс ≥92/98% + ещё 2 региона выше цели
+      </div>
+    </div>
+  );
+}
+
 // ---------- EndGameScreen ----------
 const OUTCOME_COLORS = {
   victory:          { bg: "#0a1f0a", border: "#4caf50", title: "#81c784", glow: "rgba(76,175,80,0.15)" },
@@ -1505,6 +1569,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       {/* Mission panel — always visible above action area */}
       <div style={{ padding: "0 16px 10px" }}>
         <MissionPanel stats={state?.stats} turn={state?.turn ?? 0} maxTurns={24} />
+        <TerritoryPanel stats={state?.stats} />
       </div>
 
       {preview ? (
