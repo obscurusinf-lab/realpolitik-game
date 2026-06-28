@@ -111,6 +111,8 @@ async function buildServer() {
     return reply.send(res.rows[0]);
   });
 
+  fastify.log.info("AUTH ROUTES REGISTERED OK");
+
   // --- Остальные роуты ---
   await registerUserRoutes(fastify, { db });
   await registerGameRoutes(fastify, { db, callClaudeApi, verifyToken });
