@@ -40,14 +40,24 @@ const { classifyTurn } = require("../ai/gamemaster");
  */
 function detectGameOutcome(stats, turnNumber, maxTurns) {
   // Поражение — проверяем каждый ход
-  if (stats.approval < 25)   return "defeat_coup";
-  if (stats.economy < 30)    return "defeat_collapse";
-  if (stats.stability < 20)  return "defeat_unrest";
+  if (stats.approval < 30)   return "defeat_coup";       // повысили порог с 25
+  if (stats.economy < 35)    return "defeat_collapse";   // повысили с 30
+  if (stats.stability < 25)  return "defeat_unrest";     // повысили с 20
+  if ((stats.diplomacy ?? 50) < 15) return "defeat_isolation"; // новый тип: изоляция
+  if ((stats.war_escalation_counter ?? 0) >= 3) return "defeat_war"; // спираль войны
 
-  // Победа — только по истечении срока
+  // Досрочная победа: доступна начиная с хода 12
+  if (turnNumber >= 12) {
+    const peace = (stats.peace_progress ?? 0) >= 100;
+    // Высокие требования для досрочной победы
+    const statsOk = stats.economy >= 65 && stats.approval >= 65 && stats.stability >= 65;
+    if (peace && statsOk) return "victory";
+  }
+
+  // Победа по истечении срока
   if (turnNumber >= maxTurns) {
     const peace = (stats.peace_progress ?? 0) >= 100;
-    const statsOk = stats.economy >= 55 && stats.approval >= 60 && stats.stability >= 60;
+    const statsOk = stats.economy >= 65 && stats.approval >= 65 && stats.stability >= 65;
     if (peace && statsOk) return "victory";
     if (peace && !statsOk) return "partial_peace";
     if (!peace && statsOk)  return "partial";
@@ -380,34 +390,160 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         ]
       );
 
+      // --- ЕСТЕСТВЕННЫЙ РАСПАД МИРНОГО ТРЕКА ---
+      // Если игрок не делает дипломатию/мирные инициативы — мир сам по себе распадается
+      {
+        const peaceDiplomacyActions = new Set(["diplomacy_outreach", "peace_initiative", "diplomacy_confrontation"]);
+        const isActiveDiplomacy = peaceDiplomacyActions.has(gmClassification.action_type);
+        if (!isActiveDiplomacy && (newStats.peace_progress ?? 0) > 5) {
+          const decay = gmClassification.action_type === "military_offensive" ? 7 : 4;
+          newStats.peace_progress = Math.max(0, (newStats.peace_progress ?? 0) - decay);
+        }
+      }
+
+      // --- ВОЕННЫЙ БЛОУЭФФЕКТ ---
+      // Военные наступления с вероятностью 35% вызывают эскалацию и международное осуждение
+      if (gmClassification.action_type === "military_offensive" && Math.random() < 0.35) {
+        const BLOWBACK_EVENTS = [
+          { source: "AP", penalty: 8, diplomacyDelta: -5, approvalDelta: -4,
+            text: "Международный суд ООН открыл расследование в связи с последними военными операциями. Верховный комиссар по правам человека ООН Гомес потребовал немедленного прекращения огня." },
+          { source: "Reuters", penalty: 10, diplomacyDelta: -6, economyDelta: -4,
+            text: "G7 ввела новый пакет санкций в ответ на военные действия. Под удар попали госбанки и экспорт энергоносителей. Рубль упал на 8% за один день." },
+          { source: "Al Jazeera", penalty: 6, diplomacyDelta: -4, stabilityDelta: -3,
+            text: "Массовые антивоенные протесты прошли в 20 городах страны. Матери погибших солдат вышли на улицы — полиция применила силу, что вызвало новую волну возмущения." },
+          { source: "Financial Times", penalty: 12, economyDelta: -5, diplomacyDelta: -5,
+            text: "Крупнейшие международные банки заморозили корреспондентские счета российских структур. Доступ к SWIFT для ещё 12 банков закрыт. Экспортные доходы резко сократились." },
+          { source: "Bild", penalty: 7, diplomacyDelta: -5,
+            text: "Германия, Франция и Италия потребовали созыва Совета Безопасности ООН. Европейские столицы говорят о «военных преступлениях» и готовят ордер Международного уголовного суда." },
+        ];
+        const blowback = BLOWBACK_EVENTS[Math.floor(Math.random() * BLOWBACK_EVENTS.length)];
+        newStats.peace_progress = Math.max(0, (newStats.peace_progress ?? 0) - blowback.penalty);
+        if (blowback.diplomacyDelta) newStats.diplomacy = Math.max(0, Math.min(100, (newStats.diplomacy ?? 50) + blowback.diplomacyDelta));
+        if (blowback.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + blowback.approvalDelta));
+        if (blowback.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + blowback.economyDelta));
+        if (blowback.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + blowback.stabilityDelta));
+        // Счётчик военной эскалации — накапливается, ведёт к defeat_war
+        newStats.war_escalation_counter = Math.min(5, (newStats.war_escalation_counter ?? 0) + 1);
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, turnNumber, "news", blowback.source, blowback.text, JSON.stringify([
+            { emoji: "⚠️", label: "эскалация", count: Math.floor(Math.random() * 100) + 50 },
+          ])]
+        );
+        fastify.log.info({ gameId, source: blowback.source }, "Military blowback fired");
+      } else if (gmClassification.action_type !== "military_offensive") {
+        // Снижаем счётчик если не воюем
+        if ((newStats.war_escalation_counter ?? 0) > 0) {
+          newStats.war_escalation_counter = Math.max(0, (newStats.war_escalation_counter ?? 0) - 1);
+        }
+      }
+
+      // --- ВНУТРЕННИЕ КРИЗИСЫ ---
+      // С вероятностью 12% каждый ход происходит внутренний кризис
+      if (Math.random() < 0.12) {
+        const DOMESTIC_CRISES = [
+          { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
+            text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
+          { source: "Новая газета", stabilityDelta: -5, approvalDelta: -5,
+            text: "В 15 регионах прошли антивоенные акции. Задержаны более 3000 человек. Социологи фиксируют рекордный рост недовольства среди молодёжи и женщин — тех, кто теряет мужей и сыновей." },
+          { source: "РИА Новости", economyDelta: -7, stabilityDelta: -3,
+            text: "Крупный банковский кризис: четыре региональных банка обратились за экстренной ликвидностью. ЦБ объявил о введении временной администрации. Вкладчики выстроились в очереди." },
+          { source: "Интерфакс", approvalDelta: -5, stabilityDelta: -4,
+            text: "Антикоррупционный скандал: в Telegram-каналах опубликованы данные о роскошной жизни окружения президента. Яхты, виллы, тайные счета. Рейтинг падает на фоне военных расходов." },
+          { source: "ТАСС", economyDelta: -5, approvalDelta: -4,
+            text: "Дефицит базовых товаров в ряде регионов: сахар, масло, лекарства исчезли с полок. Губернаторы просят федеральный центр о помощи. Граждане начали делать запасы." },
+          { source: "Фонтанка", stabilityDelta: -6, approvalDelta: -3,
+            text: "Семьи погибших военнослужащих провели демонстрацию у здания Министерства обороны. Требования о выплате компенсаций и возврате тел не выполняются уже полгода. Силовики разгоняют акцию." },
+          { source: "Медиазона", stabilityDelta: -5, economyDelta: -3,
+            text: "Бунт в нескольких исправительных колониях: заключённые отказываются подписывать контракты для отправки на фронт. Информация подтверждается перехватами ФСБ." },
+          { source: "The Bell", economyDelta: -6, approvalDelta: -4,
+            text: "Инфляция вышла из-под контроля — официально 24%, реально, по независимым оценкам, все 40%. Пенсии и зарплаты бюджетников обесценились. Недовольство растёт в базовом электорате." },
+        ];
+        const crisis = DOMESTIC_CRISES[Math.floor(Math.random() * DOMESTIC_CRISES.length)];
+        if (crisis.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + crisis.approvalDelta));
+        if (crisis.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
+        if (crisis.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + crisis.stabilityDelta));
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, turnNumber, "news", crisis.source, crisis.text, JSON.stringify([
+            { emoji: "😰", label: "тревога", count: Math.floor(Math.random() * 80) + 30 },
+          ])]
+        );
+        fastify.log.info({ gameId, source: crisis.source }, "Domestic crisis fired");
+      }
+
+      // --- ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ ---
+      // Если военные расходы высокие (military > 70) — экономика страдает
+      if ((newStats.military ?? 50) > 70) {
+        const warTax = Math.floor(((newStats.military ?? 50) - 70) / 10) + 1; // 1-4 pts
+        newStats.economy = Math.max(0, (newStats.economy ?? 50) - warTax);
+        newStats.approval = Math.max(0, (newStats.approval ?? 50) - 1);
+      }
+
       // --- ВМЕШАТЕЛЬСТВО ТРЕТЬИХ АКТОРОВ ---
-      // Когда мирный трек растёт, акторы с интересом в войне начинают мешать.
-      // Вероятность растёт с peace_progress: 15% при 30, до 45% при 90+.
+      // Когда мирный трек растёт, акторы с интересом в войне мешают.
+      // Вероятность: 20% при 30, до 65% при 90+.
       const peaceNow = newStats.peace_progress ?? 0;
-      if (peaceNow >= 30) {
-        const interferenceChance = Math.min(0.45, 0.15 + (peaceNow - 30) * 0.005);
+      if (peaceNow >= 25) {
+        const interferenceChance = Math.min(0.65, 0.20 + (peaceNow - 25) * 0.008);
         if (Math.random() < interferenceChance) {
           const INTERFERENCE_ACTORS = [
-            { minPeace: 30, source: "Reuters", penalty: 12, diplomacyDelta: -3,
-              text: "Министр иностранных дел Великобритании Лэмонд экстренно прилетел в Киев. По данным источников, Лондон настаивает на продолжении боевых действий и обещает увеличить поставки вооружений — «не время для переговоров»." },
-            { minPeace: 30, source: "Bloomberg", penalty: 10, diplomacyDelta: 0,
-              text: "Американский ВПК объявил о новом контракте на поставку Украине вооружений на $7,5 млрд. Конгресс одобрил экстренный пакет военной помощи в обход обычных процедур." },
-            { minPeace: 40, source: "Коммерсантъ", penalty: 9, stabilityDelta: -3,
-              text: "Силовой блок выразил несогласие с мирными инициативами президента. Директор ФСБ Патров провёл закрытое совещание — источники говорят о «красных линиях», которые не должны быть пересечены ни при каких условиях." },
-            { minPeace: 50, source: "AP", penalty: 15, diplomacyDelta: -5,
-              text: "Экстренное заседание НАТО в Брюсселе: альянс потребовал от Киева отклонить российские мирные условия. Генсек Альянса Руттерс заявил — любой договор без полного вывода российских войск неприемлем." },
-            { minPeace: 50, source: "РБК", penalty: 8, stabilityDelta: -4,
-              text: "Группа депутатов Государственной думы потребовала денонсации мирных инициатив. «Мы отдали слишком много жизней, чтобы сейчас договариваться» — заявил глава комитета по обороне Соколин на экстренном заседании." },
-            { minPeace: 60, source: "Politico", penalty: 14, diplomacyDelta: -4,
+            // Западные правительства
+            { minPeace: 25, source: "Reuters", penalty: 15, diplomacyDelta: -4,
+              text: "Министр иностранных дел Великобритании Лэмонд экстренно прилетел в Киев. Лондон настаивает на продолжении боевых действий и обещает увеличить поставки вооружений — «не время для переговоров»." },
+            { minPeace: 25, source: "BBC", penalty: 12, diplomacyDelta: -3,
+              text: "Премьер-министр Великобритании Стармер объявил о «беспрецедентном» пакете военной помощи Украине. Лондон открыто предупредил Москву: любой мирный договор без одобрения Запада — «нелегитимен»." },
+            { minPeace: 30, source: "Politico", penalty: 16, diplomacyDelta: -5,
               text: "Польша и страны Балтии сформировали «Коалицию несогласных» против переговоров. Варшава пригрозила наложить вето на любое решение ЕС, легитимизирующее российские территориальные претензии." },
-            { minPeace: 70, source: "BBC", penalty: 18, diplomacyDelta: -6,
-              text: "Премьер-министр Великобритании Стармер экстренно вылетел в Киев — второй визит за месяц. Лондон обещает Украине гарантии безопасности в обмен на отказ от переговоров с Россией." },
-            { minPeace: 75, source: "NYT", penalty: 13, diplomacyDelta: -3,
-              text: "Сенатор Хоукс инициировал слушания в Сенате США: «Любое мирное соглашение с Россией — это Мюнхен-2». Администрация Белого дома под давлением заморозила контакты с российской стороной." },
-            { minPeace: 80, source: "Le Monde", penalty: 16, diplomacyDelta: -5,
-              text: "Экстренный саммит G7: лидеры семёрки потребовали от Киева отклонить российские инициативы и пригрозили санкциями любым странам-посредникам, содействующим «несправедливому миру»." },
-            { minPeace: 85, source: "Der Spiegel", penalty: 20, stabilityDelta: -5,
-              text: "Утечка из немецкой разведки: США рассматривают возможность прямого участия в конфликте если Украина подпишет мирный договор. «Стратегическое поражение» неприемлемо для Вашингтона." },
+            { minPeace: 30, source: "AP", penalty: 14, diplomacyDelta: -4,
+              text: "Экстренное заседание НАТО в Брюсселе: альянс потребовал от Киева отклонить российские мирные условия. Генсек Альянса Руттерс заявил — любой договор без полного вывода российских войск неприемлем." },
+            // Американский фактор
+            { minPeace: 25, source: "Bloomberg", penalty: 13, economyDelta: -3,
+              text: "Американский ВПК объявил о новом контракте на поставку Украине вооружений на $9 млрд. Конгресс одобрил экстренный пакет военной помощи. Акции Raytheon и Lockheed выросли на 12%." },
+            { minPeace: 45, source: "NYT", penalty: 15, diplomacyDelta: -4,
+              text: "Сенатор Хоукс инициировал слушания: «Любое мирное соглашение с Россией — это Мюнхен-2». Администрация Белого дома под давлением заморозила официальные контакты с российской стороной." },
+            { minPeace: 55, source: "Washington Post", penalty: 17, diplomacyDelta: -5, economyDelta: -3,
+              text: "Конгресс США принял закон о немедленных санкциях против любой страны, предоставляющей площадку для переговоров. Под ударом — ОАЭ, Турция, Индия. Международная дипломатия парализована." },
+            // Внутренний российский фактор
+            { minPeace: 30, source: "Коммерсантъ", penalty: 11, stabilityDelta: -4,
+              text: "Силовой блок выразил несогласие с мирными инициативами президента. Директор ФСБ Патров провёл закрытое совещание — источники говорят о «красных линиях», которые не должны быть пересечены." },
+            { minPeace: 35, source: "РБК", penalty: 10, stabilityDelta: -5, approvalDelta: -3,
+              text: "Группа депутатов Думы потребовала денонсации мирных инициатив. «Мы отдали слишком много жизней, чтобы сейчас договариваться» — заявил Соколин. Силовики демонстративно бойкотировали совещание в Кремле." },
+            { minPeace: 45, source: "Фонтанка", penalty: 9, stabilityDelta: -4, approvalDelta: -4,
+              text: "Ветеранские организации и «Комитет матерей погибших» вступили в открытое противостояние: одни требуют мира, другие — продолжения «до победы». Раскол в обществе усиливается." },
+            { minPeace: 50, source: "Медиазона", penalty: 8, stabilityDelta: -6,
+              text: "Утечка: группа генералов направила закрытое письмо в Совет Безопасности с требованием отставки гражданских советников, выступающих за переговоры. Армия не готова принять «позорный мир»." },
+            // Украинский фактор
+            { minPeace: 35, source: "Kyiv Post", penalty: 14, diplomacyDelta: -5,
+              text: "Националистические формирования Украины отказались выполнять приказ об отводе войск. Командиры заявили: «Мы не подчиняемся приказам, противоречащим нашей присяге освободить все украинские земли»." },
+            { minPeace: 50, source: "Украинская правда", penalty: 12, diplomacyDelta: -4,
+              text: "Митинги в Киеве: сотни тысяч вышли против любых переговоров с Россией. Зелин под давлением сделал жёсткое заявление — никаких компромиссов по территориям. Мирный трек трещит по швам." },
+            // Европейский фактор
+            { minPeace: 40, source: "Le Monde", penalty: 18, diplomacyDelta: -6,
+              text: "Экстренный саммит G7: лидеры семёрки потребовали от Киева отклонить российские инициативы и пригрозили санкциями посредникам, содействующим «несправедливому миру»." },
+            { minPeace: 60, source: "Der Spiegel", penalty: 20, stabilityDelta: -5, economyDelta: -4,
+              text: "Утечка из BND: США рассматривают прямое участие в конфликте если Украина подпишет мирный договор. «Стратегическое поражение» неприемлемо для Вашингтона. Немецкие политики в панике." },
+            { minPeace: 55, source: "Financial Times", penalty: 16, economyDelta: -6, diplomacyDelta: -4,
+              text: "Европейский банк реконструкции и развития объявил о заморозке финансирования любых проектов с российским участием. Брюссель ввёл 14-й пакет санкций — удар по нефтяному экспорту." },
+            // Азиатский и Ближневосточный фактор
+            { minPeace: 35, source: "South China Morning Post", penalty: 10, diplomacyDelta: -3,
+              text: "Китай публично дистанцировался от мирных инициатив — «Пекин не вмешивается во внутренние дела суверенных государств». Китайские компании приостановили сделки с Россией под давлением США." },
+            { minPeace: 40, source: "Haaretz", penalty: 9, diplomacyDelta: -4,
+              text: "Израиль отказался выступить посредником в переговорах. Иерусалим «не намерен ссориться с Вашингтоном». Израильские компании тихо сворачивают деловые связи с российскими структурами." },
+            { minPeace: 45, source: "Arab News", penalty: 11, economyDelta: -4,
+              text: "Саудовская Аравия резко увеличила добычу нефти, обвалив цены. Нефтегазовые доходы России упали на 18%. Эр-Рияд недвусмысленно дал понять: цена мира — экономические уступки." },
+            { minPeace: 50, source: "Al Jazeera", penalty: 8, diplomacyDelta: -3,
+              text: "Турция под давлением США заморозила переговорную площадку в Стамбуле. Эрдоев вынужден выбирать между ролью посредника и членством в НАТО — Анкара выбирает Брюссель." },
+            // ВПК и финансовые интересы
+            { minPeace: 30, source: "Defense News", penalty: 13, economyDelta: -3,
+              text: "Консорциум западных оружейных концернов выделил $500 млн на лоббирование «продолжения конфликта» в Конгрессе и парламентах ЕС. PR-кампания «Мир — это капитуляция» запущена в 40 странах." },
+            { minPeace: 55, source: "Axios", penalty: 14, diplomacyDelta: -5, economyDelta: -4,
+              text: "Утечка: крупнейшие хедж-фонды Уолл-стрит сделали ставки на продолжение войны на $200 млрд. Финансовое лобби давит на Белый дом — «мир обвалит наши портфели»." },
+            // Внутренние олигархи и ФСБ
+            { minPeace: 60, source: "The Bell", penalty: 12, stabilityDelta: -5, economyDelta: -3,
+              text: "Олигархи, нажившиеся на военных контрактах, организовали кампанию против мира. Сотни миллиардов рублей в военной промышленности оказались под угрозой при завершении конфликта." },
+            { minPeace: 70, source: "Новая газета", penalty: 16, stabilityDelta: -6, approvalDelta: -4,
+              text: "ФСБ инициировала уголовные дела против нескольких чиновников, поддержавших мирный трек. Послание чёткое: кто выступает за переговоры — предатель. Часть советников президента молчит." },
           ].filter(a => a.minPeace <= peaceNow);
 
           if (INTERFERENCE_ACTORS.length > 0) {
@@ -415,8 +551,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             newStats.peace_progress = Math.max(0, peaceNow - actor.penalty);
             if (actor.diplomacyDelta) newStats.diplomacy = Math.max(0, Math.min(100, (newStats.diplomacy ?? 50) + actor.diplomacyDelta));
             if (actor.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + actor.stabilityDelta));
-            // Обновляем stats в game_state (он ещё не записан в этой транзакции — перезапишем ниже через общий UPDATE)
-            // Добавляем событие в ленту новостей
+            if (actor.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + actor.economyDelta));
+            if (actor.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + actor.approvalDelta));
             await client.query(
               `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
               [gameId, turnNumber, "news", actor.source, actor.text, JSON.stringify([
@@ -424,7 +560,6 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
                 { emoji: "😟", label: "беспокойство", count: Math.floor(Math.random() * 60) + 20 },
               ])]
             );
-            // Обновляем stats с учётом вмешательства (перезаписываем ранее поставленный UPDATE)
             await client.query(
               `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
               [JSON.stringify(newStats), gameId]
@@ -434,6 +569,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
       }
       // --- конец вмешательства ---
+
+      // Сохраняем все изменения stats (decay + blowback + crisis + interference)
+      await client.query(
+        `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
+        [JSON.stringify(newStats), gameId]
+      );
 
       // Записываем снапшот для лидерборда (score = среднее ключевых показателей)
       const scoreKeys = ["stability", "economy", "military", "diplomacy", "approval"];
