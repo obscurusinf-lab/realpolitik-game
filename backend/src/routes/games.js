@@ -227,13 +227,23 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       date = startDate.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
     }
 
+    // Inject territory defaults for games created before the territory mechanic
+    const TERRITORY_DEFAULTS = {
+      donetsk_control: 78, luhansk_control: 96,
+      zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
+    };
+    const statsWithTerritories = { ...game.stats };
+    for (const [key, val] of Object.entries(TERRITORY_DEFAULTS)) {
+      if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
+    }
+
     return reply.send({
       id: game.id,
       status: game.status,
       countryName: game.country_name,
       turn: game.current_turn,
       date,
-      stats: game.stats,
+      stats: statsWithTerritories,
       relations: game.relations,
       policies: game.policies || [],
       overview: game.overview || {},

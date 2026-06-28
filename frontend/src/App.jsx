@@ -794,11 +794,15 @@ function territoryColor(pct) {
   return "#ef5350";
 }
 
+const TERRITORY_DEFAULTS = {
+  donetsk_control: 78, luhansk_control: 96,
+  zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
+};
+
 function TerritoryPanel({ stats }) {
   if (!stats) return null;
-  // Only show if at least one territory key exists
-  const hasData = TERRITORIES.some(t => stats[t.key] !== undefined);
-  if (!hasData) return null;
+  // Merge with defaults so old games also show the panel
+  const s = { ...TERRITORY_DEFAULTS, ...stats };
 
   const milVictoryReqs = {
     donetsk_control: 100, luhansk_control: 100, zaporizhzhia_control: 85,
@@ -812,7 +816,7 @@ function TerritoryPanel({ stats }) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {TERRITORIES.map(({ key, label }) => {
-          const pct = stats[key] ?? 0;
+          const pct = s[key] ?? 0;
           const req = milVictoryReqs[key];
           const color = territoryColor(pct);
           const meetsReq = pct >= req;
