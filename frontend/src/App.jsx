@@ -693,13 +693,17 @@ function btnStyle(bg, color) {
 
 // ---------- MissionPanel ----------
 const OUTCOME_TITLES = {
-  victory:         "ПОБЕДА — МИР ДОСТИГНУТ",
-  partial_peace:   "ДОГОВОР ПОДПИСАН",
-  partial:         "ДОСТОЙНОЕ ПРАВЛЕНИЕ",
-  defeat_time:     "СРОК ИСТЁК",
-  defeat_coup:     "ГОСУДАРСТВЕННЫЙ ПЕРЕВОРОТ",
-  defeat_collapse: "ЭКОНОМИЧЕСКИЙ КОЛЛАПС",
-  defeat_unrest:   "НАРОДНЫЕ ВОЛНЕНИЯ",
+  victory:          "ПОБЕДА — МИР ДОСТИГНУТ",
+  victory_military: "ВОЕННАЯ ПОБЕДА",
+  partial_peace:    "ДОГОВОР ПОДПИСАН",
+  partial:          "ДОСТОЙНОЕ ПРАВЛЕНИЕ",
+  partial_military: "ВОЕННОЕ ДОМИНИРОВАНИЕ",
+  defeat_time:      "СРОК ИСТЁК",
+  defeat_coup:      "ГОСУДАРСТВЕННЫЙ ПЕРЕВОРОТ",
+  defeat_collapse:  "ЭКОНОМИЧЕСКИЙ КОЛЛАПС",
+  defeat_unrest:    "НАРОДНЫЕ ВОЛНЕНИЯ",
+  defeat_isolation: "МЕЖДУНАРОДНАЯ ИЗОЛЯЦИЯ",
+  defeat_war:       "СПИРАЛЬ ВОЙНЫ",
 };
 
 function MissionPanel({ stats, turn, maxTurns = 24 }) {
@@ -775,13 +779,17 @@ function MissionPanel({ stats, turn, maxTurns = 24 }) {
 
 // ---------- EndGameScreen ----------
 const OUTCOME_COLORS = {
-  victory:         { bg: "#0a1f0a", border: "#4caf50", title: "#81c784", glow: "rgba(76,175,80,0.15)" },
-  partial_peace:   { bg: "#0f1f0a", border: "#8bc34a", title: "#aed581", glow: "rgba(139,195,74,0.15)" },
-  partial:         { bg: "#1a1500", border: "#c9aa71", title: "#c9aa71", glow: "rgba(201,170,113,0.15)" },
-  defeat_time:     { bg: "#1a1000", border: "#ff8c00", title: "#ffb74d", glow: "rgba(255,140,0,0.1)" },
-  defeat_coup:     { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
-  defeat_collapse: { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
-  defeat_unrest:   { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+  victory:          { bg: "#0a1f0a", border: "#4caf50", title: "#81c784", glow: "rgba(76,175,80,0.15)" },
+  victory_military: { bg: "#0a0f1f", border: "#5c8af5", title: "#90caf9", glow: "rgba(92,138,245,0.15)" },
+  partial_peace:    { bg: "#0f1f0a", border: "#8bc34a", title: "#aed581", glow: "rgba(139,195,74,0.15)" },
+  partial:          { bg: "#1a1500", border: "#c9aa71", title: "#c9aa71", glow: "rgba(201,170,113,0.15)" },
+  partial_military: { bg: "#0f1525", border: "#7986cb", title: "#9fa8da", glow: "rgba(121,134,203,0.15)" },
+  defeat_time:      { bg: "#1a1000", border: "#ff8c00", title: "#ffb74d", glow: "rgba(255,140,0,0.1)" },
+  defeat_coup:      { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+  defeat_collapse:  { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+  defeat_unrest:    { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+  defeat_isolation: { bg: "#1a0010", border: "#ab47bc", title: "#ce93d8", glow: "rgba(171,71,188,0.1)" },
+  defeat_war:       { bg: "#1a0500", border: "#ff5722", title: "#ff8a65", glow: "rgba(255,87,34,0.1)" },
 };
 
 function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
@@ -789,7 +797,7 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
   const [loading, setLoading] = useState(true);
   const colors = OUTCOME_COLORS[outcome] || OUTCOME_COLORS.partial;
   const outcomeTitle = OUTCOME_TITLES[outcome] || "КОНЕЦ ПРАВЛЕНИЯ";
-  const isVictory = outcome === "victory" || outcome === "partial_peace" || outcome === "partial";
+  const isVictory = outcome === "victory" || outcome === "victory_military" || outcome === "partial_peace" || outcome === "partial" || outcome === "partial_military";
 
   useEffect(() => {
     fetchLegacy(gameId, outcome)
@@ -1542,7 +1550,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           {/* Подсказки */}
           {suggestions && suggestions.length > 0 && (
             <div style={{ marginBottom: 10 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>ВАРИАНТЫ УКАЗОВ — нажмите чтобы выбрать:</div>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>
+                {{ decree_reform: "ВАРИАНТЫ РЕФОРМ", decree_program: "ВАРИАНТЫ ПРОГРАММ", intel: "ВАРИАНТЫ ОПЕРАЦИЙ", military: "ВАРИАНТЫ ОПЕРАЦИЙ" }[actionMode] || "ВАРИАНТЫ УКАЗОВ"} — нажмите чтобы выбрать:
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 {suggestions.map((s, i) => (
                   <button

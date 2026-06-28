@@ -46,10 +46,19 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
   if ((stats.diplomacy ?? 50) < 15) return "defeat_isolation"; // новый тип: изоляция
   if ((stats.war_escalation_counter ?? 0) >= 3) return "defeat_war"; // спираль войны
 
-  // Досрочная победа: доступна начиная с хода 12
+  // Военная победа: доступна с хода 8
+  // Полное военное доминирование — противник сломлен, территории под контролем
+  if (turnNumber >= 8) {
+    const militaryDominance = (stats.military ?? 50) >= 88;
+    const armyReady = (stats.army_morale ?? 50) >= 75 && (stats.readiness ?? 50) >= 75;
+    const homeStable = (stats.stability ?? 50) >= 55 && (stats.approval ?? 50) >= 55;
+    const economyHolds = (stats.economy ?? 50) >= 45;
+    if (militaryDominance && armyReady && homeStable && economyHolds) return "victory_military";
+  }
+
+  // Досрочная мирная победа: доступна начиная с хода 12
   if (turnNumber >= 12) {
     const peace = (stats.peace_progress ?? 0) >= 100;
-    // Высокие требования для досрочной победы
     const statsOk = stats.economy >= 65 && stats.approval >= 65 && stats.stability >= 65;
     if (peace && statsOk) return "victory";
   }
@@ -61,6 +70,8 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
     if (peace && statsOk) return "victory";
     if (peace && !statsOk) return "partial_peace";
     if (!peace && statsOk)  return "partial";
+    // Военное доминирование без полной победы — частичный результат
+    if ((stats.military ?? 50) >= 80) return "partial_military";
     return "defeat_time";
   }
 
