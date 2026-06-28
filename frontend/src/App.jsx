@@ -698,6 +698,129 @@ function UkraineResponseScreen({ items, onDone, gameId }) {
   );
 }
 
+// ---------- Стратегический расчёт следующего хода ----------
+// Зеркалит выигрышную стратегию из теста (test-win.js):
+// 1) Казна вперёд оружия — на старте укрепить экономику (буфер на всю кампанию)
+// 2) Ритм: наступление → перегруппировка → наступление (инициатива стоит 55)
+// 3) Не входить в финальный удар с экономикой ниже 43 (удар стоит ~5 eco)
+// 4) Возвращает один рекомендуемый ход с пояснением логики
+function computeStrategicMove(stats, turn) {
+  const mil = stats.military ?? 50;
+  const eco = stats.economy ?? 50;
+  const init = stats.initiative ?? 100;
+  const don = stats.donetsk_control ?? 78;
+  const luh = stats.luhansk_control ?? 96;
+  const zap = stats.zaporizhzhia_control ?? 68;
+  const khe = stats.kherson_control ?? 58;
+  const kha = stats.kharkiv_control ?? 12;
+
+  const targets = () => {
+    const t = [];
+    if (don < 100) t.push("Донецк");
+    if (luh < 100) t.push("Луганск");
+    if (zap < 85) t.push("Запорожье");
+    if (khe < 65) t.push("Херсон");
+    if (kha < 50 && t.length < 2) t.push("Харьков");
+    return t.slice(0, 2).join(" и ") || "оставшиеся направления";
+  };
+
+  // Близко к победе: армия сильна, ЛНР/ДНР почти под контролем, 2 из 3 регионов на подходе
+  const almostWon = mil >= 85 && don >= 90 && luh >= 98 &&
+    ([zap >= 80, khe >= 60, kha >= 45].filter(Boolean).length >= 2);
+
+  // 1) Первый ход — экономический буфер. Армия раскачается наступлениями,
+  //    а казна, заложенная сейчас, переживёт всю кампанию.
+  if (turn <= 1) {
+    return {
+      priority: 9, icon: "🏛", strategic: true,
+      title: "Шаг 1: казна вперёд оружия",
+      why: "Войну проигрывают в бюджете, а не на фронте. Каждое наступление съедает экономику — заложите подушку сейчас, пока есть инициатива. Армию раскачаете самими наступлениями.",
+      mode: "decree_fast",
+      example: "Оптимизировать оборонный бюджет — льготы оборонным предприятиям и поддержка потребительского рынка",
+      effect: "экономика +3, стабильность +2, рейтинг +2",
+    };
+  }
+
+  // 2) Финальная фаза — почти победа
+  if (almostWon) {
+    if (eco >= 43 && init >= 55) {
+      return {
+        priority: 9, icon: "🏁", strategic: true,
+        title: "ФИНАЛЬНЫЙ УДАР — добить",
+        why: `Все условия сошлись: армия ${mil}, экономика ${eco} (выше порога), инициатива ${init}. Бросайте всё на ${targets()} — это победный ход.`,
+        mode: "military",
+        example: `Финальное наступление на ${targets()} — все резервы, авиация, артиллерия`,
+        effect: "территории +5..+10 → ПОБЕДА",
+      };
+    }
+    if (eco < 43) {
+      return {
+        priority: 9, icon: "💰", strategic: true,
+        title: "Буфер экономики перед финалом",
+        why: `До победы один удар, но экономика ${eco} — а удар стоит ~5 очков. Ударить сейчас = коллапс в момент триумфа (так проигрывают, захватив всё). Сначала поднимите казну до 43+.`,
+        mode: "decree_fast",
+        example: "Экстренный бюджетный манёвр — поддержать экономику перед решающей операцией",
+        effect: "экономика +3",
+      };
+    }
+    // init < 55
+    return {
+      priority: 9, icon: "⚙", strategic: true,
+      title: "Перегруппировка перед финалом",
+      why: `До победы один удар, но инициативы (${init}) не хватает на наступление (нужно 55). Экономика в норме — спокойно отведите войска и накопите инициативу для решающего удара.`,
+      mode: "regroup",
+      example: null,
+      effect: "инициатива +75, мораль +3..+5",
+    };
+  }
+
+  // 3) Армия слаба для победного темпа — реформа (редко, если просела)
+  if (mil < 68) {
+    return {
+      priority: 9, icon: "🪖", strategic: true,
+      title: "Укрепить армию",
+      why: `Армия ${mil} — для уверенного наступления нужно 68+. Одна реформа окупится двумя наступлениями.`,
+      mode: "decree_reform",
+      example: "Реформировать систему боевой подготовки, снабжения и ротации войск",
+      effect: "армия +4..+6, мораль +2..+4",
+    };
+  }
+
+  // 4) Инициатива кончилась — перегруппировка вместо пропуска
+  if (init < 55) {
+    return {
+      priority: 9, icon: "⚙", strategic: true,
+      title: "Перегруппировка — копим инициативу",
+      why: `Инициатива ${init}, на наступление нужно 55. Перегруппировка восстанавливает +75 и поднимает мораль — но разведка Киева видит паузу и ударит, будьте готовы защищаться.`,
+      mode: "regroup",
+      example: null,
+      effect: "инициатива +75, мораль +3..+5",
+    };
+  }
+
+  // 5) Экономика проседает — подлатать до того, как станет критично
+  if (eco < 42) {
+    return {
+      priority: 9, icon: "💸", strategic: true,
+      title: "Поддержать экономику",
+      why: `Экономика ${eco} приближается к опасной зоне. Залатайте сейчас — не дайте наступлениям утащить её ниже порога победы (36).`,
+      mode: "decree_fast",
+      example: "Перераспределить резервные фонды на поддержку рынка и оборонных предприятий",
+      effect: "экономика +3, стабильность +2",
+    };
+  }
+
+  // 6) По умолчанию — наступать, пока есть инициатива и здоровая казна
+  return {
+    priority: 9, icon: "⚔️", strategic: true,
+    title: "Наступать — есть инициатива и казна",
+    why: `Армия ${mil}, инициатива ${init}, экономика ${eco}. Условия для наступления. Цель: Донецк 100%, Луганск 100% + 2 из 3 регионов (Запорожье 85%, Херсон 65%, Харьков 50%).`,
+    mode: "military",
+    example: `Скоординированное наступление — приоритет ${targets()}`,
+    effect: "территории +5..+10",
+  };
+}
+
 // ---------- SmartHintsPanel ----------
 function generateSmartHints(stats, turn) {
   if (!stats) return [];
@@ -715,6 +838,10 @@ function generateSmartHints(stats, turn) {
   const kha = stats.kharkiv_control ?? 12;
 
   const hints = [];
+
+  // --- РЕКОМЕНДУЕМЫЙ ХОД ПО СТРАТЕГИИ (приоритет 9) ---
+  // Главная подсказка — оптимальный ход по выигрышной военной стратегии.
+  hints.push(computeStrategicMove(stats, turn));
 
   // --- КРИТИЧЕСКИЕ УГРОЗЫ (приоритет 10) ---
   if (appr < 38) hints.push({
@@ -801,7 +928,16 @@ function generateSmartHints(stats, turn) {
     effect: "случайный исход: армия +2..+5 или дипломатия −2..−5",
   });
 
-  return hints.sort((a, b) => b.priority - a.priority).slice(0, 4);
+  // Дедупликация по режиму — если стратегический ход уже покрывает режим
+  // (military/regroup/decree_reform и т.п.), не показываем дубль реактивной подсказки.
+  const sorted = hints.sort((a, b) => b.priority - a.priority);
+  const seenModes = new Set();
+  const deduped = sorted.filter(h => {
+    if (seenModes.has(h.mode)) return false;
+    seenModes.add(h.mode);
+    return true;
+  });
+  return deduped.slice(0, 4);
 }
 
 function SmartHintsPanel({ stats, turn, onSelectHint, onClose }) {
@@ -820,21 +956,22 @@ function SmartHintsPanel({ stats, turn, onSelectHint, onClose }) {
             key={i}
             onClick={() => onSelectHint(h)}
             style={{
-              background: h.urgency ? "#1a0c0c" : "#141b24",
-              border: `1px solid ${h.urgency ? "#5a1a1a" : "#2a3545"}`,
-              borderLeft: `3px solid ${h.urgency ? "#a8313a" : "#9c8347"}`,
+              background: h.urgency ? "#1a0c0c" : h.strategic ? "#0c1a12" : "#141b24",
+              border: `1px solid ${h.urgency ? "#5a1a1a" : h.strategic ? "#1f5a3a" : "#2a3545"}`,
+              borderLeft: `3px solid ${h.urgency ? "#a8313a" : h.strategic ? "#3a9c6a" : "#9c8347"}`,
               borderRadius: 5, padding: "8px 10px",
               cursor: "pointer",
             }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = "#9c8347")}
-            onMouseLeave={e => (e.currentTarget.style.border = `1px solid ${h.urgency ? "#5a1a1a" : "#2a3545"}`, e.currentTarget.style.borderLeft = `3px solid ${h.urgency ? "#a8313a" : "#9c8347"}`)}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = h.strategic ? "#3a9c6a" : "#9c8347")}
+            onMouseLeave={e => (e.currentTarget.style.border = `1px solid ${h.urgency ? "#5a1a1a" : h.strategic ? "#1f5a3a" : "#2a3545"}`, e.currentTarget.style.borderLeft = `3px solid ${h.urgency ? "#a8313a" : h.strategic ? "#3a9c6a" : "#9c8347"}`)}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
                   <span>{h.icon}</span>
-                  <span className="mono-font" style={{ fontSize: 10, color: h.urgency ? "#e09090" : "#c8b87a", fontWeight: 700 }}>{h.title}</span>
+                  <span className="mono-font" style={{ fontSize: 10, color: h.urgency ? "#e09090" : h.strategic ? "#7ad8a0" : "#c8b87a", fontWeight: 700 }}>{h.title}</span>
                   {h.urgency && <span className="mono-font" style={{ fontSize: 8, color: "#a8313a", background: "#2a0808", padding: "1px 5px", borderRadius: 2 }}>СРОЧНО</span>}
+                  {h.strategic && !h.urgency && <span className="mono-font" style={{ fontSize: 8, color: "#3a9c6a", background: "#082a18", padding: "1px 5px", borderRadius: 2 }}>РЕКОМЕНДУЕТСЯ</span>}
                 </div>
                 <div className="doc-font" style={{ fontSize: 11.5, color: "#7a8898", lineHeight: 1.4, marginBottom: 4 }}>{h.why}</div>
                 {h.example && (
