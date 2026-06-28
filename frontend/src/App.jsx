@@ -2058,7 +2058,20 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             <SmartHintsPanel
               stats={state?.stats}
               turn={state?.turn ?? 0}
-              onSelectHint={(h) => { setActionMode(h.mode); setDraftInput(h.example || ""); }}
+              onSelectHint={(h) => {
+              setActionMode(h.mode);
+              const raw = h.example || "";
+              const modeLabels = {
+                decree_fast: "Настоящим постановляю",
+                decree_reform: "В целях реформирования приказываю",
+                decree_program: "Утверждаю программу",
+                military: "Приказываю Генеральному штабу",
+                diplomacy_op: "Министерству иностранных дел поручаю",
+                skip: "",
+              };
+              const prefix = modeLabels[h.mode] || "Приказываю";
+              setDraftInput(prefix ? `${prefix}: ${raw.charAt(0).toLowerCase()}${raw.slice(1)}` : raw);
+            }}
               onClose={() => setTutorialMode(false)}
             />
           )}

@@ -100,7 +100,7 @@ async function generateWorldUpdate({ params, callClaudeApi }) {
   let response;
   try {
     response = await callClaudeApi({
-      model: "claude-sonnet-4-6",
+      model: isNuclear ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001",
       max_tokens: isNuclear ? 6000 : 2500,
       messages: [{ role: "user", content: prompt }],
     });
