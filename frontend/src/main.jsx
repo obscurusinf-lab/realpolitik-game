@@ -446,8 +446,15 @@ function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLo
             ЗАЛА СЛАВЫ — ТОП ПРЕЗИДЕНТОВ
           </button>
 
+          <div style={{ marginTop: 18, background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "10px 14px" }}>
+            <div className="mono-font" style={{ fontSize: 8, color: "#3a4050", letterSpacing: "0.08em", marginBottom: 4 }}>ДИСКЛЕЙМЕР</div>
+            <div className="doc-font" style={{ fontSize: 11, color: "#3a4556", lineHeight: 1.5 }}>
+              Все персонажи, имена и события в игре являются вымышленными. Любое сходство с реальными лицами случайно.
+              Игра создана в образовательных и развлекательных целях. Мнения, выраженные в игре, не отражают взгляды авторов.
+            </div>
+          </div>
           <div className="mono-font" onClick={handleSecretTap}
-            style={{ textAlign: "center", fontSize: 9, color: "#2a3040", marginTop: 18, letterSpacing: "0.08em", userSelect: "none", cursor: "default" }}>
+            style={{ textAlign: "center", fontSize: 9, color: "#2a3040", marginTop: 10, letterSpacing: "0.08em", userSelect: "none", cursor: "default" }}>
             ДАННЫЕ НА ИЮНЬ 2026 · ВСЕ СОВПАДЕНИЯ СЛУЧАЙНЫ{tapCount > 0 ? ` ·` + "·".repeat(tapCount) : ""}
           </div>
         </div>
