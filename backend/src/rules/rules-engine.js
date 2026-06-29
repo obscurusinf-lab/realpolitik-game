@@ -360,9 +360,15 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
     }
   }
 
-  // Записываем размер утечки для отображения в UI
-  if (corruptionLeakAmount > 0) newStats._corruption_leak = corruptionLeakAmount;
-  else delete newStats._corruption_leak;
+  // Записываем размер утечки для отображения в UI и в statDeltas (для preview)
+  if (corruptionLeakAmount > 0) {
+    newStats._corruption_leak = corruptionLeakAmount;
+    statDeltas._corruption_leak = corruptionLeakAmount;
+  } else {
+    delete newStats._corruption_leak;
+  }
+  // Пишем текущий стрик в statDeltas чтобы preview мог показать предупреждение
+  statDeltas.military_streak = newStats.military_streak ?? 0;
 
   // Учёт разведбонуса: успешная разведка ставит бонус на следующий ход; обычный ход — расходует.
   if (action_type === "intel_success" || action_type === "intel_critical_success") {
