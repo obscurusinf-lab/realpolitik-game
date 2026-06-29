@@ -53,6 +53,10 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
       (stats.kharkiv_control ?? 0) >= 50,
     ].filter(Boolean).length;
     if (militaryDominance && armyReady && homeStable && economyHolds && donbassSecured && otherRegions >= 2) {
+      // Если параллельно построен мирный трек — это «принуждение к миру»,
+      // дипломатия с позиции силы. Лучший исход: оба пути сошлись.
+      const peace = (stats.peace_progress ?? 0);
+      if (peace >= 50) return "victory_combined";
       return "victory_military";
     }
   }
@@ -799,13 +803,37 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           },
         ];
 
-        // Взвешенный случайный выбор
-        const totalWeight = UA_ACTIONS.reduce((s, a) => s + a.weight, 0);
-        let rnd = Math.random() * totalWeight;
-        let uaAction = UA_ACTIONS[0];
-        for (const a of UA_ACTIONS) {
-          rnd -= a.weight;
-          if (rnd <= 0) { uaAction = a; break; }
+        // ВЕРОЛОМСТВО КИЕВА: если игрок сделал мирный шаг (дипломатия/уступка),
+        // есть шанс, что Киев нарушит договорённости и ударит по отведённым позициям.
+        // Не всегда — но риск делает чистый дипломатический путь напряжённым.
+        const isPeaceMove = pendingActionMode === "diplomacy_op";
+        const BETRAYAL_CHANCE = 0.3;
+        const ceasefireBetrayal = {
+          type: "ceasefire_betrayal",
+          title: "Киев нарушил перемирие",
+          text: "Пока шли переговоры и российские войска отводились на согласованные позиции, ВСУ внезапно перешли в наступление на оголённых участках. Киев публично заявил, что «не связан договорённостями с агрессором». Доверие к переговорному процессу подорвано.",
+          khersonDelta: -4, kharkivDelta: -4, zaporizhzhiaDelta: -3,
+          army_moraleDelta: -3, peace_progressDelta: -18, stabilityDelta: -2,
+          responses: [
+            { label: "Возобновить наступление — переговоры были ошибкой, отвечаем силой", type: "retaliate" },
+            { label: "Удержать рубежи и предать вероломство огласке на международной арене", type: "defend" },
+            { label: "Сохранить выдержку — не дать втянуть себя в новый виток эскалации", type: "accept" },
+          ],
+        };
+
+        let uaAction;
+        if (isPeaceMove && (newStats.peace_progress ?? 0) > 12 && Math.random() < BETRAYAL_CHANCE) {
+          uaAction = ceasefireBetrayal;
+          fastify.log.info({ gameId, turnNumber }, "Ukraine CEASEFIRE BETRAYAL fired");
+        } else {
+          // Взвешенный случайный выбор
+          const totalWeight = UA_ACTIONS.reduce((s, a) => s + a.weight, 0);
+          let rnd = Math.random() * totalWeight;
+          uaAction = UA_ACTIONS[0];
+          for (const a of UA_ACTIONS) {
+            rnd -= a.weight;
+            if (rnd <= 0) { uaAction = a; break; }
+          }
         }
 
         // Применяем эффекты
@@ -814,6 +842,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           diplomacyDelta: "diplomacy", militaryDelta: "military", peace_progressDelta: "peace_progress",
           army_moraleDelta: "army_morale", readinessDelta: "readiness",
           kharkivDelta: "kharkiv_control", khersonDelta: "kherson_control",
+          zaporizhzhiaDelta: "zaporizhzhia_control", donetskDelta: "donetsk_control",
         };
         for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
           if (typeof uaAction[deltaKey] === "number") {

@@ -1386,6 +1386,7 @@ function btnStyle(bg, color) {
 const OUTCOME_TITLES = {
   victory:          "ПОБЕДА — МИР ДОСТИГНУТ",
   victory_military: "ВОЕННАЯ ПОБЕДА",
+  victory_combined: "ПРИНУЖДЕНИЕ К МИРУ",
   partial_peace:    "ДОГОВОР ПОДПИСАН",
   partial:          "ДОСТОЙНОЕ ПРАВЛЕНИЕ",
   partial_military: "ВОЕННОЕ ДОМИНИРОВАНИЕ",
@@ -1552,6 +1553,7 @@ function TerritoryPanel({ stats }) {
 const OUTCOME_COLORS = {
   victory:          { bg: "#0a1f0a", border: "#4caf50", title: "#81c784", glow: "rgba(76,175,80,0.15)" },
   victory_military: { bg: "#0a0f1f", border: "#5c8af5", title: "#90caf9", glow: "rgba(92,138,245,0.15)" },
+  victory_combined: { bg: "#0a1a16", border: "#26a69a", title: "#80cbc4", glow: "rgba(38,166,154,0.18)" },
   partial_peace:    { bg: "#0f1f0a", border: "#8bc34a", title: "#aed581", glow: "rgba(139,195,74,0.15)" },
   partial:          { bg: "#1a1500", border: "#c9aa71", title: "#c9aa71", glow: "rgba(201,170,113,0.15)" },
   partial_military: { bg: "#0f1525", border: "#7986cb", title: "#9fa8da", glow: "rgba(121,134,203,0.15)" },
@@ -1568,7 +1570,7 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
   const [loading, setLoading] = useState(true);
   const colors = OUTCOME_COLORS[outcome] || OUTCOME_COLORS.partial;
   const outcomeTitle = OUTCOME_TITLES[outcome] || "КОНЕЦ ПРАВЛЕНИЯ";
-  const isVictory = outcome === "victory" || outcome === "victory_military" || outcome === "partial_peace" || outcome === "partial" || outcome === "partial_military";
+  const isVictory = outcome === "victory" || outcome === "victory_military" || outcome === "victory_combined" || outcome === "partial_peace" || outcome === "partial" || outcome === "partial_military";
 
   useEffect(() => {
     fetchLegacy(gameId, outcome)
