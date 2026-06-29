@@ -193,10 +193,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     if (initiativeCheck.rowCount > 0) {
       const currentStats = initiativeCheck.rows[0].stats;
       const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
-      const regenedInit = Math.min(INITIATIVE_MAX, currentInit + INITIATIVE_REGEN_PER_TURN);
+      // В мульти-режиме инициатива не регенерирует на каждом ходу — используем текущее значение.
+      // Carryover может поднять её выше 100, поэтому не срезаем INITIATIVE_MAX при проверке.
+      const { MULTI_ACTION_TURNS } = require("../rules/rules-engine");
+      const availableInit = MULTI_ACTION_TURNS ? currentInit : Math.min(INITIATIVE_MAX, currentInit + INITIATIVE_REGEN_PER_TURN);
       const cost = INITIATIVE_COST[actionMode];
-      if (regenedInit < cost) {
-        return reply.code(400).send({ error: `Недостаточно инициативы. Нужно ${cost}, доступно ~${regenedInit}. Подождите следующего хода.` });
+      if (availableInit < cost) {
+        return reply.code(400).send({ error: `Недостаточно инициативы. Нужно ${cost}, доступно ${availableInit}. Завершите месяц чтобы восстановить.` });
       }
     }
 

@@ -266,7 +266,9 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   // инициатива работает как бюджет месяца и восстанавливается только в конце месяца.
   const currentInitiative = typeof newStats.initiative === "number" ? newStats.initiative : INITIATIVE_MAX;
   const regen = regenInitiative ? (crisisMode ? INITIATIVE_REGEN_CRISIS : INITIATIVE_REGEN_PER_TURN) : 0;
-  const regenedInitiative = Math.min(INITIATIVE_MAX, currentInitiative + regen);
+  // Carryover-бонус может поднять инициативу выше 100 (до 130) — не срезаем её при regen=0.
+  // Срезаем только при рефилле (regen > 0) чтобы не превысить INITIATIVE_MAX в одиночном режиме.
+  const regenedInitiative = regen > 0 ? Math.min(INITIATIVE_MAX, currentInitiative + regen) : currentInitiative;
   const cost = INITIATIVE_COST[actionMode] ?? INITIATIVE_COST.decree;
   newStats.initiative = Math.max(0, regenedInitiative - cost);
   statDeltas.initiative = newStats.initiative - currentInitiative;
