@@ -1118,6 +1118,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       // Рефилл инициативы — бюджет нового месяца
       newStats.initiative = INITIATIVE_MAX;
+      // Сброс флага передышки — новый месяц, можно снова
+      delete newStats.skip_used_this_month;
 
       // Пассивный распад мирного трека (раз в месяц), если в этом месяце не было дипломатии
       const turnsThisMonth = await client.query(
@@ -1140,7 +1142,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const activePolicies = (game.policies || []).filter(p => p.status !== "cancelled");
       const taxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
       const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
-      const economyIncome = Math.round((newStats.economy ?? 50) * 0.4); // налоговые поступления от экономики
+      // Налоговый доход: при экономике > 50 — растёт, ниже 50 — падает, ниже 35 — минимум
+      const eco = newStats.economy ?? 50;
+      const economyIncome = eco >= 50
+        ? Math.round(20 + (eco - 50) * 0.6)  // 50→20, 60→26, 80→38, 100→50
+        : eco >= 35
+          ? Math.round(eco * 0.4)              // 35→14, 49→19 — почти стагнация
+          : Math.round(Math.max(5, eco * 0.2)); // ниже 35 — минимальные поступления
       const monthlyNet = economyIncome + taxIncome - programUpkeep;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
@@ -1234,6 +1242,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const currentStats = game.stats || {};
       const { INITIATIVE_MAX } = require("../rules/rules-engine");
 
+      // Лимит: передышка доступна только 1 раз за месяц
+      if (currentStats.skip_used_this_month) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Гражданская передышка уже использована в этом месяце — завершите месяц чтобы использовать снова." });
+      }
+
       // ГРАЖДАНСКАЯ ПЕРЕДЫШКА: президент сосредоточился на тыле.
       // Восстанавливает экономику/рейтинг/стабильность (и связанные субметрики),
       // НЕ даёт боевых бонусов (это работа перегруппировки) и оставляет фронт без внимания.
@@ -1265,6 +1279,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const peaceBefore = newStats.peace_progress ?? 0;
       newStats.peace_progress = Math.max(0, peaceBefore - 2);
       statDeltas.peace_progress = newStats.peace_progress - peaceBefore;
+
+      // Помечаем что передышка использована в этом месяце
+      newStats.skip_used_this_month = true;
 
       const narrative = "Гражданская передышка. Президент сосредоточился на внутренних делах — экономика, доходы населения и общественные настроения восстанавливаются. Фронт остаётся без активного внимания.";
 

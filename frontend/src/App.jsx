@@ -2264,6 +2264,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     { id: "relations", label: "Отношения", icon: Landmark },
     { id: "newsfeed", label: "Лента", icon: ScrollText },
     { id: "log", label: "Журнал", icon: ScrollText },
+    ...(assistMode !== "hardcore" ? [{ id: "wiki", label: "📖 Ликбез", icon: ChevronRight }] : []),
   ];
 
   const isNuclearWorld = (state.newsfeed || []).some(n => n.type === "nuclear_reaction");
@@ -2392,6 +2393,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         {tab === "relations" && <RelationsTab state={state} />}
         {tab === "newsfeed" && <NewsfeedTab state={state} />}
         {tab === "log" && <LogTab state={state} />}
+        {tab === "wiki" && <WikiTab />}
       </div>
 
       {/* Mission panel — always visible above action area */}
@@ -2459,7 +2461,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               stats={state?.stats}
               turn={state?.turn ?? 0}
               onSelectHint={(h) => {
-              if (h.mode === "regroup") { handleRegroupTurn(); return; }
+              if (h.mode === "regroup") {
+                // Прокручиваем к блоку с кнопками действий — пусть игрок нажмёт сам
+                document.getElementById("action-buttons-anchor")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                return;
+              }
               setActionMode(h.mode);
               const raw = h.example || "";
               const modeLabels = {
@@ -2572,6 +2578,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             const T = 0.8; // ₽ трлн за пункт
             const treasury = state?.stats?.treasury ?? 52;
             const economy = state?.stats?.economy ?? 50;
+            const [showTreasuryTip, setShowTreasuryTip] = useState(false);
             const MONEY = { military: 20, decree_program: 15, decree_reform: 8, decree: 8, decree_fast: 3, diplomacy_op: 5, intel: 5, crisis: 4 };
             const cost = MONEY[actionMode] ?? 0;
             const after = treasury - cost;
@@ -2589,8 +2596,25 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             const spiral = net < 0 && economy < 45;
             return (
               <>
+                <div style={{ position: "relative" }}
+                  onMouseEnter={() => setShowTreasuryTip(true)}
+                  onMouseLeave={() => setShowTreasuryTip(false)}
+                >
+                {showTreasuryTip && (
+                  <div style={{ position: "absolute", bottom: "110%", left: 0, zIndex: 99, background: "#1a2030", border: "1px solid #2a3848", borderRadius: 6, padding: "10px 14px", width: 280, boxShadow: "0 4px 16px #00000080" }}>
+                    <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.1em", marginBottom: 6 }}>КАК РАБОТАЕТ КАЗНА</div>
+                    <div className="doc-font" style={{ fontSize: 11, color: "#a0a8b8", lineHeight: 1.5 }}>
+                      <b style={{ color: "#c8b87a" }}>Доход каждый месяц</b> = налоги от экономики + налоговые политики.<br/>
+                      При экономике выше 50 — доход растёт. Ниже 50 — падает. Ниже 35 — почти нет.<br/>
+                      <b style={{ color: "#c8b87a" }}>Расход</b> = содержание активных программ (бюджетное обеспечение).<br/>
+                      <b style={{ color: "#c89090" }}>Дефицит</b> (казна &lt; 0) → инфляция +2, экономика −2.<br/>
+                      <b style={{ color: "#e09090" }}>Спираль</b>: слабая экономика → меньше дохода → казна тает → ещё слабее экономика.<br/>
+                      Каждое действие списывает очки казны напрямую.
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", flexShrink: 0 }}>КАЗНА</div>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", flexShrink: 0, cursor: "help" }}>КАЗНА ⓘ</div>
                   <div style={{ flex: 1, height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
                     <div style={{ width: `${barPct}%`, height: "100%", background: deficit ? "#e09090" : treasury > 40 ? "#c8b87a" : "#c89347", transition: "width 0.3s", borderRadius: 2 }} />
                   </div>
@@ -2610,6 +2634,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                     </span>
                   </div>
                 )}
+                </div>{/* /tooltip wrapper */}
               </>
             );
           })()}
@@ -2699,7 +2724,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           </div>
 
           {/* Завершить ход / месяц */}
-          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+          <div id="action-buttons-anchor" style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
             {state?.multiActionTurns ? (
               /* Мульти-режим: действия внутри месяца + явное завершение месяца */
               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
@@ -4722,6 +4747,49 @@ function LogTab({ state }) {
           <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#3a362e" }}>{entry.body}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function WikiTab() {
+  const S = { h: { fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#9c8347", letterSpacing: "0.12em", marginBottom: 8, marginTop: 20 }, p: { fontFamily: "'PT Serif',serif", fontSize: 13, color: "#a0a8b8", lineHeight: 1.6, marginBottom: 6 }, b: { color: "#c8b87a" } };
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <div className="mono-font" style={{ fontSize: 13, color: "#9c8347", fontWeight: 700, marginBottom: 4 }}>📖 ЛИКБЕЗ — КАК РАБОТАЕТ ИГРА</div>
+      <div className="doc-font" style={{ fontSize: 12, color: "#5a6070", marginBottom: 20 }}>Прочтите один раз — потом всё встанет на место.</div>
+
+      <div style={S.h}>РЕСУРСЫ</div>
+      <div style={S.p}><span style={S.b}>Инициатива</span> — политическая воля президента. Восстанавливается полностью в начале каждого месяца. Каждое действие тратит её: военная операция — 55, реформа — 35, быстрый указ — 20. Если инициативы не хватает — действие недоступно.</div>
+      <div style={S.p}><span style={S.b}>Казна</span> — деньги государства. Каждое действие стоит очков казны. В конце месяца приходит доход: чем выше экономика (особенно выше 50), тем больше налогов. Активные программы требуют содержания. Дефицит (казна &lt; 0) разгоняет инфляцию и давит экономику.</div>
+
+      <div style={S.h}>ПОКАЗАТЕЛИ</div>
+      <div style={S.p}><span style={S.b}>Экономика</span> — общее состояние народного хозяйства. Ниже 30 — поражение (коллапс). Влияет на доход казны: при экономике выше 50 — доход растёт, ниже — падает.</div>
+      <div style={S.p}><span style={S.b}>Армия</span> — боеспособность вооружённых сил. Складывается из морального духа, готовности и территориального контроля. Военные операции двигают территории, но стоят инициативы и денег.</div>
+      <div style={S.p}><span style={S.b}>Дипломатия</span> — международный вес страны. Ниже 15 — поражение через изоляцию. Растёт от дипломатических операций и договорённостей. Падает от эскалации и провокаций.</div>
+      <div style={S.p}><span style={S.b}>Стабильность</span> — порядок внутри страны. Ниже 25 — поражение через волнения. Страдает от дефицита, военных неудач и социальной напряжённости.</div>
+      <div style={S.p}><span style={S.b}>Рейтинг</span> — одобрение президента. Ниже 30 — поражение через переворот. Растёт от социальных решений, военных успехов, информационной работы.</div>
+      <div style={S.p}><span style={S.b}>Мирный трек</span> — прогресс переговоров. Достигнув 100 при сильных показателях — дипломатическая победа. Медленно распадается если не поддерживать дипломатией.</div>
+
+      <div style={S.h}>ТИПЫ ДЕЙСТВИЙ</div>
+      <div style={S.p}><span style={S.b}>📜 Быстрый указ</span> (20 инициативы, 3 казны) — кадровые назначения, разовые постановления, срочные меры. Эффект через 1–2 месяца.</div>
+      <div style={S.p}><span style={S.b}>📋 Реформа</span> (35, 8) — системные изменения в отрасли. Нужно согласование. Эффект через 3–6 месяцев.</div>
+      <div style={S.p}><span style={S.b}>🏛 Программа</span> (55, 15) — федеральный нацпроект с бюджетом и KPI. Большой эффект, долгий горизонт, требует содержания.</div>
+      <div style={S.p}><span style={S.b}>⚔️ Военная операция</span> (55, 20) — прямое применение силы. Двигает территориальный контроль, но провоцирует ответные удары Украины и международную реакцию.</div>
+      <div style={S.p}><span style={S.b}>🤝 Диппереговоры</span> (35, 5) — встречи, письма, предложения. Двигает мирный трек. Не меняет территории.</div>
+      <div style={S.p}><span style={S.b}>🕵️ Разведка</span> (20, 5) — тайные операции. Случайный исход: от компромата на противника до дипломатического скандала.</div>
+
+      <div style={S.h}>СПЕЦИАЛЬНЫЕ ДЕЙСТВИЯ</div>
+      <div style={S.p}><span style={S.b}>🏠 Передышка</span> — восстанавливает экономику, рейтинг и стабильность. Доступна 1 раз за месяц. Не восстанавливает инициативу — только тыл.</div>
+      <div style={S.p}><span style={S.b}>⚙ Перегруппировка</span> — армия отходит для переформирования, инициатива восстанавливается. Внимание: Украина видит паузу и усиливает давление.</div>
+
+      <div style={S.h}>ПУТИ К ПОБЕДЕ</div>
+      <div style={S.p}><span style={S.b}>🏆 Военная победа</span> — взять Донецк и Луганск (100%), ещё 2 из 3 регионов, армия ≥85, все показатели выше 52.</div>
+      <div style={S.p}><span style={S.b}>🕊 Дипломатическая победа</span> — мирный трек 100% + экономика/рейтинг/стабильность ≥65. Доступна с хода 12.</div>
+      <div style={S.p}><span style={S.b}>⚡ Принуждение к миру</span> — военное доминирование + мирный трек ≥40. Победа с позиции силы.</div>
+
+      <div style={S.h}>СОВЕТНИКИ И УКАЗЫ</div>
+      <div style={S.p}>Кабинет министров даёт советы по всем направлениям. Вы можете принять предложенный советником указ — или полностью сформулировать своё решение. Игра принимает любые реалистичные президентские решения: торговые договоры, кадровые назначения, законы, дипломатические ноты, военные приказы.</div>
+      <div style={S.p}>Хороший собственный указ часто лучше совета: вы лучше знаете ситуацию. Чем конкретнее формулировка — тем точнее игра рассчитает эффект.</div>
     </div>
   );
 }

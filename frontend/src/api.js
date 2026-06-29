@@ -58,6 +58,17 @@ export async function login(username, password) {
   return body;
 }
 
+export async function updateDisplayName(displayName) {
+  const res = await fetchWithTimeout(`${API_BASE}/auth/update-name`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName }),
+  }, 15000);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || "Не удалось изменить имя");
+  return body;
+}
+
 export async function fetchMyGames() {
   const res = await fetchWithTimeout(`${API_BASE}/games/my`, {}, 15000);
   if (!res.ok) throw new Error("Не удалось загрузить партии");

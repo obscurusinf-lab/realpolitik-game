@@ -108,6 +108,22 @@ async function buildServer() {
     return reply.send({ token, userId: user.id, username: user.username, displayName: user.display_name });
   });
 
+  fastify.post("/auth/update-name", async (request, reply) => {
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { displayName } = request.body || {};
+    const name = (displayName || "").trim();
+    if (name.length < 2) return reply.code(400).send({ error: "Имя — минимум 2 символа" });
+    if (name.length > 40) return reply.code(400).send({ error: "Имя — максимум 40 символов" });
+    const res = await db.query(
+      `UPDATE users SET display_name = $1 WHERE id = $2 RETURNING id, display_name, username`,
+      [name, payload.userId]
+    );
+    if (res.rowCount === 0) return reply.code(404).send({ error: "User not found" });
+    const user = res.rows[0];
+    return reply.send({ userId: user.id, username: user.username, displayName: user.display_name });
+  });
+
   fastify.get("/auth/me", async (request, reply) => {
     const payload = verifyToken(request, reply);
     if (!payload) return;

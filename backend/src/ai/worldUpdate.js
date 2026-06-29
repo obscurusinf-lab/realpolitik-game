@@ -78,7 +78,8 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
   ]
 }
 ВАЖНО: lat/lon в каждом hotspot — реальные координаты конкретного города/региона (не 0.0, не одинаковые). Каждый hotspot в разном месте.
-stat_delta: изменения статов игрока от хода противника/союзника (economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. hostile=отрицательные, cooperative=положительные. Заполни реальными текстами.`;
+stat_delta: изменения статов игрока от хода противника/союзника (economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. hostile=отрицательные, cooperative=положительные. Заполни реальными текстами.
+КОНТЕКСТ stat_delta: изменяй ТОЛЬКО логически связанные с решением статы. Пример: дипломатический шаг влияет на diplomacy/economy, но НЕ на military напрямую. Военная операция влияет на military/stability, но НЕ на правопорядок или единство если в тексте нет явной связи. НЕ добавляй изменения "по привычке" — только если это реально вытекает из конкретного события.`;
 }
 
 async function generateWorldUpdate({ params, callClaudeApi }) {

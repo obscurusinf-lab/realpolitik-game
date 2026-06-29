@@ -30,20 +30,25 @@ async function registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore
     }
 
     const gameRes = await db.query(
-      `SELECT c.name AS country_name FROM games g JOIN countries c ON c.id = g.country_id WHERE g.id = $1`,
+      `SELECT c.name AS country_name, u.display_name AS player_name
+       FROM games g JOIN countries c ON c.id = g.country_id JOIN users u ON u.id = g.owner_user_id WHERE g.id = $1`,
       [gameId]
     );
     const countryName = gameRes.rows[0]?.country_name || "страна";
+    const rawName = gameRes.rows[0]?.player_name || "";
+    // Если имя выглядит как реальное (буквы, не только цифры) — используем его
+    const playerTitle = /[А-Яа-яA-Za-z]{2,}/.test(rawName) ? rawName : "господин Президент";
 
     const prompt = buildArguePrompt({
       countryName,
+      playerTitle,
       narrative: pending.gmClassification.narrative,
       objection,
       playerArgument: playerArgument.trim(),
     });
 
     const response = await callClaudeApi({
-      model: "claude-sonnet-4-6",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 500,
       messages: [{ role: "user", content: prompt }],
     });
@@ -71,8 +76,9 @@ async function registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore
   });
 }
 
-function buildArguePrompt({ countryName, narrative, objection, playerArgument }) {
+function buildArguePrompt({ countryName, playerTitle, narrative, objection, playerArgument }) {
   return `Ты — советник президента ${countryName} в геополитической стратегии. Ты только что выразил возражение против решения президента, и теперь президент тебе отвечает.
+Обращайся к президенту: "${playerTitle}".
 
 РЕШЕНИЕ ПРЕЗИДЕНТА (нарратив): "${narrative}"
 
@@ -85,7 +91,7 @@ function buildArguePrompt({ countryName, narrative, objection, playerArgument })
 Критерии:
 - Если аргумент логичен, содержит конкретные обоснования или новую информацию — прими, withdrawn: true
 - Если аргумент слабый, эмоциональный или просто приказной ("я так решил") — настаивай, withdrawn: false
-- Отвечай живым разговорным языком, 2-3 предложения, в роли конкретного советника
+- Отвечай живым разговорным языком, 2-3 предложения, в роли конкретного советника. Обращайся к президенту как "${playerTitle}"
 
 Верни ТОЛЬКО JSON без markdown:
 {"withdrawn": true/false, "advisor_response": "ответ советника"}`;

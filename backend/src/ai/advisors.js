@@ -79,7 +79,7 @@ const SCALE_DESCRIPTIONS = {
 };
 
 const SYSTEM_PROMPT = `Ты — система моделирования кабинета советников президента страны {{country_name}} в геополитической стратегической игре.
-Президента зовут: {{player_name}}. Советники обращаются к нему по имени-отчеству.
+Президента зовут: {{player_name}}. Советники обращаются к нему "господин Президент" или по имени — но НИКОГДА не по имени-отчеству "Владимир Владимирович" или похожим.
 
 ═══════════════════════════════════════════
 СОВЕТНИКИ (персонажи — читай ОЧЕНЬ внимательно):
@@ -188,7 +188,7 @@ async function consultAdvisors({ params, callClaudeApi }) {
   const prompt = buildAdvisorsPrompt(params);
 
   const response = await callClaudeApi({
-    model: "claude-sonnet-4-6",
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 2500,
     messages: [{ role: "user", content: prompt }],
   });

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { createGame, createUser, deleteGame, fetchLeaderboard, fetchAdminStats, login, register, setToken, getToken, fetchMyGames } from "./api";
+import { createGame, createUser, deleteGame, fetchLeaderboard, fetchAdminStats, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://realpolitik-game-production.up.railway.app";
 
@@ -216,7 +216,7 @@ function NewsVideoPanel() {
 
 const GAME_SLOT_LIMIT = 5;
 
-function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onLeaderboard, onAdminOpen, onLogout }) {
+function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onLeaderboard, onAdminOpen, onLogout }) {
   // auth form state
   const [authMode, setAuthMode] = useState("login"); // "login" | "register"
   const [username, setUsername] = useState("");
@@ -230,6 +230,28 @@ function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLo
   const [selectedMode, setSelectedMode] = useState("advisor"); // "advisor" | "hardcore"
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(null);
+
+  // name editing state
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [nameLoading, setNameLoading] = useState(false);
+  const [nameError, setNameError] = useState(null);
+
+  async function handleSaveName() {
+    const trimmed = nameInput.trim();
+    if (trimmed.length < 2) { setNameError("Минимум 2 символа"); return; }
+    if (trimmed.length > 40) { setNameError("Максимум 40 символов"); return; }
+    setNameLoading(true); setNameError(null);
+    try {
+      const res = await updateDisplayName(trimmed);
+      onNameChanged && onNameChanged(res.displayName);
+      setEditingName(false);
+    } catch (err) {
+      setNameError(err.message);
+    } finally {
+      setNameLoading(false);
+    }
+  }
 
   const [tapCount, setTapCount] = useState(0);
   const tapTimer = React.useRef(null);
@@ -359,7 +381,26 @@ function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLo
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "10px 14px" }}>
                 <div>
                   <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em" }}>ДОПУСК ПОДТВЕРЖДЁН · </span>
-                  <span className="doc-font" style={{ fontSize: 14, color: "#9c8347", fontWeight: 700 }}>{authUser.displayName}</span>
+                  {editingName ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <input
+                        autoFocus
+                        value={nameInput}
+                        onChange={e => { setNameInput(e.target.value); setNameError(null); }}
+                        onKeyDown={e => { if (e.key === "Enter") handleSaveName(); if (e.key === "Escape") setEditingName(false); }}
+                        style={{ background: "#111827", border: "1px solid #9c8347", borderRadius: 3, color: "#e8d5a3", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, padding: "2px 6px", width: 140, outline: "none" }}
+                        maxLength={40}
+                      />
+                      <button onClick={handleSaveName} disabled={nameLoading} style={{ background: "#9c8347", border: "none", borderRadius: 3, color: "#0d1117", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", padding: "3px 7px", fontWeight: 700 }}>{nameLoading ? "…" : "OK"}</button>
+                      <button onClick={() => { setEditingName(false); setNameError(null); }} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 3, color: "#4a5060", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", padding: "3px 6px" }}>✕</button>
+                      {nameError && <span style={{ fontSize: 9, color: "#e05050" }}>{nameError}</span>}
+                    </span>
+                  ) : (
+                    <span>
+                      <span className="doc-font" style={{ fontSize: 14, color: "#9c8347", fontWeight: 700 }}>{authUser.displayName}</span>
+                      <button onClick={() => { setNameInput(authUser.displayName); setEditingName(true); setNameError(null); }} title="Изменить имя" style={{ background: "none", border: "none", color: "#4a5060", fontSize: 11, cursor: "pointer", padding: "0 4px", verticalAlign: "middle" }}>✏</button>
+                    </span>
+                  )}
                   <span className="mono-font" style={{ fontSize: 9, color: "#3a4050", marginLeft: 6 }}>@{authUser.username}</span>
                 </div>
                 <button onClick={onLogout} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 3, color: "#4a5060", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", padding: "4px 8px" }}>ВЫЙТИ</button>
@@ -436,8 +477,8 @@ function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLo
                 <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>РЕЖИМ ИГРЫ</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {[
-                    { id: "advisor", icon: "💡", title: "С советниками", desc: "Кабинет министров подсказывает оптимальные ходы и путь к победе. Для знакомства с игрой." },
-                    { id: "hardcore", icon: "🎖", title: "Сам по себе", desc: "Никаких игровых подсказок. До победы — военной или дипломатической — додумываетесь сами." },
+                    { id: "advisor", icon: "💡", title: "С советниками", desc: "Кабинет министров подсказывает оптимальные ходы и путь к победе. Вы можете следовать советам — или полностью формулировать свои указы. Доступен ликбез по механикам." },
+                    { id: "hardcore", icon: "🎖", title: "Сам по себе", desc: "Никаких игровых подсказок. Советники молчат. Кабинет и варианты указов остаются. До победы — военной или дипломатической — додумываетесь сами." },
                   ].map(m => {
                     const sel = selectedMode === m.id;
                     return (
@@ -966,6 +1007,10 @@ function Root() {
     loadMyGames();
   }
 
+  function handleNameChanged(newName) {
+    setAuthUser(u => (u ? { ...u, displayName: newName } : u));
+  }
+
   function handleLogout() {
     setToken(null);
     setAuthUser(null);
@@ -1014,7 +1059,7 @@ function Root() {
   let screen;
   if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} showWelcome={game.isNew === true} />;
   else if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
-  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onLeaderboard={() => setShowLeaderboard(true)} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} />;
+  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onNameChanged={handleNameChanged} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onLeaderboard={() => setShowLeaderboard(true)} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} />;
 
   return (
     <>
