@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -2297,6 +2297,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     { id: "advisors", label: "Кабинет министров", icon: ChevronRight },
     { id: "policies", label: "Политики", icon: ChevronRight },
     { id: "relations", label: "Отношения", icon: Landmark },
+    { id: "treasury", label: "💰 Казна", icon: Landmark },
     { id: "newsfeed", label: "Лента", icon: ScrollText },
     { id: "log", label: "Журнал", icon: ScrollText },
     ...(assistMode !== "hardcore" ? [{ id: "wiki", label: "📖 Ликбез", icon: ChevronRight }] : []),
@@ -2426,6 +2427,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         )}
         {tab === "policies" && <PoliciesTab state={state} gameId={gameId} currentTurn={state.turn} onStateRefresh={loadState} />}
         {tab === "relations" && <RelationsTab state={state} />}
+        {tab === "treasury" && <TreasuryTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "newsfeed" && <NewsfeedTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "log" && <LogTab state={state} />}
         {tab === "wiki" && <WikiTab />}
@@ -4793,6 +4795,213 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded }) {
             {error && <div className="mono-font" style={{ fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+const OFZ_MAX = 3;
+const OFZ_MONTHLY_COST = 3;
+const TREASURY_PER_TRILLION = 0.8;
+
+function TreasuryTab({ state, gameId, onRefresh }) {
+  const stats = state.stats || {};
+  const [loading, setLoading] = useState(null);
+  const [error, setError] = useState(null);
+
+  const treasury = typeof stats.treasury === "number" ? stats.treasury : 52;
+  const eco = stats.economy ?? 50;
+  const ofzCount = stats.ofz_count ?? 0;
+  const ofzUsedThisMonth = !!stats.ofz_used_this_month;
+  const activePolicies = (state.policies || []).filter(p => p.status !== "cancelled");
+  const taxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
+  const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
+  const ofzDebt = ofzCount * OFZ_MONTHLY_COST;
+  const economyIncome = eco >= 50
+    ? Math.round(20 + (eco - 50) * 0.6)
+    : eco >= 35 ? Math.round(eco * 0.4) : Math.round(Math.max(5, eco * 0.2));
+  const projectedNet = economyIncome + taxIncome - programUpkeep - ofzDebt;
+  const projectedTreasury = Math.max(-100, Math.min(100, treasury + projectedNet));
+
+  const T = TREASURY_PER_TRILLION;
+  const treasuryTrln = (treasury * T).toFixed(1);
+  const projTrln = (projectedTreasury * T).toFixed(1);
+
+  const gaugePercent = Math.max(0, Math.min(100, (treasury + 100) / 2)); // -100..100 → 0..100%
+  const gaugeColor = treasury < 0 ? "#c03030" : treasury < 20 ? "#c08030" : "#3a7a5a";
+
+  async function handleIssue() {
+    setLoading("issue"); setError(null);
+    try { await issueBonds(gameId); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
+  async function handleRepay() {
+    setLoading("repay"); setError(null);
+    try { await repayBonds(gameId); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
+  const sectionStyle = { marginBottom: 20 };
+  const labelStyle = { fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", marginBottom: 8 };
+  const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #e0dac8" };
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      {/* Казна: текущий уровень */}
+      <div style={sectionStyle}>
+        <div style={labelStyle}>КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ</div>
+        <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: "1px solid #2a3040" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 700, color: gaugeColor }}>
+                ₽{treasuryTrln} трлн
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a6070", marginTop: 2 }}>
+                {treasury >= 0 ? `+${Math.round(treasury)} пунктов` : `${Math.round(treasury)} пунктов (ДЕФИЦИТ)`}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: projectedNet >= 0 ? "#5a8a6a" : "#c05050" }}>
+                {projectedNet >= 0 ? "▲" : "▼"} {projectedNet >= 0 ? "+" : ""}{projectedNet} / мес.
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a6070" }}>
+                прогноз: ₽{projTrln} трлн
+              </div>
+            </div>
+          </div>
+          {/* Шкала */}
+          <div style={{ height: 6, background: "#2a3040", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${gaugePercent}%`, background: gaugeColor, borderRadius: 3, transition: "width 0.4s" }} />
+          </div>
+          {treasury < 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e05050", marginTop: 8 }}>
+              ⚠ БЮДЖЕТНЫЙ ДЕФИЦИТ — инфляция и экономика под давлением
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Баланс: доходы и расходы */}
+      <div style={sectionStyle}>
+        <div style={labelStyle}>МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)</div>
+        <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4 }}>
+          <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
+            <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a6a4a" }}>+ Налоговый доход (экономика {Math.round(eco)})</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#3a6a4a", fontWeight: 700 }}>+{economyIncome}</span>
+          </div>
+          {taxIncome > 0 && (
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a6a4a" }}>+ Налоговые политики</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#3a6a4a", fontWeight: 700 }}>+{taxIncome}</span>
+            </div>
+          )}
+          {programUpkeep > 0 && (
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Содержание программ ({activePolicies.length} активных)</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{programUpkeep}</span>
+            </div>
+          )}
+          {ofzDebt > 0 && (
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Обслуживание ОФЗ ({ofzCount} выпуска)</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{ofzDebt}</span>
+            </div>
+          )}
+          <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#5a5040", letterSpacing: "0.06em" }}>ИТОГ</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 700, color: projectedNet >= 0 ? "#2a6a3a" : "#8a2020" }}>
+              {projectedNet >= 0 ? "+" : ""}{projectedNet} пунктов/мес.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ОФЗ: долговые инструменты */}
+      <div style={sectionStyle}>
+        <div style={labelStyle}>ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ</div>
+        <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: `1px solid ${ofzCount > 0 ? "#5a3a10" : "#2a3040"}` }}>
+          {/* Слоты выпусков */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {Array.from({ length: OFZ_MAX }).map((_, i) => (
+              <div key={i} style={{
+                flex: 1, height: 28, borderRadius: 4,
+                background: i < ofzCount ? "#3a2510" : "#1a2030",
+                border: `1px solid ${i < ofzCount ? "#8a5520" : "#2a3040"}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.06em",
+                color: i < ofzCount ? "#c08050" : "#3a4050",
+              }}>
+                {i < ofzCount ? `ОФЗ-${i + 1}` : "—"}
+              </div>
+            ))}
+          </div>
+          {ofzCount > 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#c08050", marginBottom: 10 }}>
+              Активных выпусков: {ofzCount}/{OFZ_MAX} · Обслуживание: −{ofzDebt} пунктов/мес.
+              (≈₽{(ofzDebt * T).toFixed(1)} трлн) · Инфляционное давление +{ofzCount}/мес.
+            </div>
+          )}
+          {ofzCount === 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#3a5050", marginBottom: 10 }}>
+              Активных выпусков нет. Долговая нагрузка: нулевая.
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={handleIssue}
+              disabled={ofzCount >= OFZ_MAX || ofzUsedThisMonth || loading === "issue"}
+              style={{
+                flex: 1, background: ofzCount >= OFZ_MAX || ofzUsedThisMonth ? "#1a2030" : "#1a2a10",
+                border: `1px solid ${ofzCount >= OFZ_MAX || ofzUsedThisMonth ? "#2a3040" : "#3a5a20"}`,
+                color: ofzCount >= OFZ_MAX || ofzUsedThisMonth ? "#3a4050" : "#7ab060",
+                borderRadius: 4, padding: "9px 12px",
+                fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: ofzCount >= OFZ_MAX || ofzUsedThisMonth ? "not-allowed" : "pointer",
+                textAlign: "left",
+              }}
+            >
+              {loading === "issue" ? "Выпуск…" : ofzUsedThisMonth ? "⚠ Выпуск уже использован в этом месяце" : ofzCount >= OFZ_MAX ? "✕ Лимит долга исчерпан" : `📄 Выпустить ОФЗ (+20 казны, +2 инфл.)`}
+            </button>
+            <button
+              onClick={handleRepay}
+              disabled={ofzCount <= 0 || treasury < 20 || loading === "repay"}
+              style={{
+                flex: 1, background: ofzCount <= 0 || treasury < 20 ? "#1a2030" : "#1a1a2a",
+                border: `1px solid ${ofzCount <= 0 || treasury < 20 ? "#2a3040" : "#3a3a5a"}`,
+                color: ofzCount <= 0 || treasury < 20 ? "#3a4050" : "#7080b0",
+                borderRadius: 4, padding: "9px 12px",
+                fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: ofzCount <= 0 || treasury < 20 ? "not-allowed" : "pointer",
+                textAlign: "left",
+              }}
+            >
+              {loading === "repay" ? "Погашение…" : `💸 Погасить выпуск (−20 казны, −2 инфл.)`}
+            </button>
+          </div>
+          {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
+        </div>
+      </div>
+
+      {/* Инфляция */}
+      <div style={sectionStyle}>
+        <div style={labelStyle}>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
+        <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "10px 12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13 }}>Текущая инфляция</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 700, color: (stats.inflation ?? 64) > 70 ? "#8a2020" : "#5a5040" }}>
+              {stats.inflation ?? 64}
+            </span>
+          </div>
+          <div style={{ height: 4, background: "#e0dac8", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${stats.inflation ?? 64}%`, background: (stats.inflation ?? 64) > 70 ? "#c03030" : "#9c8347", borderRadius: 2 }} />
+          </div>
+          {(stats.inflation ?? 64) > 70 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#a03030", marginTop: 6 }}>
+              Высокая инфляция давит на экономику и снижает одобрение. Погасите ОФЗ или проведите политику аустерити.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -159,6 +159,55 @@ function generateAutonomousEvents(stats, month) {
   return pool.slice(0, 2);
 }
 
+// --- ФИНАЛЬНАЯ ГЛАВА: сценарные события на ходах 17–23 ---
+// Срабатывает однократно для каждого порогового хода.
+// Создаёт нарратив давления времени и эскалации перед концом игры.
+function generateFinalChapterEvent(stats, month) {
+  const mil = stats.military ?? 50;
+  const eco = stats.economy ?? 50;
+  const peace = stats.peace_progress ?? 0;
+
+  // Событие привязано к конкретному ходу — не дублируется
+  if (month === 17) {
+    return [{
+      source: "Совет Безопасности",
+      text: "Внеочередное заседание Совбеза: аналитики фиксируют, что окно для урегулирования конфликта сужается. Западные союзники Киева намерены принять решение о долгосрочном военном пакете в течение 3–4 месяцев — до этого момента переговорная позиция России остаётся более сильной.",
+      statDelta: { social_tension: 1 },
+      reactions: [{ text: "Время работает против нас — каждый упущенный месяц укрепляет ВПК НАТО.", stat_delta: {} }],
+    }];
+  }
+  if (month === 18) {
+    const isWeak = mil < 55 || eco < 45;
+    return [{
+      source: "Генштаб",
+      text: isWeak
+        ? "Стратегический доклад: истощение ресурсов достигает критической отметки. Без стабилизации фронта и экономики в течение 2–3 месяцев риск вынужденного выхода из конфликта резко возрастает."
+        : "Стратегический доклад: позиции России усилились. Сохраняющееся военное давление вынуждает Киев искать переговорные каналы. Следующие 2–3 месяца — решающие для закрепления достигнутого.",
+      statDelta: isWeak ? { stability: -2, army_morale: -2 } : { army_morale: 2, approval: 1 },
+      reactions: [{ text: isWeak ? "Момент истины наступает быстрее, чем ожидалось." : "Инициатива на нашей стороне — важно не упустить темп.", stat_delta: {} }],
+    }];
+  }
+  if (month === 20) {
+    return [{
+      source: "МИД",
+      text: peace >= 40
+        ? "Турецкое посредничество: Анкара сообщила о готовности Киева к переговорам при определённых условиях. Дипломатическое окно открыто — вопрос в том, воспользуетесь ли вы им."
+        : "Дипломатический тупик: все переговорные каналы заморожены. Международные посредники признают, что урегулирование конфликта без военного решения маловероятно в ближайшие месяцы.",
+      statDelta: peace >= 40 ? { diplomacy: 2 } : { isolation: 2, diplomacy: -2 },
+      reactions: [{ text: peace >= 40 ? "Шанс на прорыв есть — но его надо использовать немедленно." : "Конфликт рискует стать замороженным на годы.", stat_delta: {} }],
+    }];
+  }
+  if (month === 22) {
+    return [{
+      source: "Администрация Президента",
+      text: "Финальный отсчёт: стратегическое окружение оценивает текущую ситуацию как определяющую для следующего десятилетия. Решения, принятые в ближайшие 1–2 месяца, войдут в историю — вопрос лишь в том, какой именно.",
+      statDelta: {},
+      reactions: [{ text: "История пишется сейчас.", stat_delta: {} }],
+    }];
+  }
+  return [];
+}
+
 async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore, verifyToken }) {
   async function loadGameForUpdate(client, gameId) {
     const res = await client.query(
@@ -1199,9 +1248,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       // --- КАЗНА: месячный доход и расход ---
       const { TREASURY_MIN } = require("../rules/rules-engine");
+      const { OFZ_MONTHLY_COST } = require("./treasury");
       const activePolicies = (game.policies || []).filter(p => p.status !== "cancelled");
       const taxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
       const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
+      // ОФЗ: обслуживание долга (вычитается из казны каждый месяц)
+      const ofzCount = newStats.ofz_count ?? 0;
+      const ofzDebtService = ofzCount * OFZ_MONTHLY_COST;
       // Налоговый доход: при экономике > 50 — растёт, ниже 50 — падает, ниже 35 — минимум
       const eco = newStats.economy ?? 50;
       const economyIncome = eco >= 50
@@ -1209,9 +1262,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         : eco >= 35
           ? Math.round(eco * 0.4)              // 35→14, 49→19 — почти стагнация
           : Math.round(Math.max(5, eco * 0.2)); // ниже 35 — минимальные поступления
-      const monthlyNet = economyIncome + taxIncome - programUpkeep;
+      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
+      // ОФЗ инфляционное давление: +1 инфляции за каждый активный выпуск в месяц
+      if (ofzCount > 0) {
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + ofzCount);
+      }
+      // Сбрасываем флаг выпуска ОФЗ за месяц
+      delete newStats.ofz_used_this_month;
       // СПИРАЛЬ КАЗНА → ЭКОНОМИКА (двусторонняя связь; обратная сторона — доход казны зависит от экономики)
       let deficitHit = false;
       let economyEffect = 0; // эффект на экономику от состояния казны
@@ -1258,14 +1317,30 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Бюджетная сводка в ленту
       const T = 0.8; // ₽ трлн за пункт казны
       const flowSign = monthlyNet >= 0 ? "+" : "";
+      const ofzLine = ofzCount > 0 ? `, обслуживание ОФЗ −${ofzDebtService}` : "";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, completedMonth, "Минфин",
-         `Бюджет за месяц: доходы +${(economyIncome + taxIncome)} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}. Итог: ${flowSign}${monthlyNet} → казна ${(treasuryAfter * T).toFixed(1)} трлн ₽.` +
+         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}. Итог: ${flowSign}${monthlyNet} → казна ${(treasuryAfter * T).toFixed(1)} трлн ₽.` +
          (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
           economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
           economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "")]
       );
+
+      // --- ФИНАЛЬНАЯ ГЛАВА: эскалация на ходах 17–23 ---
+      const finalEvents = generateFinalChapterEvent(newStats, completedMonth);
+      for (const ev of finalEvents) {
+        for (const [k, d] of Object.entries(ev.statDelta || {})) {
+          newStats[k] = Math.max(0, Math.min(100, (newStats[k] ?? 50) + d));
+        }
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'world_move',$3,$4,$5)`,
+          [gameId, completedMonth, ev.source, ev.text, JSON.stringify(ev.reactions || [])]
+        );
+      }
+      if (finalEvents.some(e => Object.keys(e.statDelta || {}).length > 0)) {
+        await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+      }
 
       // --- АВТОНОМНЫЕ СОБЫТИЯ (мир живёт без тебя) ---
       const autonomousEvents = generateAutonomousEvents(newStats, completedMonth);
@@ -1294,7 +1369,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         initiative: newStats.initiative,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
-        budget: { economyIncome, taxIncome, programUpkeep, net: monthlyNet, treasury: treasuryAfter, deficit: deficitHit, economyEffect },
+        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, net: monthlyNet, treasury: treasuryAfter, deficit: deficitHit, economyEffect },
         autonomousEvents: autonomousEvents.map(e => ({ source: e.source, text: e.text })),
       });
     } catch (err) {

@@ -300,3 +300,29 @@ export async function respondToUkraineEvent(gameId, turnN, responseType) {
   }
   return res.json();
 }
+
+export async function issueBonds(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/issue-bonds`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: "{}",
+  }, 10000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Ошибка выпуска ОФЗ");
+  }
+  return res.json();
+}
+
+export async function repayBonds(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/repay-bonds`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: "{}",
+  }, 10000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Ошибка погашения ОФЗ");
+  }
+  return res.json();
+}

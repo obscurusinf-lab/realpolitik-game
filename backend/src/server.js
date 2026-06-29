@@ -13,6 +13,7 @@ const { registerUserRoutes } = require("./routes/users");
 const { registerAdvisorRoutes } = require("./routes/advisors");
 const { registerSuggestionRoutes } = require("./routes/suggestions");
 const { registerArgueRoute } = require("./routes/argue");
+const { registerTreasuryRoutes } = require("./routes/treasury");
 const { registerAdminRoutes } = require("./routes/admin");
 const { createPendingTurnStore } = require("./db/pending-turns");
 const { createAdminEventStore } = require("./db/admin-events");
@@ -141,6 +142,7 @@ async function buildServer() {
   await registerAdvisorRoutes(fastify, { db, callClaudeApi });
   await registerSuggestionRoutes(fastify, { db, callClaudeApi });
   await registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore });
+  await registerTreasuryRoutes(fastify, { db, verifyToken });
   await registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore });
 
   const shutdown = async () => {
