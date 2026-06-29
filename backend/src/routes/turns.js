@@ -501,8 +501,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         const peaceDiplomacyActions = new Set(["diplomacy_outreach", "peace_initiative", "diplomacy_confrontation"]);
         const isActiveDiplomacy = peaceDiplomacyActions.has(gmClassification.action_type);
         if (!isActiveDiplomacy && (newStats.peace_progress ?? 0) > 5) {
-          const decay = gmClassification.action_type === "military_offensive" ? 7 : 4;
-          newStats.peace_progress = Math.max(0, (newStats.peace_progress ?? 0) - decay);
+          const p = newStats.peace_progress ?? 0;
+          // Установленный мир (>=40, порог принуждения к миру) распадается заметно медленнее:
+          // игрок, выстроивший мирный трек, может давить военным путём, не теряя его —
+          // «дипломатия с позиции силы». Низкий мир по-прежнему тает быстро.
+          let decay = gmClassification.action_type === "military_offensive" ? 7 : 4;
+          if (p >= 40) decay = gmClassification.action_type === "military_offensive" ? 3 : 1;
+          newStats.peace_progress = Math.max(0, p - decay);
         }
       }
 
