@@ -1083,7 +1083,7 @@ function SmartHintsPanel({ stats, turn, onSelectHint, onClose }) {
   return (
     <div style={{ background: "#0e1520", border: "1px solid #2a3a50", borderRadius: 6, padding: "12px 14px", marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.12em" }}>💡 КАБИНЕТ МИНИСТРОВ — ДОКЛАД ПО ВСЕМ НАПРАВЛЕНИЯМ</div>
+        <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.12em" }}>💡 СОВЕТНИК — ПОДСКАЗКИ ПО ВСЕМ НАПРАВЛЕНИЯМ</div>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#3a4050", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
       </div>
 
@@ -1119,7 +1119,7 @@ function SmartHintsPanel({ stats, turn, onSelectHint, onClose }) {
       )}
 
       {/* Доклады всех министров одновременно */}
-      <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.1em", marginBottom: 6 }}>ДОКЛАДЫ МИНИСТЕРСТВ</div>
+      <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.1em", marginBottom: 6 }}>ПО НАПРАВЛЕНИЯМ</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {sortedCabinet.map((adv, i) => {
           const sc = STATUS_COLORS[adv.status];
@@ -2199,7 +2199,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     { id: "map", label: "Карта", icon: Globe2 },
     { id: "stats", label: "Показатели", icon: Shield },
     { id: "world", label: "Мир", icon: Globe2 },
-    { id: "advisors", label: "Советники", icon: ChevronRight },
+    { id: "advisors", label: "Кабинет министров", icon: ChevronRight },
     { id: "policies", label: "Политики", icon: ChevronRight },
     { id: "relations", label: "Отношения", icon: Landmark },
     { id: "newsfeed", label: "Лента", icon: ScrollText },

@@ -384,7 +384,14 @@ function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLo
                           onMouseLeave={e => e.currentTarget.style.borderColor = "#2a3040"}>
                           <div style={{ fontSize: 22, flexShrink: 0, cursor: "pointer" }} onClick={() => onResume(g)}>{COUNTRY_FLAG[g.country_id] || "🌐"}</div>
                           <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => onResume(g)}>
-                            <div className="doc-font" style={{ fontSize: 14, color: "#ece7d8", fontWeight: 700 }}>{g.country_name}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span className="doc-font" style={{ fontSize: 14, color: "#ece7d8", fontWeight: 700 }}>{g.country_name}</span>
+                              {g.assist_mode === "hardcore" ? (
+                                <span className="mono-font" title="Режим «Сам по себе» — без игровых подсказок" style={{ fontSize: 8, color: "#b06a6a", border: "1px solid #4a2020", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>🎖 САМ ПО СЕБЕ</span>
+                              ) : (
+                                <span className="mono-font" title="Режим «С советниками» — кабинет подсказывает ходы" style={{ fontSize: 8, color: "#6a9c7a", border: "1px solid #244a30", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>💡 С СОВЕТНИКАМИ</span>
+                              )}
+                            </div>
                             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
                               Ход {g.current_turn} · {new Date(g.created_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
                               {g.status !== "active" && <span style={{ color: "#a8313a", marginLeft: 6 }}>{g.status}</span>}
