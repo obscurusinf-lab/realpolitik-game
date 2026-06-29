@@ -821,6 +821,131 @@ function computeStrategicMove(stats, turn) {
   };
 }
 
+// ---------- Кабинет министров: доклады по всем направлениям одновременно ----------
+// Каждый министр оценивает свою сферу и даёт совет независимо.
+// status: "ok" | "warn" | "crit". Если совет есть — карточка кликабельна.
+function generateCabinetBriefing(stats, turn) {
+  if (!stats) return [];
+  const mil = stats.military ?? 50;
+  const eco = stats.economy ?? 50;
+  const stab = stats.stability ?? 50;
+  const appr = stats.approval ?? 50;
+  const dip = stats.diplomacy ?? 50;
+  const peace = stats.peace_progress ?? 0;
+  const init = stats.initiative ?? 100;
+  const morale = stats.army_morale ?? 60;
+  const ready = stats.readiness ?? 70;
+  const don = stats.donetsk_control ?? 78;
+  const luh = stats.luhansk_control ?? 96;
+  const zap = stats.zaporizhzhia_control ?? 68;
+  const khe = stats.kherson_control ?? 58;
+  const kha = stats.kharkiv_control ?? 12;
+
+  const milTargets = () => {
+    const t = [];
+    if (don < 100) t.push("Донецк");
+    if (luh < 100) t.push("Луганск");
+    if (zap < 85) t.push("Запорожье");
+    if (khe < 65) t.push("Херсон");
+    if (kha < 50 && t.length < 2) t.push("Харьков");
+    return t.slice(0, 2).join(" и ") || "оставшиеся направления";
+  };
+
+  const advisors = [];
+
+  // --- МИНИСТР ОБОРОНЫ ---
+  {
+    const regionsDone = [zap >= 85, khe >= 65, kha >= 50].filter(Boolean).length;
+    let status = "ok", read, action = null;
+    if (mil < 68) {
+      status = "crit";
+      read = `Армия ${mil} — слаба для наступления. Нужна реформа, нужно 68+.`;
+      action = { mode: "decree_reform", example: "Реформировать боевую подготовку, снабжение и ротацию войск", effect: "армия +4..+6" };
+    } else if (don >= 100 && luh >= 100 && regionsDone >= 2 && mil >= 85) {
+      status = "ok";
+      read = `Все территориальные цели достигнуты, армия ${mil}. Готовы к решающему удару.`;
+      if (init >= 55) action = { mode: "military", example: `Финальное наступление на ${milTargets()}`, effect: "→ ПОБЕДА" };
+    } else {
+      status = "warn";
+      read = `Армия ${mil}, мораль ${morale}, готовность ${ready}. ДНР ${don}%, ЛНР ${luh}%, регионов 2/3: ${regionsDone}. Продолжать наступление.`;
+      if (init >= 55) action = { mode: "military", example: `Наступление — приоритет ${milTargets()}`, effect: "территории +5..+10" };
+      else action = { mode: "regroup", example: null, effect: "инициатива +75" };
+    }
+    advisors.push({ domain: "Оборона", icon: "⚔️", status, read, action,
+      metric: `арм ${mil} · мрл ${morale} · гтв ${ready}` });
+  }
+
+  // --- МИНИСТР ЭКОНОМИКИ ---
+  {
+    let status = "ok", read, action = null;
+    if (eco < 36) {
+      status = "crit";
+      read = `Экономика ${eco} — на грани коллапса (ниже 30 = поражение). Срочно влить ресурсы.`;
+      action = { mode: "decree_fast", example: "Экстренный бюджетный манёвр — резервы на рынок и оборонку", effect: "экономика +3" };
+    } else if (eco < 43) {
+      status = "warn";
+      read = `Экономика ${eco} — буфера мало. Каждое наступление стоит ~5 очков. Подлатать до 43+.`;
+      action = { mode: "decree_fast", example: "Поддержать потребительский рынок и оборонные предприятия", effect: "экономика +3, стабильность +2" };
+    } else {
+      read = `Экономика ${eco} — здоровый буфер. Можно вести наступления без риска коллапса.`;
+    }
+    advisors.push({ domain: "Экономика", icon: "💰", status, read, action,
+      metric: `эко ${eco}` });
+  }
+
+  // --- МИНИСТР ИНОСТРАННЫХ ДЕЛ ---
+  {
+    let status = "ok", read, action = null;
+    if (dip < 22) {
+      status = "crit";
+      read = `Дипломатия ${dip} — угроза полной изоляции (ниже 15 = поражение). Срочно искать союзников.`;
+      action = { mode: "diplomacy_op", example: "Экстренный визит в Пекин — общая позиция против санкций", effect: "дипломатия +3..+5" };
+    } else if (dip < 35) {
+      status = "warn";
+      read = `Дипломатия ${dip} проседает. На атаки Киева отвечайте «защитой», а не «контрударом» — иначе рухнет.`;
+      action = { mode: "diplomacy_op", example: "Переговоры через нейтральных посредников — снизить давление", effect: "дипломатия +3..+5" };
+    } else {
+      read = `Дипломатия ${dip} — устойчиво. Мирный трек ${peace} (для мирной победы нужно 100).`;
+    }
+    advisors.push({ domain: "Дипломатия", icon: "🤝", status, read, action,
+      metric: `дип ${dip} · мир ${peace}` });
+  }
+
+  // --- МИНИСТР ВНУТРЕННИХ ДЕЛ (стабильность + рейтинг) ---
+  {
+    let status = "ok", read, action = null;
+    if (stab < 32 || appr < 38) {
+      status = "crit";
+      read = `Стабильность ${stab}, рейтинг ${appr} — риск волнений/переворота. Срочно укрепить тыл.`;
+      action = { mode: "decree_fast", example: "Повысить выплаты семьям военных и пенсионерам, усилить порядок", effect: "рейтинг +3, стабильность +2" };
+    } else if (stab < 52 || appr < 52) {
+      status = "warn";
+      read = `Стабильность ${stab}, рейтинг ${appr} — ниже победного порога (52). Для победы нужно поднять.`;
+      action = { mode: "decree_fast", example: "Социальный пакет — выплаты и поддержка населения", effect: "рейтинг +2..+3, стабильность +2" };
+    } else {
+      read = `Стабильность ${stab}, рейтинг ${appr} — выше порога победы. Тыл крепок.`;
+    }
+    advisors.push({ domain: "Внутр. политика", icon: "🛡", status, read, action,
+      metric: `стб ${stab} · рйт ${appr}` });
+  }
+
+  // --- НАЧАЛЬНИК ГЕНШТАБА (инициатива) ---
+  {
+    let status = "ok", read, action = null;
+    if (init < 55) {
+      status = "warn";
+      read = `Инициатива ${init} — на наступление нужно 55. Перегруппировка восстановит +75, но Киев ударит по паузе.`;
+      action = { mode: "regroup", example: null, effect: "инициатива +75, мораль +3..+5" };
+    } else {
+      read = `Инициатива ${init} — хватает на наступление (стоит 55).`;
+    }
+    advisors.push({ domain: "Генштаб", icon: "⚙", status, read, action,
+      metric: `инц ${init}` });
+  }
+
+  return advisors;
+}
+
 // ---------- SmartHintsPanel ----------
 function generateSmartHints(stats, turn) {
   if (!stats) return [];
@@ -940,60 +1065,102 @@ function generateSmartHints(stats, turn) {
   return deduped.slice(0, 4);
 }
 
+const MODE_LABELS = { military: "⚔️ военная", decree_fast: "📜 быстрый", decree_reform: "📋 реформа", decree_program: "🏛 программа", diplomacy_op: "🤝 дипломатия", intel: "🕵️ разведка", regroup: "⚙ перегруппировка" };
+const STATUS_COLORS = { ok: "#3a9c6a", warn: "#c8a347", crit: "#a8313a" };
+const STATUS_DOTS = { ok: "🟢", warn: "🟡", crit: "🔴" };
+
 function SmartHintsPanel({ stats, turn, onSelectHint, onClose }) {
   const hints = generateSmartHints(stats, turn);
-  if (hints.length === 0) return null;
+  const cabinet = generateCabinetBriefing(stats, turn);
+  if (hints.length === 0 && cabinet.length === 0) return null;
+
+  // Рекомендуемый ход = верхняя подсказка (стратегическая или аварийная)
+  const headline = hints[0];
+  // Доклады кабинета сортируем: критичные → предупреждения → норма
+  const order = { crit: 0, warn: 1, ok: 2 };
+  const sortedCabinet = [...cabinet].sort((a, b) => order[a.status] - order[b.status]);
 
   return (
     <div style={{ background: "#0e1520", border: "1px solid #2a3a50", borderRadius: 6, padding: "12px 14px", marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.12em" }}>💡 СОВЕТНИК — ЧТО ДЕЛАТЬ СЕЙЧАС</div>
+        <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.12em" }}>💡 КАБИНЕТ МИНИСТРОВ — ДОКЛАД ПО ВСЕМ НАПРАВЛЕНИЯМ</div>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#3a4050", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {hints.map((h, i) => (
-          <div
-            key={i}
-            onClick={() => onSelectHint(h)}
-            style={{
-              background: h.urgency ? "#1a0c0c" : h.strategic ? "#0c1a12" : "#141b24",
-              border: `1px solid ${h.urgency ? "#5a1a1a" : h.strategic ? "#1f5a3a" : "#2a3545"}`,
-              borderLeft: `3px solid ${h.urgency ? "#a8313a" : h.strategic ? "#3a9c6a" : "#9c8347"}`,
-              borderRadius: 5, padding: "8px 10px",
-              cursor: "pointer",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = h.strategic ? "#3a9c6a" : "#9c8347")}
-            onMouseLeave={e => (e.currentTarget.style.border = `1px solid ${h.urgency ? "#5a1a1a" : h.strategic ? "#1f5a3a" : "#2a3545"}`, e.currentTarget.style.borderLeft = `3px solid ${h.urgency ? "#a8313a" : h.strategic ? "#3a9c6a" : "#9c8347"}`)}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
-                  <span>{h.icon}</span>
-                  <span className="mono-font" style={{ fontSize: 10, color: h.urgency ? "#e09090" : h.strategic ? "#7ad8a0" : "#c8b87a", fontWeight: 700 }}>{h.title}</span>
-                  {h.urgency && <span className="mono-font" style={{ fontSize: 8, color: "#a8313a", background: "#2a0808", padding: "1px 5px", borderRadius: 2 }}>СРОЧНО</span>}
-                  {h.strategic && !h.urgency && <span className="mono-font" style={{ fontSize: 8, color: "#3a9c6a", background: "#082a18", padding: "1px 5px", borderRadius: 2 }}>РЕКОМЕНДУЕТСЯ</span>}
-                </div>
-                <div className="doc-font" style={{ fontSize: 11.5, color: "#7a8898", lineHeight: 1.4, marginBottom: 4 }}>{h.why}</div>
-                {h.example && (
-                  <div className="doc-font" style={{ fontSize: 12, color: "#a8b8c8", fontStyle: "italic", lineHeight: 1.4 }}>
-                    Пример: «{h.example}»
-                  </div>
-                )}
+
+      {/* Рекомендуемый ход — итоговая рекомендация председателя */}
+      {headline && (
+        <div
+          onClick={() => onSelectHint(headline)}
+          style={{
+            background: headline.urgency ? "#1a0c0c" : "#0c1a12",
+            border: `1px solid ${headline.urgency ? "#5a1a1a" : "#1f5a3a"}`,
+            borderLeft: `3px solid ${headline.urgency ? "#a8313a" : "#3a9c6a"}`,
+            borderRadius: 5, padding: "8px 10px", cursor: "pointer", marginBottom: 10,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
+                <span>{headline.icon}</span>
+                <span className="mono-font" style={{ fontSize: 10, color: headline.urgency ? "#e09090" : "#7ad8a0", fontWeight: 700 }}>{headline.title}</span>
+                <span className="mono-font" style={{ fontSize: 8, color: headline.urgency ? "#a8313a" : "#3a9c6a", background: headline.urgency ? "#2a0808" : "#082a18", padding: "1px 5px", borderRadius: 2 }}>{headline.urgency ? "СРОЧНО" : "РЕКОМЕНДУЕТСЯ"}</span>
               </div>
-              <div style={{ flexShrink: 0, textAlign: "right" }}>
-                <div className="mono-font" style={{ fontSize: 8, color: "#5a7a5a", whiteSpace: "nowrap" }}>{h.effect}</div>
-                {h.mode !== "skip" && (
-                  <div className="mono-font" style={{ fontSize: 8, color: "#4a5a70", marginTop: 2 }}>
-                    {{"military":"⚔️ военная","decree_fast":"📜 быстрый","decree_reform":"📋 реформа","decree_program":"🏛 программа","diplomacy_op":"🤝 дипломатия","intel":"🕵️ разведка"}[h.mode]}
-                  </div>
-                )}
-              </div>
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#7a8898", lineHeight: 1.4, marginBottom: 4 }}>{headline.why}</div>
+              {headline.example && (
+                <div className="doc-font" style={{ fontSize: 12, color: "#a8b8c8", fontStyle: "italic", lineHeight: 1.4 }}>Пример: «{headline.example}»</div>
+              )}
+            </div>
+            <div style={{ flexShrink: 0, textAlign: "right" }}>
+              <div className="mono-font" style={{ fontSize: 8, color: "#5a7a5a", whiteSpace: "nowrap" }}>{headline.effect}</div>
+              {headline.mode !== "skip" && <div className="mono-font" style={{ fontSize: 8, color: "#4a5a70", marginTop: 2 }}>{MODE_LABELS[headline.mode]}</div>}
             </div>
           </div>
-        ))}
+        </div>
+      )}
+
+      {/* Доклады всех министров одновременно */}
+      <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.1em", marginBottom: 6 }}>ДОКЛАДЫ МИНИСТЕРСТВ</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {sortedCabinet.map((adv, i) => {
+          const sc = STATUS_COLORS[adv.status];
+          const clickable = !!adv.action;
+          return (
+            <div
+              key={i}
+              onClick={clickable ? () => onSelectHint(adv.action) : undefined}
+              style={{
+                background: "#101824",
+                border: "1px solid #1c2734",
+                borderLeft: `3px solid ${sc}`,
+                borderRadius: 4, padding: "6px 9px",
+                cursor: clickable ? "pointer" : "default",
+                opacity: adv.status === "ok" ? 0.78 : 1,
+              }}
+              onMouseEnter={clickable ? (e => e.currentTarget.style.borderColor = sc) : undefined}
+              onMouseLeave={clickable ? (e => { e.currentTarget.style.border = "1px solid #1c2734"; e.currentTarget.style.borderLeft = `3px solid ${sc}`; }) : undefined}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 11 }}>{adv.icon}</span>
+                  <span className="mono-font" style={{ fontSize: 9.5, color: sc, fontWeight: 700 }}>{adv.domain}</span>
+                  <span style={{ fontSize: 8 }}>{STATUS_DOTS[adv.status]}</span>
+                </div>
+                <span className="mono-font" style={{ fontSize: 8, color: "#4a5a70", whiteSpace: "nowrap" }}>{adv.metric}</span>
+              </div>
+              <div className="doc-font" style={{ fontSize: 11, color: "#7a8898", lineHeight: 1.35, marginTop: 3 }}>{adv.read}</div>
+              {clickable && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, gap: 8 }}>
+                  <span className="doc-font" style={{ fontSize: 11, color: "#a8b8c8", fontStyle: "italic" }}>{adv.action.example ? `«${adv.action.example}»` : "Перегруппировка войск"}</span>
+                  <span className="mono-font" style={{ fontSize: 8, color: "#4a5a70", whiteSpace: "nowrap" }}>{MODE_LABELS[adv.action.mode]}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
       <div className="mono-font" style={{ fontSize: 8, color: "#2a3540", marginTop: 8, textAlign: "right" }}>
-        Нажмите на совет — он заполнит форму автоматически
+        Нажмите на доклад министра — он заполнит форму автоматически
       </div>
     </div>
   );
