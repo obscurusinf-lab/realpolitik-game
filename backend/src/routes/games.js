@@ -42,8 +42,10 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const payload = verifyToken(request, reply);
     if (!payload) return;
 
-    const { countryId } = request.body || {};
+    const { countryId, assistMode } = request.body || {};
     const userId = payload.userId;
+    // Режим закрепляется на старте: 'advisor' (по умолчанию) | 'hardcore'
+    const mode = assistMode === "hardcore" ? "hardcore" : "advisor";
 
     const countRes = await db.query(
       `SELECT COUNT(*) AS cnt FROM games WHERE owner_user_id = $1 AND status = 'active'`,
@@ -83,9 +85,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       await client.query("BEGIN");
 
       const gameRes = await client.query(
-        `INSERT INTO games (owner_user_id, country_id, status, current_turn)
-         VALUES ($1, $2, 'active', 0) RETURNING id`,
-        [userId, countryId]
+        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode)
+         VALUES ($1, $2, 'active', 0, $3) RETURNING id`,
+        [userId, countryId, mode]
       );
       const gameId = gameRes.rows[0].id;
 
@@ -118,7 +120,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       }
 
       await client.query("COMMIT");
-      return reply.code(201).send({ gameId, countryId, status: "active", currentTurn: 0 });
+      return reply.code(201).send({ gameId, countryId, status: "active", currentTurn: 0, assistMode: mode });
     } catch (err) {
       await client.query("ROLLBACK");
       fastify.log.error(err);
@@ -133,7 +135,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const payload = verifyToken(request, reply);
     if (!payload) return;
     const res = await db.query(
-      `SELECT g.id, g.current_turn, g.status, g.created_at, c.name AS country_name, c.id AS country_id
+      `SELECT g.id, g.current_turn, g.status, g.created_at, g.assist_mode, c.name AS country_name, c.id AS country_id
        FROM games g JOIN countries c ON c.id = g.country_id
        WHERE g.owner_user_id = $1 ORDER BY g.updated_at DESC LIMIT 20`,
       [payload.userId]
@@ -164,7 +166,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     if (!payload) return;
 
     const gameRes = await db.query(
-      `SELECT g.id, g.current_turn, g.status, g.created_at, g.owner_user_id,
+      `SELECT g.id, g.current_turn, g.status, g.created_at, g.owner_user_id, g.assist_mode,
               gs.stats, gs.relations, gs.policies, gs.overview,
               c.name AS country_name, c.context_summary
        FROM games g
@@ -268,6 +270,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     return reply.send({
       id: game.id,
       status: game.status,
+      assistMode: game.assist_mode || "advisor",
       countryName: game.country_name,
       turn: game.current_turn,
       date,

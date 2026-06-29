@@ -227,6 +227,7 @@ function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLo
 
   // game start state (shown after auth)
   const [selectedCountry, setSelectedCountry] = useState("RU");
+  const [selectedMode, setSelectedMode] = useState("advisor"); // "advisor" | "hardcore"
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(null);
 
@@ -266,7 +267,7 @@ function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLo
     setStarting(true);
     setStartError(null);
     try {
-      const { gameId } = await createGame(selectedCountry);
+      const { gameId } = await createGame(selectedCountry, selectedMode);
       onStart(gameId, authUser.displayName, selectedCountry);
     } catch (err) {
       setStartError(err.message);
@@ -421,6 +422,29 @@ function StartScreen({ authUser, onAuthSuccess, onStart, myGames = [], myGamesLo
                       <div className="doc-font" style={{ fontSize: 12, color: "#a8a294", lineHeight: 1.4 }}>{c.desc}</div>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 28 }}>
+                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>РЕЖИМ ИГРЫ</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {[
+                    { id: "advisor", icon: "💡", title: "С советниками", desc: "Кабинет министров подсказывает оптимальные ходы и путь к победе. Для знакомства с игрой." },
+                    { id: "hardcore", icon: "🎖", title: "Сам по себе", desc: "Никаких игровых подсказок. До победы — военной или дипломатической — додумываетесь сами." },
+                  ].map(m => {
+                    const sel = selectedMode === m.id;
+                    return (
+                      <div key={m.id}
+                        onClick={() => setSelectedMode(m.id)}
+                        style={{ background: sel ? (m.id === "hardcore" ? "#2a1a1a" : "#1a2a1a") : "#1f2733", border: `2px solid ${sel ? (m.id === "hardcore" ? "#a8313a" : "#9c8347") : "#2a3040"}`, borderRadius: 6, padding: "14px", cursor: "pointer", transition: "border-color 0.15s, background 0.15s" }}
+                        onMouseEnter={e => { if (!sel) e.currentTarget.style.borderColor = "#9c8347"; }}
+                        onMouseLeave={e => { if (!sel) e.currentTarget.style.borderColor = "#2a3040"; }}>
+                        <div style={{ fontSize: 24, marginBottom: 6 }}>{m.icon}</div>
+                        <div className="doc-font" style={{ fontSize: 14, color: sel ? "#ece7d8" : "#a8a294", fontWeight: 700, marginBottom: 4 }}>{m.title}</div>
+                        <div className="doc-font" style={{ fontSize: 11.5, color: "#7a8290", lineHeight: 1.4 }}>{m.desc}</div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

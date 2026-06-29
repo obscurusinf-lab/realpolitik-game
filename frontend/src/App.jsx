@@ -1832,6 +1832,7 @@ function DecreeLegendModal({ onClose }) {
 
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
   const [state, setState] = useState(null);
+  const [assistMode, setAssistMode] = useState("advisor"); // закреплён на старте партии: "advisor" | "hardcore"
   const [tab, setTab] = useState("overview");
   const [loaded, setLoaded] = useState(false);
   const [showWelcome, setShowWelcome] = useState(initialShowWelcome);
@@ -1877,6 +1878,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     try {
       const data = await fetchGameState(gameId);
       setState(data);
+      if (data.assistMode) setAssistMode(data.assistMode);
       setSessionTurnStart(prev => prev ?? data.turn);
       setLoadError(null);
     } catch (err) {
@@ -2367,17 +2369,23 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 </>
               )}
             </div>
-            <button
-              onClick={toggleTutorial}
-              title={tutorialMode ? "Советник включён — нажмите чтобы выключить" : "Советник выключен — нажмите чтобы включить"}
-              style={{ background: tutorialMode ? "#0e1a10" : "transparent", border: `1px solid ${tutorialMode ? "#2a5030" : "#2a3040"}`, borderRadius: 4, padding: "3px 8px", fontFamily: "monospace", fontSize: 9, color: tutorialMode ? "#4a9c6a" : "#3a4050", cursor: "pointer", flexShrink: 0, letterSpacing: "0.04em" }}
-            >
-              {tutorialMode ? "💡 советник" : "💡 off"}
-            </button>
+            {assistMode === "hardcore" ? (
+              <span className="mono-font" title="Режим «Сам по себе» — игровые подсказки отключены на старте партии" style={{ border: "1px solid #4a2020", borderRadius: 4, padding: "3px 8px", fontSize: 9, color: "#8a4040", flexShrink: 0, letterSpacing: "0.04em" }}>
+                🎖 сам по себе
+              </span>
+            ) : (
+              <button
+                onClick={toggleTutorial}
+                title={tutorialMode ? "Советник включён — нажмите чтобы выключить" : "Советник выключен — нажмите чтобы включить"}
+                style={{ background: tutorialMode ? "#0e1a10" : "transparent", border: `1px solid ${tutorialMode ? "#2a5030" : "#2a3040"}`, borderRadius: 4, padding: "3px 8px", fontFamily: "monospace", fontSize: 9, color: tutorialMode ? "#4a9c6a" : "#3a4050", cursor: "pointer", flexShrink: 0, letterSpacing: "0.04em" }}
+              >
+                {tutorialMode ? "💡 советник" : "💡 off"}
+              </button>
+            )}
           </div>
 
-          {/* Панель подсказок */}
-          {tutorialMode && !lastActionResult && (
+          {/* Панель подсказок — скрыта в режиме «сам по себе» */}
+          {tutorialMode && !lastActionResult && assistMode !== "hardcore" && (
             <SmartHintsPanel
               stats={state?.stats}
               turn={state?.turn ?? 0}
