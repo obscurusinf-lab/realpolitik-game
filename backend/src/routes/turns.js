@@ -109,9 +109,23 @@ function advanceGameDate(currentDateStr, crisisMode) {
   }
 }
 
-// Генерирует 1-2 автономных события в конце месяца (мир живёт без игрока)
-function generateAutonomousEvents(stats, month) {
-  const events = [];
+// Детерминированный ГСЧ на основе gameId + month.
+// Даёт разные числа для разных партий, но воспроизводимые при одинаковых условиях.
+function makeSeededRng(gameId, month) {
+  let seed = 0;
+  const str = `${gameId}:${month}:auto`;
+  for (let i = 0; i < str.length; i++) seed = (seed * 31 + str.charCodeAt(i)) >>> 0;
+  return function() {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+}
+
+// Генерирует 1-2 автономных события в конце месяца (мир живёт без игрока).
+// Внутри каждой группы приоритета события выбираются случайно (ГСЧ, сид = gameId+month),
+// поэтому в разных партиях и разных месяцах при одинаковых условиях события разнятся.
+function generateAutonomousEvents(stats, month, gameId) {
+  const rng = makeSeededRng(gameId || "default", month);
   const mil = stats.military ?? 50;
   const eco = stats.economy ?? 50;
   const corr = stats.corruption ?? 55;
@@ -120,43 +134,94 @@ function generateAutonomousEvents(stats, month) {
   const iso = stats.isolation ?? 68;
   const don = stats.donetsk_control ?? 78;
 
-  // Пул событий — выбираем подходящие по условиям
+  // Пул событий — несколько вариантов для каждого условия
   const pool = [];
 
   // Украина: зондирует слабые участки при низкой боеспособности
   if (mil < 55) {
-    pool.push({ priority: 3, source: "Генштаб", text: "ВСУ активизировались на харьковском направлении — разведывательно-ударные группы тестируют линию обороны. Требуется внимание.", statDelta: { kharkiv_control: -2, army_morale: -1 } });
+    const variants = [
+      { text: "ВСУ активизировались на харьковском направлении — разведывательно-ударные группы тестируют линию обороны. Требуется внимание.", statDelta: { kharkiv_control: -2, army_morale: -1 } },
+      { text: "Украинские дроны-камикадзе нанесли серию ударов по логистическим узлам в Белгородской области. Поставки на фронт временно нарушены.", statDelta: { readiness: -2, army_morale: -1 } },
+      { text: "Разведка фиксирует накопление ВСУ у линии соприкосновения — готовится зондирующая атака на слабых участках.", statDelta: { kherson_control: -2 } },
+    ];
+    pool.push({ priority: 3, source: "Генштаб", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Украина: контрнаступление если давно перегруппировка
   if (streak === 0 && mil < 70) {
-    pool.push({ priority: 2, source: "Минобороны", text: "Противник воспользовался оперативной паузой и усилил давление на запорожском фасе. Подтянуты резервы и западное вооружение.", statDelta: { zaporizhzhia_control: -3, military: -1 } });
+    const variants = [
+      { text: "Противник воспользовался оперативной паузой и усилил давление на запорожском фасе. Подтянуты резервы и западное вооружение.", statDelta: { zaporizhzhia_control: -3, military: -1 } },
+      { text: "ВСУ начали локальное наступление в Херсонском направлении, используя отсутствие активного давления с нашей стороны.", statDelta: { kherson_control: -4, army_morale: -1 } },
+    ];
+    pool.push({ priority: 2, source: "Минобороны", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Экономика: санкционное давление
   if (iso > 65 && eco < 55) {
-    pool.push({ priority: 2, source: "Минфин", text: "Новый пакет западных ограничений бьёт по параллельному импорту. Ряд поставщиков приостановил отгрузки — логистика усложнилась.", statDelta: { economy: -2, reserves: -1 } });
+    const variants = [
+      { text: "Новый пакет западных ограничений бьёт по параллельному импорту. Ряд поставщиков приостановил отгрузки — логистика усложнилась.", statDelta: { economy: -2, reserves: -1 } },
+      { text: "Американские вторичные санкции вынудили китайские банки ограничить транзакции с Россией. Экспортные расчёты усложнились.", statDelta: { economy: -1, reserves: -2 } },
+      { text: "Страховщики отказали в покрытии российских судов — стоимость морского фрахта выросла на 40%. Доходы от экспорта нефти сократились.", statDelta: { economy: -3 } },
+    ];
+    pool.push({ priority: 2, source: "Минфин", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Коррупция: скандал при высоком уровне
   if (corr > 65) {
-    pool.push({ priority: 2, source: "СМИ", text: "Утечка в прессу: журналисты-расследователи опубликовали данные об откатах в оборонных закупках. Соцсети взорвались — рейтинг под давлением.", statDelta: { approval: -2, social_tension: 2 } });
+    const variants = [
+      { text: "Утечка в прессу: журналисты-расследователи опубликовали данные об откатах в оборонных закупках. Соцсети взорвались — рейтинг под давлением.", statDelta: { approval: -2, social_tension: 2 } },
+      { text: "Губернатор одного из ключевых регионов задержан по подозрению в хищении бюджетных средств. Скандал бьёт по доверию к власти.", statDelta: { approval: -3, stability: -1 } },
+      { text: "Расследование «Медиазоны»: в оборонных контрактах выявлена схема двойного списания. Сумма нанесённого ущерба — более ₽80 млрд.", statDelta: { approval: -2, corruption: 2 } },
+    ];
+    pool.push({ priority: 2, source: "СМИ", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Внутреннее: соц. напряжение
   if (tension > 55) {
-    pool.push({ priority: 2, source: "ФСБ", text: "Фиксируем нарастание протестных настроений в ряде регионов — в основном связаны с ростом цен и задержками выплат. Ситуация под наблюдением.", statDelta: { stability: -1, lower_class_mood: -2 } });
+    const variants = [
+      { text: "Фиксируем нарастание протестных настроений в ряде регионов — в основном связаны с ростом цен и задержками выплат. Ситуация под наблюдением.", statDelta: { stability: -1, lower_class_mood: -2 } },
+      { text: "В нескольких промышленных городах прошли стихийные акции против мобилизации и роста цен. Полиция применила силу при разгоне.", statDelta: { stability: -2, approval: -1 } },
+      { text: "Опрос ФСО: 62% граждан считают экономическую ситуацию «плохой» или «очень плохой». Базовый электорат теряет доверие.", statDelta: { approval: -2, lower_class_mood: -3 } },
+    ];
+    pool.push({ priority: 2, source: "ФСБ", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Дипломатия: нейтральные страны ищут контакт
   if (iso < 60) {
-    pool.push({ priority: 1, source: "МИД", text: "Турция и ОАЭ проявили интерес к расширению торговых договорённостей. Предварительные переговоры запланированы на следующий месяц.", statDelta: { diplomacy: 1 } });
+    const variants = [
+      { text: "Турция и ОАЭ проявили интерес к расширению торговых договорённостей. Предварительные переговоры запланированы на следующий месяц.", statDelta: { diplomacy: 1 } },
+      { text: "Индия предложила расширить расчёты в рупиях. Переговоры о новых торговых схемах вышли на рабочий уровень.", statDelta: { diplomacy: 1, reserves: 1 } },
+      { text: "Китай усилил торгово-экономическое взаимодействие — объём товарооборота за месяц вырос на 12% год к году.", statDelta: { economy: 1, diplomacy: 1 } },
+    ];
+    pool.push({ priority: 1, source: "МИД", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Позитив: военные успехи при высокой армии
   if (mil > 70 && don < 95) {
-    pool.push({ priority: 1, source: "Минобороны", text: "Войска закрепились на новых рубежах. Противник не предпринимал активных действий — время использовано для инженерного укрепления позиций.", statDelta: { army_morale: 1, readiness: 1 } });
+    const variants = [
+      { text: "Войска закрепились на новых рубежах. Противник не предпринимал активных действий — время использовано для инженерного укрепления позиций.", statDelta: { army_morale: 1, readiness: 1 } },
+      { text: "Успешная контрбатарейная работа: уничтожено несколько позиций натовской артиллерии. Темп обстрелов снизился.", statDelta: { readiness: 2 } },
+      { text: "Армия провела успешную перегруппировку: новые ротации повысили боеспособность на ключевых направлениях.", statDelta: { army_morale: 2 } },
+    ];
+    pool.push({ priority: 1, source: "Минобороны", ...variants[Math.floor(rng() * variants.length)] });
   }
-  // Всегда: общая сводка если нет ярких событий
-  pool.push({ priority: 0, source: "Администрация Президента", text: `Месяц ${month} завершён в штатном режиме. Оперативная обстановка стабильна, продолжается текущий режим управления.`, statDelta: {} });
+  // Нейтральный фон (всегда, случайный вариант)
+  const neutralVariants = [
+    `Месяц ${month} завершён в штатном режиме. Оперативная обстановка стабильна, продолжается текущий режим управления.`,
+    `Плановые заседания комитетов Госдумы и Совета Федерации прошли без инцидентов. Повестка — бюджетные поправки и кадровые назначения.`,
+    `По данным Росстата, промышленное производство в текущем месяце показало нейтральную динамику. Существенных изменений не зафиксировано.`,
+  ];
+  pool.push({ priority: 0, source: "Администрация Президента", text: neutralVariants[Math.floor(rng() * neutralVariants.length)], statDelta: {} });
 
-  // Сортируем по приоритету, берём топ-2
-  pool.sort((a, b) => b.priority - a.priority);
-  return pool.slice(0, 2);
+  // Сортируем по приоритету. Внутри одного приоритета — перемешиваем через ГСЧ (Fisher-Yates).
+  const grouped = {};
+  for (const ev of pool) {
+    (grouped[ev.priority] = grouped[ev.priority] || []).push(ev);
+  }
+  const shuffled = [];
+  for (const pr of Object.keys(grouped).map(Number).sort((a, b) => b - a)) {
+    const group = grouped[pr];
+    for (let i = group.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [group[i], group[j]] = [group[j], group[i]];
+    }
+    shuffled.push(...group);
+  }
+  return shuffled.slice(0, 2);
 }
 
 // --- ФИНАЛЬНАЯ ГЛАВА: сценарные события на ходах 17–23 ---
@@ -1271,6 +1336,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
       // Сбрасываем флаг выпуска ОФЗ за месяц
       delete newStats.ofz_used_this_month;
+      // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.
+      // Каждые 10 пунктов сверх 70 = -1 к экономике и одобрению. Максимум: -3 при инфляции 100.
+      const inflationNow = newStats.inflation ?? 64;
+      let inflationEconomyPenalty = 0;
+      let inflationApprovalPenalty = 0;
+      if (inflationNow > 70) {
+        inflationEconomyPenalty = Math.min(3, Math.floor((inflationNow - 70) / 10) + 1);
+        inflationApprovalPenalty = Math.min(2, Math.floor((inflationNow - 70) / 15) + 1);
+        newStats.economy = Math.max(0, (newStats.economy ?? 50) - inflationEconomyPenalty);
+        newStats.approval = Math.max(0, (newStats.approval ?? 50) - inflationApprovalPenalty);
+      }
       // СПИРАЛЬ КАЗНА → ЭКОНОМИКА (двусторонняя связь; обратная сторона — доход казны зависит от экономики)
       let deficitHit = false;
       let economyEffect = 0; // эффект на экономику от состояния казны
@@ -1288,7 +1364,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         economyEffect = +1;
       }
       if (economyEffect) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + economyEffect));
-      newStats.treasury = treasuryAfter;
+      // Казна ограничена 100 сверху: профицит выше 100 не накапливается
+      newStats.treasury = Math.min(100, treasuryAfter);
 
       // Сдвиг даты + продвижение месяца
       const currentGameDate = game.overview?.date;
@@ -1318,13 +1395,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const T = 0.8; // ₽ трлн за пункт казны
       const flowSign = monthlyNet >= 0 ? "+" : "";
       const ofzLine = ofzCount > 0 ? `, обслуживание ОФЗ −${ofzDebtService}` : "";
+      const inflationLine = inflationEconomyPenalty > 0
+        ? ` Инфляционный шок (${Math.round(inflationNow)}): экономика −${inflationEconomyPenalty}, одобрение −${inflationApprovalPenalty}.`
+        : "";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, completedMonth, "Минфин",
-         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}. Итог: ${flowSign}${monthlyNet} → казна ${(treasuryAfter * T).toFixed(1)} трлн ₽.` +
+         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
          (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
           economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
-          economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "")]
+          economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "") +
+         inflationLine]
       );
 
       // --- ФИНАЛЬНАЯ ГЛАВА: эскалация на ходах 17–23 ---
@@ -1343,7 +1424,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- АВТОНОМНЫЕ СОБЫТИЯ (мир живёт без тебя) ---
-      const autonomousEvents = generateAutonomousEvents(newStats, completedMonth);
+      const autonomousEvents = generateAutonomousEvents(newStats, completedMonth, gameId);
       for (const ev of autonomousEvents) {
         // Применяем стат-эффект события
         for (const [k, d] of Object.entries(ev.statDelta || {})) {
@@ -1369,7 +1450,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         initiative: newStats.initiative,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
-        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, net: monthlyNet, treasury: treasuryAfter, deficit: deficitHit, economyEffect },
+        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow) },
         autonomousEvents: autonomousEvents.map(e => ({ source: e.source, text: e.text })),
       });
     } catch (err) {
@@ -1419,8 +1500,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // Передышка восстанавливает инициативу умеренно (меньше перегруппировки: +40).
+      // Cap 130 (не 100) — чтобы carryover-бонус не сгорал при вызове передышки.
       const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
-      newStats.initiative = Math.min(INITIATIVE_MAX, currentInit + 40);
+      newStats.initiative = Math.min(130, currentInit + 40);
       statDeltas.initiative = newStats.initiative - currentInit;
 
       // Фронт без внимания — лёгкий откат (мягче прежнего пропуска)
@@ -1490,10 +1572,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         actionMode: "regroup",
       });
 
-      // Перегруппировка: пассивная регенерация + бонус REGROUP_REGEN, без стоимости
+      // Перегруппировка: пассивная регенерация + бонус REGROUP_REGEN, без стоимости.
+      // Cap 130 (не 100) — carryover-бонус не сгорает при перегруппировке.
       const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
       const passiveRegen = 25;
-      newStats.initiative = Math.min(INITIATIVE_MAX, currentInit + passiveRegen + INITIATIVE_REGROUP_REGEN);
+      newStats.initiative = Math.min(130, currentInit + passiveRegen + INITIATIVE_REGROUP_REGEN);
       statDeltas.initiative = newStats.initiative - currentInit;
 
       const narrative = "Войска отведены на переформирование. Армия восстанавливает боеспособность — фронт стабилизирован, подтягивается снабжение и резервы.";

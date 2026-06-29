@@ -4721,13 +4721,16 @@ function StatDeltaBadges({ delta }) {
   );
 }
 
-function UkraineActionCard({ item, gameId, respondedType, onResponded }) {
+function UkraineActionCard({ item, gameId, respondedType, onResponded, warCounter = 0 }) {
   const [loading, setLoading] = useState(null); // responseType being submitted
   const [error, setError] = useState(null);
 
   // reactions хранится как объект {type, responses} для ukraine_action
   const eventData = item.reactions && !Array.isArray(item.reactions) ? item.reactions : null;
   const responses = eventData?.responses || [];
+
+  const WAR_DEFEAT_THRESHOLD = 3;
+  const warDanger = warCounter >= WAR_DEFEAT_THRESHOLD - 1; // 2+ = опасная зона
 
   const RESPONSE_STYLE = {
     defend:   { label: "🛡 Оборонительные меры", bg: "#0d1a10", border: "#2a5a30", color: "#7fae93" },
@@ -4766,12 +4769,30 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded }) {
           </div>
         ) : (
           <>
-            <div className="mono-font" style={{ fontSize: 9, color: "#8a5050", marginBottom: 8, letterSpacing: "0.08em" }}>
-              ВЫБЕРИТЕ ОТВЕТНЫЕ МЕРЫ
+            {/* Счётчик эскалации */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a5050", letterSpacing: "0.08em", flex: 1 }}>
+                ВЫБЕРИТЕ ОТВЕТНЫЕ МЕРЫ
+              </div>
+              <div style={{
+                fontFamily: "'JetBrains Mono',monospace", fontSize: 10,
+                color: warDanger ? "#e05050" : "#8a6050",
+                background: warDanger ? "#2a0d0d" : "#1a1010",
+                border: `1px solid ${warDanger ? "#7a2020" : "#3a2020"}`,
+                borderRadius: 3, padding: "2px 7px",
+              }}>
+                ⚠ Эскалация: {warCounter}/{WAR_DEFEAT_THRESHOLD}
+              </div>
             </div>
+            {warDanger && (
+              <div className="mono-font" style={{ fontSize: 9.5, color: "#e05050", background: "#200808", border: "1px solid #5a1010", borderRadius: 3, padding: "5px 8px", marginBottom: 8, lineHeight: 1.5 }}>
+                КРИТИЧЕСКИ: счётчик войны {warCounter}/{WAR_DEFEAT_THRESHOLD}. «Контрудар» добавит +1 — при значении ≥{WAR_DEFEAT_THRESHOLD} наступает поражение (defeat_war).
+              </div>
+            )}
             <div style={{ display: "grid", gap: 6 }}>
               {responses.map((r) => {
                 const style = RESPONSE_STYLE[r.type] || {};
+                const isRetaliate = r.type === "retaliate";
                 return (
                   <button
                     key={r.type}
@@ -4779,7 +4800,7 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded }) {
                     disabled={!!loading}
                     style={{
                       background: loading === r.type ? "#2a1a1a" : style.bg || "#1a1a2a",
-                      border: `1px solid ${style.border || "#4a4a6a"}`,
+                      border: `1px solid ${isRetaliate && warDanger ? "#c04040" : style.border || "#4a4a6a"}`,
                       color: style.color || "#a0a0c0",
                       borderRadius: 4, padding: "8px 12px",
                       fontFamily: "'PT Serif',serif", fontSize: 12.5,
@@ -4787,7 +4808,7 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded }) {
                       opacity: loading && loading !== r.type ? 0.5 : 1,
                     }}
                   >
-                    {loading === r.type ? "Выполняется…" : r.label}
+                    {loading === r.type ? "Выполняется…" : isRetaliate ? `${r.label} ${warDanger ? "⚠ +1 эскал." : "(+1 к счётчику)"}` : r.label}
                   </button>
                 );
               })}
@@ -4984,25 +5005,60 @@ function TreasuryTab({ state, gameId, onRefresh }) {
       </div>
 
       {/* Инфляция */}
-      <div style={sectionStyle}>
-        <div style={labelStyle}>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
-        <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "10px 12px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13 }}>Текущая инфляция</span>
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 700, color: (stats.inflation ?? 64) > 70 ? "#8a2020" : "#5a5040" }}>
-              {stats.inflation ?? 64}
-            </span>
-          </div>
-          <div style={{ height: 4, background: "#e0dac8", borderRadius: 2, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${stats.inflation ?? 64}%`, background: (stats.inflation ?? 64) > 70 ? "#c03030" : "#9c8347", borderRadius: 2 }} />
-          </div>
-          {(stats.inflation ?? 64) > 70 && (
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#a03030", marginTop: 6 }}>
-              Высокая инфляция давит на экономику и снижает одобрение. Погасите ОФЗ или проведите политику аустерити.
+      {(() => {
+        const inf = stats.inflation ?? 64;
+        const infColor = inf > 80 ? "#c03030" : inf > 70 ? "#b05020" : inf > 60 ? "#9c8347" : "#4a7a5a";
+        const ecoP = inf > 70 ? Math.min(3, Math.floor((inf - 70) / 10) + 1) : 0;
+        const appP = inf > 70 ? Math.min(2, Math.floor((inf - 70) / 15) + 1) : 0;
+        return (
+          <div style={sectionStyle}>
+            <div style={labelStyle}>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
+            <div style={{ background: inf > 70 ? "#1a0c08" : "#f5f1e6", border: `1px solid ${inf > 70 ? "#7a3020" : "#d8d2bf"}`, borderRadius: 4, padding: "12px 14px" }}>
+              {/* Значение + бар */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: inf > 70 ? "#e0c0a0" : "#3a3020" }}>Инфляция</span>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: infColor }}>
+                  {Math.round(inf)}
+                </span>
+              </div>
+              <div style={{ height: 8, background: inf > 70 ? "#2a1510" : "#e0dac8", borderRadius: 4, overflow: "hidden", marginBottom: 10, position: "relative" }}>
+                <div style={{ height: "100%", width: `${inf}%`, background: infColor, borderRadius: 4, transition: "width 0.4s" }} />
+                {/* порог 70 — маркер */}
+                <div style={{ position: "absolute", top: 0, left: "70%", width: 1, height: "100%", background: "#c03030", opacity: 0.6 }} />
+              </div>
+              {/* Строки штрафов */}
+              {ecoP > 0 ? (
+                <div style={{ background: inf > 70 ? "#200a06" : "#fff4f0", border: `1px solid ${inf > 80 ? "#8a2020" : "#c07040"}`, borderRadius: 3, padding: "6px 10px" }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: inf > 80 ? "#e05050" : "#b05030", letterSpacing: "0.06em", marginBottom: 4 }}>
+                    АКТИВНЫЙ ИНФЛЯЦИОННЫЙ ШТОРМ (порог &gt; 70)
+                  </div>
+                  <div style={{ display: "flex", gap: 16 }}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#c04040" }}>
+                      Экономика −{ecoP}/мес.
+                    </span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#c04040" }}>
+                      Одобрение −{appP}/мес.
+                    </span>
+                  </div>
+                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11.5, color: inf > 70 ? "#c09080" : "#7a4030", marginTop: 5, lineHeight: 1.4 }}>
+                    Погасите ОФЗ или проведите политику аустерити, чтобы снизить давление.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a7050" }}>
+                  Инфляция в норме. Штрафов нет — порог активируется при значении &gt; 70.
+                </div>
+              )}
+              {/* ОФЗ-вклад */}
+              {ofzCount > 0 && (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#8a6040", marginTop: 8, borderTop: `1px solid ${inf > 70 ? "#3a2010" : "#e0dac8"}`, paddingTop: 6 }}>
+                  ОФЗ вклад: +{ofzCount} инфл./мес. (обслуживание) + {ofzCount} инфл./мес. (базовый рост)
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -5034,6 +5090,7 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
               gameId={gameId}
               respondedType={respondedMap[item.turn]}
               onResponded={handleResponded}
+              warCounter={state.stats?.war_escalation_counter ?? 0}
             />
           );
         }
