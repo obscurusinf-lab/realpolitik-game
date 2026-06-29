@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -2086,12 +2086,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     setTurnError(null);
     try {
       const result = await skipTurn(gameId);
-      setEndTurnResult({
-        narrative: result.narrative || "Президент бездействует. Страна теряет темп.",
-        statDeltasPreview: result.statDeltas || {},
-        actionMode: "decree",
-      });
-      setDraftInput("");
+      const r = { narrative: result.narrative || "Гражданская передышка.", statDeltasPreview: result.statDeltas || {}, actionMode: "skip" };
+      if (state?.multiActionTurns) {
+        // Внутри месяца — остаёмся, обновляем состояние
+        setLastActionResult(r); setDraftInput(""); await loadState();
+      } else {
+        setEndTurnResult(r); setDraftInput("");
+      }
     } catch (err) {
       setTurnError(err.message);
     } finally {
@@ -2105,12 +2106,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     setTurnError(null);
     try {
       const result = await regroupTurn(gameId);
-      setEndTurnResult({
-        narrative: result.narrative || "Войска переформированы.",
-        statDeltasPreview: result.statDeltas || {},
-        actionMode: "regroup",
-      });
-      setDraftInput("");
+      const r = { narrative: result.narrative || "Войска переформированы.", statDeltasPreview: result.statDeltas || {}, actionMode: "regroup" };
+      if (state?.multiActionTurns) {
+        setLastActionResult(r); setDraftInput(""); await loadState();
+      } else {
+        setEndTurnResult(r); setDraftInput("");
+      }
     } catch (err) {
       setTurnError(err.message);
     } finally {
@@ -2118,13 +2119,30 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     }
   }
 
-  function handleEndTurn() {
+  async function handleEndTurn() {
+    // Мульти-режим: «Завершить месяц» — продвигает месяц, затем обзор реакций мира
+    if (state?.multiActionTurns) {
+      if (confirming) return;
+      setConfirming(true);
+      setTurnError(null);
+      try {
+        const res = await endMonth(gameId);
+        setConfirming(false);
+        if (res.gameOutcome) { setLastActionResult(null); setGameOutcome(res.gameOutcome); return; }
+        // Показываем обзор накопленных за месяц реакций мира / действий Украины
+        setEndTurnResult(lastActionResult || { narrative: `Месяц завершён. Наступает месяц ${res.nextMonth}.`, statDeltasPreview: {}, actionMode: "decree" });
+        setLastActionResult(null);
+      } catch (err) {
+        setTurnError(err.message);
+        setConfirming(false);
+      }
+      return;
+    }
+    // Старая модель: 1 действие = 1 ход
     if (lastActionResult) {
-      // Игрок уже совершил действия — показываем EndTurnScreen без нового skip-запроса
       setEndTurnResult(lastActionResult);
       setLastActionResult(null);
     } else {
-      // Игрок пропускает ход — даём +45 инициативы
       handleSkipTurn();
     }
   }
@@ -2363,7 +2381,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           {lastActionResult && (
             <div style={{ background: "#0d1a10", border: "1px solid #2a4030", borderLeft: "3px solid #7fae93", borderRadius: 4, padding: "10px 12px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
               <div style={{ flex: 1 }}>
-                <div className="mono-font" style={{ fontSize: 9, color: "#7fae93", letterSpacing: "0.08em", marginBottom: 4 }}>✓ РЕШЕНИЕ ВЫПОЛНЕНО · МОЖЕТЕ ДЕЙСТВОВАТЬ ЕЩЁ</div>
+                <div className="mono-font" style={{ fontSize: 9, color: "#7fae93", letterSpacing: "0.08em", marginBottom: 4 }}>
+                  {state?.multiActionTurns
+                    ? `✓ РЕШЕНИЕ ПРИНЯТО · МЕСЯЦ ПРОДОЛЖАЕТСЯ · ИНИЦИАТИВА ${state?.stats?.initiative ?? 0}`
+                    : "✓ РЕШЕНИЕ ВЫПОЛНЕНО · МОЖЕТЕ ДЕЙСТВОВАТЬ ЕЩЁ"}
+                </div>
                 <div className="doc-font" style={{ fontSize: 12.5, color: "#a0c090", lineHeight: 1.5 }}>{lastActionResult.narrative}</div>
               </div>
               <button onClick={() => setLastActionResult(null)} style={{ background: "none", border: "none", color: "#4a6050", cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0, padding: "0 0 0 4px" }}>×</button>
@@ -2375,7 +2397,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {lastActionResult ? (
                 <div className="mono-font" style={{ fontSize: 10, color: "#7fae93", letterSpacing: "0.08em", background: "#0a1a0d", border: "1px solid #2a4030", borderRadius: 3, padding: "4px 10px" }}>
-                  ➕ ДОБАВЬТЕ ЕЩЁ ОДНО ДЕЙСТВИЕ — ИЛИ ЗАВЕРШИТЕ ХОД
+                  {state?.multiActionTurns ? "➕ ЕЩЁ ОДНО РЕШЕНИЕ (хватит инициативы) — ИЛИ «ЗАВЕРШИТЬ МЕСЯЦ»" : "➕ ДОБАВЬТЕ ЕЩЁ ОДНО ДЕЙСТВИЕ — ИЛИ ЗАВЕРШИТЕ ХОД"}
                 </div>
               ) : (
                 <>
@@ -2599,37 +2621,69 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </div>
           </div>
 
-          {/* Завершить ход */}
+          {/* Завершить ход / месяц */}
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-            {!lastActionResult && (
+            {state?.multiActionTurns ? (
+              /* Мульти-режим: действия внутри месяца + явное завершение месяца */
               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                 <button
                   onClick={handleRegroupTurn}
                   disabled={confirming}
-                  title="Перегруппировка — инициатива +75, армия отдыхает. Мягкие эффекты, нет штрафов"
+                  title="Перегруппировка — инициатива +75, армия отдыхает. Действие внутри месяца."
                   style={{ ...btnStyle("#1a2a1a", "#5a8050"), border: "1px solid #2a4030", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
                 >
-                  {confirming ? "…" : "⚙ Перегруппировка (+75 инициативы)"}
+                  {confirming ? "…" : "⚙ Перегруппировка"}
+                </button>
+                <button
+                  onClick={handleSkipTurn}
+                  disabled={confirming}
+                  title="Гражданская передышка — восстанавливает тыл. Действие внутри месяца."
+                  style={{ ...btnStyle("#1f2733", "#7a8aa0"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+                >
+                  {confirming ? "…" : "🏠 Передышка (тыл +)"}
                 </button>
                 <button
                   onClick={handleEndTurn}
                   disabled={confirming}
-                  title="Гражданская передышка — восстанавливает тыл (экономика/рейтинг/стабильность) и +40 инициативы. Без боевых бонусов, фронт без внимания."
-                  style={{ ...btnStyle("#1f2733", "#7a8aa0"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+                  title="Завершить месяц — восстановить инициативу, увидеть реакцию мира, перейти к следующему месяцу."
+                  style={{ ...btnStyle("#2a2410", "#c8b87a"), border: "1px solid #9c8347", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
                 >
-                  {confirming ? "…" : "🏠 Гражданская передышка (тыл +)"}
+                  {confirming ? "…" : "🗓 Завершить месяц → реакция мира"}
                 </button>
               </div>
-            )}
-            {lastActionResult && (
-              <button
-                onClick={handleEndTurn}
-                disabled={confirming}
-                title="Завершить ход и увидеть реакцию мира"
-                style={{ ...btnStyle("#1f2733", "#9c8347"), border: "1px solid #3a3020", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
-              >
-                {confirming ? "…" : "⏭ Завершить ход → реакция мира"}
-              </button>
+            ) : (
+              <>
+                {!lastActionResult && (
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                    <button
+                      onClick={handleRegroupTurn}
+                      disabled={confirming}
+                      title="Перегруппировка — инициатива +75, армия отдыхает. Мягкие эффекты, нет штрафов"
+                      style={{ ...btnStyle("#1a2a1a", "#5a8050"), border: "1px solid #2a4030", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+                    >
+                      {confirming ? "…" : "⚙ Перегруппировка (+75 инициативы)"}
+                    </button>
+                    <button
+                      onClick={handleEndTurn}
+                      disabled={confirming}
+                      title="Гражданская передышка — восстанавливает тыл (экономика/рейтинг/стабильность) и +40 инициативы."
+                      style={{ ...btnStyle("#1f2733", "#7a8aa0"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+                    >
+                      {confirming ? "…" : "🏠 Гражданская передышка (тыл +)"}
+                    </button>
+                  </div>
+                )}
+                {lastActionResult && (
+                  <button
+                    onClick={handleEndTurn}
+                    disabled={confirming}
+                    title="Завершить ход и увидеть реакцию мира"
+                    style={{ ...btnStyle("#1f2733", "#9c8347"), border: "1px solid #3a3020", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+                  >
+                    {confirming ? "…" : "⏭ Завершить ход → реакция мира"}
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

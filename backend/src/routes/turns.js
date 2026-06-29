@@ -309,6 +309,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, actionMode: pendingActionMode = "decree" } = pending;
 
       const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
+      const { MULTI_ACTION_TURNS } = require("../rules/rules-engine");
+      const multiAction = MULTI_ACTION_TURNS;
 
       const { newStats, newRelations, statDeltas, relationDeltas } = applyTurn({
         state: { stats: statsAfterDelayed, relations: game.relations },
@@ -317,6 +319,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         turnNumber,
         actionMode: pendingActionMode,
         crisisMode,
+        regenInitiative: !multiAction, // в мульти-режиме инициатива = бюджет месяца (регенерация в конце месяца)
       });
 
       // --- ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ---
@@ -406,9 +409,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.crisis_mode = true;
       }
 
-      // Сдвигаем дату игры
+      // Сдвигаем дату игры. В мульти-режиме дата НЕ двигается на каждое действие —
+      // только при «Завершить месяц» (см. /turns/end-month).
       const currentGameDate = game.overview?.date;
-      const newGameDate = currentGameDate ? advanceGameDate(currentGameDate, crisisMode) : null;
+      const newGameDate = (!multiAction && currentGameDate) ? advanceGameDate(currentGameDate, crisisMode) : null;
 
       const newDelayedEffects = (gmClassification.delayed_effects || []).map((e, idx) => {
         const delta = computeDelayedEffectDelta({
@@ -476,7 +480,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         [JSON.stringify(newStats), JSON.stringify(newRelations), JSON.stringify(updatedPolicies), JSON.stringify(updatedDelayedEffects), JSON.stringify(updatedOverview), gameId]
       );
 
-      await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
+      // В мульти-режиме месяц (current_turn) НЕ продвигается на действие — только в /turns/end-month.
+      if (!multiAction) {
+        await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
+      }
 
       // Для тайных операций — без публичных комментариев, только внутренний брифинг
       const isSecret = pendingActionMode === "intel";
@@ -496,8 +503,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       );
 
       // --- ЕСТЕСТВЕННЫЙ РАСПАД МИРНОГО ТРЕКА ---
-      // Если игрок не делает дипломатию/мирные инициативы — мир сам по себе распадается
-      {
+      // Если игрок не делает дипломатию/мирные инициативы — мир сам по себе распадается.
+      // В мульти-режиме пассивный распад переносится в конец месяца (/turns/end-month).
+      if (!multiAction) {
         const peaceDiplomacyActions = new Set(["diplomacy_outreach", "peace_initiative", "diplomacy_confrontation"]);
         const isActiveDiplomacy = peaceDiplomacyActions.has(gmClassification.action_type);
         if (!isActiveDiplomacy && (newStats.peace_progress ?? 0) > 5) {
@@ -1066,6 +1074,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newRelations,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
+        // Мульти-режим: месяц продолжается, пока игрок не нажмёт «Завершить месяц»
+        turnContinues: multiAction && !gameOutcome,
+        initiative: newStats.initiative,
+        month: turnNumber,
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -1081,6 +1093,90 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     const { gameId } = request.params;
     await pendingTurnStore.clear(gameId);
     return reply.send({ cancelled: true });
+  });
+
+  // ---------- END MONTH (мульти-режим) ----------
+  // Завершает месяц: рефилл инициативы (бюджет нового месяца), пассивный распад
+  // мирного трека, сдвиг даты, +1 месяц, проверка исхода. Действия в течение месяца
+  // делаются через /turns/confirm (они месяц не продвигают).
+  fastify.post("/games/:gameId/turns/end-month", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { INITIATIVE_MAX, MULTI_ACTION_TURNS } = require("../rules/rules-engine");
+    if (!MULTI_ACTION_TURNS) return reply.code(400).send({ error: "Мульти-режим выключен" });
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const completedMonth = game.current_turn + 1;
+      const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
+      const newStats = { ...game.stats };
+
+      // Рефилл инициативы — бюджет нового месяца
+      newStats.initiative = INITIATIVE_MAX;
+
+      // Пассивный распад мирного трека (раз в месяц), если в этом месяце не было дипломатии
+      const turnsThisMonth = await client.query(
+        `SELECT action_mode, gm_classification FROM turns WHERE game_id = $1 AND turn_n = $2`,
+        [gameId, completedMonth]
+      );
+      const peaceDiplomacyActions = new Set(["diplomacy_outreach", "peace_initiative", "diplomacy_confrontation"]);
+      const hadDiplomacy = turnsThisMonth.rows.some(r => {
+        const at = (typeof r.gm_classification === "string" ? JSON.parse(r.gm_classification) : r.gm_classification)?.action_type;
+        return peaceDiplomacyActions.has(at) || r.action_mode === "diplomacy_op";
+      });
+      if (!hadDiplomacy && (newStats.peace_progress ?? 0) > 5) {
+        const p = newStats.peace_progress ?? 0;
+        const decay = p >= 40 ? 1 : 4; // установленный мир (>=40) тает медленнее
+        newStats.peace_progress = Math.max(0, p - decay);
+      }
+
+      // Сдвиг даты + продвижение месяца
+      const currentGameDate = game.overview?.date;
+      const newGameDate = currentGameDate ? advanceGameDate(currentGameDate, crisisMode) : null;
+      let updatedOverview = game.overview || {};
+      if (newGameDate) updatedOverview = { ...updatedOverview, date: newGameDate };
+
+      const MAX_TURNS = 24;
+      const gameOutcome = detectGameOutcome(newStats, completedMonth, MAX_TURNS);
+
+      await client.query(
+        `UPDATE game_state SET stats = $1, overview = $2, updated_at = now() WHERE game_id = $3`,
+        [JSON.stringify(newStats), JSON.stringify(updatedOverview), gameId]
+      );
+      await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [completedMonth, gameId]);
+      if (gameOutcome) {
+        await client.query(`UPDATE games SET status = $1 WHERE id = $2`, [gameOutcome, gameId]);
+      }
+      // Снимок для лидерборда — раз в месяц
+      const scoreKeys = ["stability", "economy", "military", "diplomacy", "approval"];
+      const score = Math.round(scoreKeys.map(k => newStats[k] ?? 50).reduce((a, b) => a + b, 0) / scoreKeys.length);
+      await client.query(
+        `INSERT INTO leaderboard_snap (game_id, turn_n, score, score_breakdown) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+        [gameId, completedMonth, score, JSON.stringify(Object.fromEntries(scoreKeys.map(k => [k, newStats[k] ?? 50])))]
+      );
+      await client.query("COMMIT");
+      await pendingTurnStore.clear(gameId);
+
+      return reply.send({
+        month: completedMonth,
+        nextMonth: completedMonth + 1,
+        date: newGameDate,
+        initiative: newStats.initiative,
+        gameOutcome: gameOutcome || null,
+        maxTurns: MAX_TURNS,
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "End-month failed" });
+    } finally {
+      client.release();
+    }
   });
 
   // ---------- SKIP (пропустить ход) ----------
@@ -1140,7 +1236,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           "[]", narrative, null, JSON.stringify(newStats)]
       );
       await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
-      await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
+      // В мульти-режиме передышка — действие внутри месяца, месяц не продвигает.
+      if (!require("../rules/rules-engine").MULTI_ACTION_TURNS) {
+        await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
+      }
       await client.query("COMMIT");
 
       return reply.send({
@@ -1197,7 +1296,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           "[]", narrative, null, JSON.stringify(newStats)]
       );
       await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
-      await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
+      // В мульти-режиме перегруппировка — действие внутри месяца, месяц не продвигает.
+      if (!require("../rules/rules-engine").MULTI_ACTION_TURNS) {
+        await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
+      }
       await client.query("COMMIT");
 
       // Ukraine action (такая же механика как в confirm)

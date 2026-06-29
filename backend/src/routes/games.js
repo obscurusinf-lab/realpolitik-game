@@ -276,6 +276,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       id: game.id,
       status: game.status,
       assistMode: game.assist_mode || "advisor",
+      multiActionTurns: require("../rules/rules-engine").MULTI_ACTION_TURNS,
       countryName: game.country_name,
       turn: game.current_turn,
       date,

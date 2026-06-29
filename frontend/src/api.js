@@ -189,6 +189,15 @@ export async function regroupTurn(gameId) {
   return res.json();
 }
 
+export async function endMonth(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/end-month`, { method: "POST" }, 30000);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `endMonth failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function skipTurn(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/skip`, { method: "POST" }, 60000);
   if (!res.ok) {

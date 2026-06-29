@@ -110,6 +110,11 @@ const TIER_MULTIPLIER = {
 // Бонус «разведка готовит почву»: успешная intel-операция усиливает следующее действие.
 const INTEL_BOOST_FACTOR = 1.3;
 
+// МОДЕЛЬ ХОДА: true — несколько действий за месяц (инициатива = бюджет месяца,
+// месяц/распад/дата продвигаются по «Завершить месяц»); false — 1 действие = 1 месяц (старая).
+// Флаг для обратимости: если новая модель не зайдёт — ставим false.
+const MULTI_ACTION_TURNS = true;
+
 // В кризисном режиме 1 ход = 2 недели (коэффициент 0.5 от обычного)
 const CRISIS_TURN_WEEKS = 2;
 const NORMAL_TURN_WEEKS = 4; // 1 месяц
@@ -224,7 +229,7 @@ function computePeaceProgressDelta({ action_type, severity, armyValue, seed }) {
  * Основная функция: берёт текущий state, классификацию от ИИ,
  * возвращает новый state + объект дельт (для отображения игроку).
  */
-function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "decree", crisisMode = false }) {
+function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "decree", crisisMode = false, regenInitiative = true }) {
   const { action_type, severity } = gmClassification;
   const seed = `${gameId}:${turnNumber}:${action_type}`;
 
@@ -232,9 +237,11 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   // Инициализируем субметрики дефолтами если отсутствуют
   const newStats = { ...SUBSTAT_DEFAULTS, ...state.stats };
 
-  // Инициатива: регенерация → трата
+  // Инициатива: регенерация → трата.
+  // В мульти-режиме (несколько действий за месяц) регенерация НЕ применяется здесь —
+  // инициатива работает как бюджет месяца и восстанавливается только в конце месяца.
   const currentInitiative = typeof newStats.initiative === "number" ? newStats.initiative : INITIATIVE_MAX;
-  const regen = crisisMode ? INITIATIVE_REGEN_CRISIS : INITIATIVE_REGEN_PER_TURN;
+  const regen = regenInitiative ? (crisisMode ? INITIATIVE_REGEN_CRISIS : INITIATIVE_REGEN_PER_TURN) : 0;
   const regenedInitiative = Math.min(INITIATIVE_MAX, currentInitiative + regen);
   const cost = INITIATIVE_COST[actionMode] ?? INITIATIVE_COST.decree;
   newStats.initiative = Math.max(0, regenedInitiative - cost);
@@ -351,4 +358,5 @@ module.exports = {
   applyClamped,
   applyTurn,
   seededFraction,
+  MULTI_ACTION_TURNS,
 };

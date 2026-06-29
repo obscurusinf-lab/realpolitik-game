@@ -60,6 +60,8 @@ async function buildServer() {
   await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`);
   // Режим помощи партии: 'advisor' (с советниками) | 'hardcore' (без подсказок). Закреплён за партией.
   await db.query(`ALTER TABLE games ADD COLUMN IF NOT EXISTS assist_mode TEXT NOT NULL DEFAULT 'advisor'`);
+  // Мульти-режим: несколько действий за месяц делят один turn_n — снимаем уникальность.
+  await db.query(`ALTER TABLE turns DROP CONSTRAINT IF EXISTS turns_game_id_turn_n_key`).catch(() => {});
   await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username) WHERE username IS NOT NULL`);
 
   // --- Redis ---
