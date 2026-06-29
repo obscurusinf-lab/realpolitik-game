@@ -809,28 +809,59 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           },
         ];
 
-        // ВЕРОЛОМСТВО КИЕВА: если игрок сделал мирный шаг (дипломатия/уступка),
-        // есть шанс, что Киев нарушит договорённости и ударит по отведённым позициям.
-        // Не всегда — но риск делает чистый дипломатический путь напряжённым.
+        // ВЕРОЛОМСТВО КИЕВА — максимум ДВА раза за партию.
+        //   1-е: гамбит Киева. «Один раз обманул — виноват обманщик.» Значительный откат мира.
+        //   2-е: только если Киев УВЕРЕН, что не проиграет войну (игрок НЕ доминирует военно).
+        //        «Два раза обманул — виноват тот, кто дал себя обмануть.»
+        //        Если игрок раздавил фронт — Киеву невыгодно предавать, и он не рискует.
+        //   3-го не бывает: после двух предательств мирный трек мёртв — только война.
         const isPeaceMove = pendingActionMode === "diplomacy_op";
-        const BETRAYAL_CHANCE = 0.3;
-        const ceasefireBetrayal = {
+        const betrayalCount = newStats.betrayal_count ?? 0;
+        const peaceNow0 = newStats.peace_progress ?? 0;
+        // Военное доминирование игрока — Киев оценивает, выгодно ли ему предавать
+        const playerDominant = (newStats.military ?? 50) >= 80 &&
+          (newStats.donetsk_control ?? 0) >= 90 && (newStats.luhansk_control ?? 0) >= 95;
+
+        let willBetray = false;
+        if (isPeaceMove && peaceNow0 > 12 && betrayalCount < 2) {
+          if (betrayalCount === 0) {
+            willBetray = Math.random() < 0.30;            // первый гамбит
+          } else if (!playerDominant) {
+            willBetray = Math.random() < 0.45;            // второй — только если Киев не загнан в угол
+          }
+          // если игрок доминирует — Киев не смеет предавать второй раз
+        }
+
+        const firstBetrayal = {
           type: "ceasefire_betrayal",
           title: "Киев нарушил перемирие",
           text: "Пока шли переговоры и российские войска отводились на согласованные позиции, ВСУ внезапно перешли в наступление на оголённых участках. Киев публично заявил, что «не связан договорённостями с агрессором». Доверие к переговорному процессу подорвано.",
           khersonDelta: -2, kharkivDelta: -1, zaporizhzhiaDelta: -1,
           army_moraleDelta: -3, peace_progressDelta: -18, stabilityDelta: -2,
           responses: [
+            { label: "Жёстко предупредить Киев и его покровителей: ещё одно вероломство — и никакого мира, только война", type: "defend" },
             { label: "Возобновить наступление — переговоры были ошибкой, отвечаем силой", type: "retaliate" },
-            { label: "Удержать рубежи и предать вероломство огласке на международной арене", type: "defend" },
             { label: "Сохранить выдержку — не дать втянуть себя в новый виток эскалации", type: "accept" },
+          ],
+        };
+        const secondBetrayal = {
+          type: "ceasefire_betrayal_final",
+          title: "Киев предал во второй раз — мира не будет",
+          text: "Несмотря на предупреждения, Киев вновь нарушил перемирие и ударил по согласованным позициям, сочтя, что Москва не доведёт войну до конца. Переговорный трек окончательно мёртв. Теперь вопрос решается только на поле боя.",
+          khersonDelta: -2, kharkivDelta: -2, zaporizhzhiaDelta: -1,
+          army_moraleDelta: -2, peace_progressDelta: -40, stabilityDelta: -1,
+          responses: [
+            { label: "Объявить о прекращении переговоров и перейти к решительному наступлению", type: "retaliate" },
+            { label: "Мобилизовать резервы и закрыть все территориальные цели силой", type: "retaliate" },
+            { label: "Зафиксировать вероломство для истории и продолжить военную операцию", type: "defend" },
           ],
         };
 
         let uaAction;
-        if (isPeaceMove && (newStats.peace_progress ?? 0) > 12 && Math.random() < BETRAYAL_CHANCE) {
-          uaAction = ceasefireBetrayal;
-          fastify.log.info({ gameId, turnNumber }, "Ukraine CEASEFIRE BETRAYAL fired");
+        if (willBetray) {
+          uaAction = (betrayalCount === 0) ? firstBetrayal : secondBetrayal;
+          newStats.betrayal_count = betrayalCount + 1;
+          fastify.log.info({ gameId, turnNumber, betrayalNumber: betrayalCount + 1 }, "Ukraine CEASEFIRE BETRAYAL fired");
         } else {
           // Взвешенный случайный выбор
           const totalWeight = UA_ACTIONS.reduce((s, a) => s + a.weight, 0);
