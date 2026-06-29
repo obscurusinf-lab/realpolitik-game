@@ -109,6 +109,56 @@ function advanceGameDate(currentDateStr, crisisMode) {
   }
 }
 
+// Генерирует 1-2 автономных события в конце месяца (мир живёт без игрока)
+function generateAutonomousEvents(stats, month) {
+  const events = [];
+  const mil = stats.military ?? 50;
+  const eco = stats.economy ?? 50;
+  const corr = stats.corruption ?? 55;
+  const tension = stats.social_tension ?? 38;
+  const streak = stats.military_streak ?? 0;
+  const iso = stats.isolation ?? 68;
+  const don = stats.donetsk_control ?? 78;
+
+  // Пул событий — выбираем подходящие по условиям
+  const pool = [];
+
+  // Украина: зондирует слабые участки при низкой боеспособности
+  if (mil < 55) {
+    pool.push({ priority: 3, source: "Генштаб", text: "ВСУ активизировались на харьковском направлении — разведывательно-ударные группы тестируют линию обороны. Требуется внимание.", statDelta: { kharkiv_control: -2, army_morale: -1 } });
+  }
+  // Украина: контрнаступление если давно перегруппировка
+  if (streak === 0 && mil < 70) {
+    pool.push({ priority: 2, source: "Минобороны", text: "Противник воспользовался оперативной паузой и усилил давление на запорожском фасе. Подтянуты резервы и западное вооружение.", statDelta: { zaporizhzhia_control: -3, military: -1 } });
+  }
+  // Экономика: санкционное давление
+  if (iso > 65 && eco < 55) {
+    pool.push({ priority: 2, source: "Минфин", text: "Новый пакет западных ограничений бьёт по параллельному импорту. Ряд поставщиков приостановил отгрузки — логистика усложнилась.", statDelta: { economy: -2, reserves: -1 } });
+  }
+  // Коррупция: скандал при высоком уровне
+  if (corr > 65) {
+    pool.push({ priority: 2, source: "СМИ", text: "Утечка в прессу: журналисты-расследователи опубликовали данные об откатах в оборонных закупках. Соцсети взорвались — рейтинг под давлением.", statDelta: { approval: -2, social_tension: 2 } });
+  }
+  // Внутреннее: соц. напряжение
+  if (tension > 55) {
+    pool.push({ priority: 2, source: "ФСБ", text: "Фиксируем нарастание протестных настроений в ряде регионов — в основном связаны с ростом цен и задержками выплат. Ситуация под наблюдением.", statDelta: { stability: -1, lower_class_mood: -2 } });
+  }
+  // Дипломатия: нейтральные страны ищут контакт
+  if (iso < 60) {
+    pool.push({ priority: 1, source: "МИД", text: "Турция и ОАЭ проявили интерес к расширению торговых договорённостей. Предварительные переговоры запланированы на следующий месяц.", statDelta: { diplomacy: 1 } });
+  }
+  // Позитив: военные успехи при высокой армии
+  if (mil > 70 && don < 95) {
+    pool.push({ priority: 1, source: "Минобороны", text: "Войска закрепились на новых рубежах. Противник не предпринимал активных действий — время использовано для инженерного укрепления позиций.", statDelta: { army_morale: 1, readiness: 1 } });
+  }
+  // Всегда: общая сводка если нет ярких событий
+  pool.push({ priority: 0, source: "Администрация Президента", text: `Месяц ${month} завершён в штатном режиме. Оперативная обстановка стабильна, продолжается текущий режим управления.`, statDelta: {} });
+
+  // Сортируем по приоритету, берём топ-2
+  pool.sort((a, b) => b.priority - a.priority);
+  return pool.slice(0, 2);
+}
+
 async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore, verifyToken }) {
   async function loadGameForUpdate(client, gameId) {
     const res = await client.query(
@@ -265,10 +315,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     return reply.send({
       turnNumber: nextTurnNumber,
       narrative: gmClassification.narrative,
+      effectLogic: gmClassification.effect_logic || null,
       advisorObjection: gmClassification.advisor_objection,
       statDeltasPreview: statDeltas,
       relationDeltasPreview: relationDeltas,
       gmActionType: gmClassification.action_type,
+      corruptionLeak: statDeltas._corruption_leak || 0,
+      militaryStreak: typeof statDeltas.military_streak === "number" ? statDeltas.military_streak : null,
       requiresConfirmation: true,
     });
   });
@@ -1207,6 +1260,23 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "")]
       );
 
+      // --- АВТОНОМНЫЕ СОБЫТИЯ (мир живёт без тебя) ---
+      const autonomousEvents = generateAutonomousEvents(newStats, completedMonth);
+      for (const ev of autonomousEvents) {
+        // Применяем стат-эффект события
+        for (const [k, d] of Object.entries(ev.statDelta || {})) {
+          newStats[k] = Math.max(0, Math.min(100, (newStats[k] ?? 50) + d));
+        }
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'world_reaction',$3,$4,'[]')`,
+          [gameId, completedMonth, ev.source, ev.text]
+        );
+      }
+      // Обновляем stats если были автономные события с эффектом
+      if (autonomousEvents.some(e => Object.keys(e.statDelta || {}).length > 0)) {
+        await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+      }
+
       await client.query("COMMIT");
       await pendingTurnStore.clear(gameId);
 
@@ -1218,6 +1288,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
         budget: { economyIncome, taxIncome, programUpkeep, net: monthlyNet, treasury: treasuryAfter, deficit: deficitHit, economyEffect },
+        autonomousEvents: autonomousEvents.map(e => ({ source: e.source, text: e.text })),
       });
     } catch (err) {
       await client.query("ROLLBACK");

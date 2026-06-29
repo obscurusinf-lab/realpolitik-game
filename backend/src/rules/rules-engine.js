@@ -133,6 +133,12 @@ const INTEL_BOOST_FACTOR = 1.3;
 // Флаг для обратимости: если новая модель не зайдёт — ставим false.
 const MULTI_ACTION_TURNS = true;
 
+// Метрики, у которых РОСТ = ПЛОХО (инвертированные). Используются для цветокодирования.
+const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "isolation", "war_escalation_counter"]);
+
+// Убывающая отдача от последовательных военных операций
+const MILITARY_FATIGUE_THRESHOLD = 2; // после N военных ходов подряд — штраф
+
 // В кризисном режиме 1 ход = 2 недели (коэффициент 0.5 от обычного)
 const CRISIS_TURN_WEEKS = 2;
 const NORMAL_TURN_WEEKS = 4; // 1 месяц
@@ -266,11 +272,33 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   statDeltas.initiative = newStats.initiative - currentInitiative;
 
   // Казна: списываем стоимость действия деньгами (может уходить в дефицит).
+  // + КОРРУПЦИОННАЯ УТЕЧКА: часть средств разворовывается пропорционально уровню коррупции.
   const budgetCost = ACTION_BUDGET_COST[actionMode] ?? 0;
+  let corruptionLeakAmount = 0;
   if (budgetCost) {
     const currentTreasury = typeof newStats.treasury === "number" ? newStats.treasury : 52;
-    newStats.treasury = Math.max(TREASURY_MIN, currentTreasury - budgetCost);
+    const corruptionLevel = (newStats.corruption ?? 55) / 100;
+    // Утечка: от 0% (коррупция 0) до 30% (коррупция 100). Только для дорогих действий.
+    if (budgetCost >= 5) {
+      corruptionLeakAmount = Math.floor(budgetCost * corruptionLevel * 0.3);
+    }
+    newStats.treasury = Math.max(TREASURY_MIN, currentTreasury - budgetCost - corruptionLeakAmount);
     statDeltas.treasury = newStats.treasury - currentTreasury;
+  }
+
+  // ВОЕННЫЙ СТРИК: убывающая отдача от повторных военных операций
+  const isMilitaryOffensive = action_type === "military_offensive";
+  const prevStreak = typeof newStats.military_streak === "number" ? newStats.military_streak : 0;
+  if (isMilitaryOffensive) {
+    newStats.military_streak = prevStreak + 1;
+  } else if (action_type !== "military_regroup") {
+    // Любое не-военное действие (кроме перегруппировки) сбрасывает стрик
+    newStats.military_streak = 0;
+  }
+  // Штраф за усталость: начиная со 2-й военной операции подряд
+  let militaryFatiguePenalty = 0;
+  if (isMilitaryOffensive && prevStreak >= MILITARY_FATIGUE_THRESHOLD) {
+    militaryFatiguePenalty = prevStreak - MILITARY_FATIGUE_THRESHOLD + 1; // +1 за каждую лишнюю
   }
 
   // Peace progress — отдельная механика мирного трека
@@ -293,6 +321,9 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
     return Math.round(d);
   };
 
+  // Коррупционный штраф на позитивные эффекты указов/реформ
+  const corruptionPenalty = (newStats.corruption ?? 55) / 100 * 0.12; // до 12% потерь при max коррупции
+
   for (const stat of Object.keys(MAX_DELTA_PER_TURN)) {
     if (stat === "peace_progress") continue; // уже посчитано выше
     if (action_type === "nuclear_strike") {
@@ -305,11 +336,33 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
       newStats[stat] = Math.max(0, Math.min(100, (state.stats[stat] ?? 50) + delta));
     } else {
       const baseDelta = computeStatDelta({ category: action_type, stat, severity, seed });
-      const delta = (tierMult !== 1.0 || intelBoostActive) ? effMult(baseDelta) : baseDelta;
+      let delta = (tierMult !== 1.0 || intelBoostActive) ? effMult(baseDelta) : baseDelta;
+
+      // Штраф военной усталости: уменьшает положительные эффекты военных операций
+      if (isMilitaryOffensive && militaryFatiguePenalty > 0 && delta > 0) {
+        const fatigueReduction = Math.min(0.45, militaryFatiguePenalty * 0.15); // -15% за каждую лишнюю операцию, макс -45%
+        delta = Math.round(delta * (1 - fatigueReduction));
+      }
+      // Усталость сверх порога: армия получает прямые штрафы
+      if (isMilitaryOffensive && prevStreak >= MILITARY_FATIGUE_THRESHOLD + 1) {
+        if (stat === "army_morale") delta = Math.min(delta, -3);
+        if (stat === "readiness") delta = Math.min(delta, -2);
+      }
+
+      // Коррупция снижает позитивные эффекты указов/реформ (не военных)
+      if (!isMilitaryOffensive && delta > 0 && corruptionPenalty > 0 &&
+          ["decree_fast","decree_reform","decree_program","diplomacy_op"].includes(actionMode)) {
+        delta = Math.round(delta * (1 - corruptionPenalty));
+      }
+
       statDeltas[stat] = delta;
       newStats[stat] = applyClamped(state.stats[stat], delta);
     }
   }
+
+  // Записываем размер утечки для отображения в UI
+  if (corruptionLeakAmount > 0) newStats._corruption_leak = corruptionLeakAmount;
+  else delete newStats._corruption_leak;
 
   // Учёт разведбонуса: успешная разведка ставит бонус на следующий ход; обычный ход — расходует.
   if (action_type === "intel_success" || action_type === "intel_critical_success") {
@@ -388,4 +441,6 @@ module.exports = {
   ACTION_BUDGET_COST,
   TREASURY_MIN,
   TREASURY_PER_TRILLION,
+  INVERTED_STATS,
+  MILITARY_FATIGUE_THRESHOLD,
 };

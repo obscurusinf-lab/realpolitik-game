@@ -141,6 +141,7 @@ duration_turns в policy_update должен соответствовать ма
 {
   "action_type": "string из списка категорий",
   "secondary_category": "string или null",
+  "effect_logic": "одно предложение: цепочка причинно-следственной связи — что произошло → почему → на что повлияло. Пример: «Торговый договор с Китаем открыл новые рынки → рост экспортных доходов → экономика +3, дипломатия +2». НЕ повторяй нарратив.",
   "severity": 1,
   "affected_relations": [
     { "country": "string", "direction": "improve" }

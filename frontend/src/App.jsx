@@ -1222,8 +1222,18 @@ const ALL_STAT_LABELS = {
   ally_trust: "Доверие союзников", isolation: "Изоляция", soft_power: "Мягкая сила", reputation: "Репутация",
   law_order: "Правопорядок", social_tension: "Соц. напряж.", media_control: "Контроль СМИ", regional_unity: "Ед. регионов",
   elite_satisfaction: "Элиты", corruption: "Коррупция", middle_class: "Средний класс", lower_class_mood: "Народ",
-  treasury: "Казна",
+  treasury: "Казна", peace_progress: "Мирный трек",
+  donetsk_control: "Контроль Донецка", luhansk_control: "Контроль Луганска",
+  zaporizhzhia_control: "Контроль Запорожья", kherson_control: "Контроль Херсона", kharkiv_control: "Контроль Харькова",
+  military_streak: "Воен. стрик",
 };
+// Метрики где рост = плохо (инвертированные: красный при росте, зелёный при снижении)
+const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "isolation", "war_escalation_counter"]);
+function deltaColor(stat, delta) {
+  if (delta === 0) return "#5a6070";
+  const bad = INVERTED_STATS.has(stat) ? delta > 0 : delta < 0;
+  return bad ? "#e09090" : "#7fae93";
+}
 
 // Тип политики: программа / реформа / указ
 const POLICY_CATEGORY = {
@@ -1378,13 +1388,29 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
         {preview.narrative}
       </div>
 
+      {preview.effectLogic && (
+        <div style={{ background: "#111c14", border: "1px solid #2a4030", borderRadius: 4, padding: "7px 11px", marginBottom: 10 }}>
+          <div className="mono-font" style={{ fontSize: 8, color: "#4a8050", letterSpacing: "0.08em", marginBottom: 3 }}>ЛОГИКА ЭФФЕКТА</div>
+          <div className="doc-font" style={{ fontSize: 12, color: "#7fae93", lineHeight: 1.4 }}>{preview.effectLogic}</div>
+        </div>
+      )}
+      {preview.corruptionLeak > 0 && (
+        <div style={{ background: "#1a1010", border: "1px solid #5a2020", borderRadius: 4, padding: "6px 11px", marginBottom: 10 }}>
+          <span className="mono-font" style={{ fontSize: 10, color: "#c06060" }}>⚠ Коррупционная утечка: −{preview.corruptionLeak} из казны разворовано при исполнении</span>
+        </div>
+      )}
+      {preview.militaryStreak >= 2 && (
+        <div style={{ background: "#1a1400", border: "1px solid #5a3a00", borderRadius: 4, padding: "6px 11px", marginBottom: 10 }}>
+          <span className="mono-font" style={{ fontSize: 10, color: "#c09030" }}>⚠ Усталость армии: {preview.militaryStreak} операции подряд — эффективность снижена</span>
+        </div>
+      )}
       <div style={{ background: "#1f2733", borderRadius: 4, padding: "8px 12px", marginBottom: 12 }}>
         <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>ПРОГНОЗ ИЗМЕНЕНИЙ</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {deltas.length === 0
+          {deltas.filter(([s]) => !s.startsWith("_") && s !== "military_streak").length === 0
             ? <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>
-            : deltas.map(([stat, delta]) => (
-              <span key={stat} className="mono-font" style={{ fontSize: 12, color: delta > 0 ? "#7fae93" : "#e09090" }}>
+            : deltas.filter(([s]) => !s.startsWith("_") && s !== "military_streak").map(([stat, delta]) => (
+              <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
                 {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
               </span>
             ))
