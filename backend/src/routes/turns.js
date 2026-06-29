@@ -1144,14 +1144,23 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const monthlyNet = economyIncome + taxIncome - programUpkeep;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
-      // Дефицит: казна в минусе → инфляция растёт, экономика и стабильность проседают
+      // СПИРАЛЬ КАЗНА → ЭКОНОМИКА (двусторонняя связь; обратная сторона — доход казны зависит от экономики)
       let deficitHit = false;
+      let economyEffect = 0; // эффект на экономику от состояния казны
       if (treasuryAfter < 0) {
+        // Дефицит — жёстко: вынужденные займы, инфляция, спад
         deficitHit = true;
         newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 2);
-        newStats.economy = Math.max(0, (newStats.economy ?? 50) - 2);
         newStats.stability = Math.max(0, (newStats.stability ?? 50) - 1);
+        economyEffect = -2;
+      } else if (treasuryAfter < 15) {
+        // Низкая казна — вынужденная аустерити, экономика проседает
+        economyEffect = -1;
+      } else if (treasuryAfter > 65 && (newStats.economy ?? 50) < 82) {
+        // Здоровый профицит — есть на инвестиции, экономика восстанавливается
+        economyEffect = +1;
       }
+      if (economyEffect) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + economyEffect));
       newStats.treasury = treasuryAfter;
 
       // Сдвиг даты + продвижение месяца
@@ -1185,7 +1194,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, completedMonth, "Минфин",
          `Бюджет за месяц: доходы +${(economyIncome + taxIncome)} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}. Итог: ${flowSign}${monthlyNet} → казна ${(treasuryAfter * T).toFixed(1)} трлн ₽.` +
-         (deficitHit ? " ДЕФИЦИТ: инфляция растёт, экономика и стабильность под давлением." : "")]
+         (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
+          economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
+          economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "")]
       );
 
       await client.query("COMMIT");
@@ -1198,7 +1209,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         initiative: newStats.initiative,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
-        budget: { economyIncome, taxIncome, programUpkeep, net: monthlyNet, treasury: treasuryAfter, deficit: deficitHit },
+        budget: { economyIncome, taxIncome, programUpkeep, net: monthlyNet, treasury: treasuryAfter, deficit: deficitHit, economyEffect },
       });
     } catch (err) {
       await client.query("ROLLBACK");

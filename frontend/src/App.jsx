@@ -2567,29 +2567,50 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             );
           })()}
 
-          {/* Казна (бюджет) */}
+          {/* Казна (бюджет) + месячный поток + предупреждение о спирали */}
           {(() => {
             const T = 0.8; // ₽ трлн за пункт
             const treasury = state?.stats?.treasury ?? 52;
+            const economy = state?.stats?.economy ?? 50;
             const MONEY = { military: 20, decree_program: 15, decree_reform: 8, decree: 8, decree_fast: 3, diplomacy_op: 5, intel: 5, crisis: 4 };
             const cost = MONEY[actionMode] ?? 0;
             const after = treasury - cost;
             const deficit = treasury < 0;
             const barPct = Math.max(0, Math.min(100, treasury));
             const afterColor = after < 0 ? "#e09090" : after < 15 ? "#c89347" : "#7fae93";
+            // Прогноз месячного потока: доход (экономика + налоги) − содержание программ
+            const activePol = (state?.policies || []).filter(p => p.status !== "cancelled");
+            const taxIncome = activePol.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
+            const upkeep = activePol.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
+            const ecoIncome = Math.round(economy * 0.4);
+            const net = ecoIncome + taxIncome - upkeep;
+            const netColor = net > 0 ? "#7fae93" : net < 0 ? "#e09090" : "#9c8347";
+            // Спираль к коллапсу: казна тает И экономика уже низкая
+            const spiral = net < 0 && economy < 45;
             return (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", flexShrink: 0 }}>КАЗНА</div>
-                <div style={{ flex: 1, height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ width: `${barPct}%`, height: "100%", background: deficit ? "#e09090" : treasury > 40 ? "#c8b87a" : "#c89347", transition: "width 0.3s", borderRadius: 2 }} />
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", flexShrink: 0 }}>КАЗНА</div>
+                  <div style={{ flex: 1, height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ width: `${barPct}%`, height: "100%", background: deficit ? "#e09090" : treasury > 40 ? "#c8b87a" : "#c89347", transition: "width 0.3s", borderRadius: 2 }} />
+                  </div>
+                  <div className="mono-font" style={{ fontSize: 9, color: deficit ? "#e09090" : "#c8b87a" }}>{deficit ? "ДЕФИЦИТ " : ""}₽{(treasury * T).toFixed(1)} трлн</div>
+                  <div className="mono-font" style={{ fontSize: 8, color: netColor }}>{net >= 0 ? "+" : ""}{net}/мес</div>
+                  {cost > 0 && <>
+                    <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>→</div>
+                    <div className="mono-font" style={{ fontSize: 9, color: afterColor }}>₽{(after * T).toFixed(1)} трлн</div>
+                    <div className="mono-font" style={{ fontSize: 8, color: "#3a4050" }}>(−{cost} 💰)</div>
+                  </>}
                 </div>
-                <div className="mono-font" style={{ fontSize: 9, color: deficit ? "#e09090" : "#c8b87a" }}>{deficit ? "ДЕФИЦИТ " : ""}₽{(treasury * T).toFixed(1)} трлн</div>
-                {cost > 0 && <>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>→</div>
-                  <div className="mono-font" style={{ fontSize: 9, color: afterColor }}>₽{(after * T).toFixed(1)} трлн</div>
-                  <div className="mono-font" style={{ fontSize: 8, color: "#3a4050" }}>(−{cost} 💰)</div>
-                </>}
-              </div>
+                {spiral && (
+                  <div style={{ background: "#2a1414", border: "1px solid #a8313a", borderRadius: 4, padding: "6px 10px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: "#e06060", fontSize: 12 }}>📉</span>
+                    <span className="doc-font" style={{ fontSize: 11, color: "#e09090", lineHeight: 1.35 }}>
+                      Спираль к коллапсу: экономика {economy} и казна тает ({net}/мес). Поднимите доход (налоговые политики), срежьте содержание программ или поддержите экономику быстрым указом.
+                    </span>
+                  </div>
+                )}
+              </>
             );
           })()}
 
@@ -3068,7 +3089,7 @@ function WelcomeModal({ state, playerName, onClose }) {
               {[
                 { label: "🗓 Несколько действий в месяц", desc: "За один месяц можно принять несколько решений, пока хватает инициативы. Месяц продвигается только по кнопке «Завершить месяц».", color: "#9c8347" },
                 { label: "⚡ Инициатива", desc: "Политическая воля — бюджет действий на месяц. Тратится на каждое решение, восстанавливается в конце месяца.", color: "#7fae93" },
-                { label: "💰 Казна (бюджет)", desc: "Деньги. Действия стоят казны (война — дороже всего). Доход: экономика + налоговые политики. Расход: содержание программ. Минус = дефицит (инфляция, экономика, стабильность).", color: "#c8b87a" },
+                { label: "💰 Казна (бюджет)", desc: "Деньги. Действия стоят казны (война — дороже всего). Доход: экономика + налоги. Расход: содержание программ. Казна и экономика связаны: пустая казна тянет экономику вниз, здоровая — вверх; слабая экономика сушит доход. Дефицит — спираль вниз.", color: "#c8b87a" },
                 { label: "⚙ Перегруппировка / 🏠 Передышка", desc: "Перегруппировка — отдых фронта (мораль, готовность, инициатива). Передышка — восстановление тыла (экономика, рейтинг, стабильность).", color: "#5a8050" },
               ].map(({ label, desc, color }) => (
                 <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
