@@ -1499,14 +1499,19 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     if (gsRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
 
     const policies = gsRes.rows[0].policies || [];
+    const target = policies.find(p => p.title === policyTitle);
     const updated = policies.map(p =>
       p.title === policyTitle ? { ...p, status: "cancelled" } : p
     );
 
-    // Небольшой штраф за отмену: стабильность -2, рейтинг -1
+    // Последствия отмены: индивидуальные для политики (cancel_penalty), иначе дефолт.
+    const penalty = (target && target.cancel_penalty && typeof target.cancel_penalty === "object")
+      ? target.cancel_penalty
+      : { stability: -2, approval: -1 };
     const stats = { ...gsRes.rows[0].stats };
-    stats.stability = Math.max(0, (stats.stability || 50) - 2);
-    stats.approval = Math.max(0, (stats.approval || 50) - 1);
+    for (const [k, v] of Object.entries(penalty)) {
+      if (typeof v === "number") stats[k] = Math.max(0, Math.min(100, (stats[k] ?? 50) + v));
+    }
 
     await db.query(
       `UPDATE game_state SET policies = $1, stats = $2, updated_at = now() WHERE game_id = $3`,
@@ -1515,12 +1520,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
     const gameRes = await db.query(`SELECT current_turn FROM games WHERE id = $1`, [gameId]);
     const turnN = gameRes.rows[0]?.current_turn || 0;
+    const STAT_RU = { stability: "стабильность", approval: "рейтинг", economy: "экономика", military: "армия", diplomacy: "дипломатия", reserves: "резервы", inflation: "инфляция", middle_class: "средний класс", lower_class_mood: "настроения населения", social_tension: "напряжённость", army_morale: "боевой дух", readiness: "боеготовность", equipment: "оснащение", media_control: "контроль СМИ", employment: "занятость" };
+    const penaltyText = Object.entries(penalty)
+      .map(([k, v]) => `${STAT_RU[k] || k} ${v > 0 ? "+" : ""}${v}`).join(", ");
     await db.query(
       `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
-      [gameId, turnN, "Кремль", `Указ «${policyTitle}» отменён. Стабильность и рейтинг снижены.`]
+      [gameId, turnN, "Кремль", `Политика «${policyTitle}» отменена. Последствия: ${penaltyText}.`]
     );
 
-    return reply.send({ ok: true, statPenalty: { stability: -2, approval: -1 } });
+    return reply.send({ ok: true, statPenalty: penalty });
   });
 }
 

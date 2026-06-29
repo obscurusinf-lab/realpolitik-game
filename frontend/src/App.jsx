@@ -1224,6 +1224,33 @@ const ALL_STAT_LABELS = {
   elite_satisfaction: "Элиты", corruption: "Коррупция", middle_class: "Средний класс", lower_class_mood: "Народ",
 };
 
+// Тип политики: программа / реформа / указ
+const POLICY_CATEGORY = {
+  program: { label: "ПРОГРАММА", color: "#9c7ab0", section: "ПРОГРАММЫ", hint: "крупная многолетняя программа" },
+  reform:  { label: "РЕФОРМА",  color: "#3a8a7a", section: "РЕФОРМЫ",  hint: "системная реформа" },
+  decree:  { label: "УКАЗ",     color: "#5b6b8c", section: "УКАЗЫ",    hint: "оперативный указ" },
+};
+const POLICY_CATEGORY_ORDER = ["program", "reform", "decree"];
+
+// "↑↑ Армия, ↑ Готовность" — что вырастет при успехе
+function boostStrings(effectStats) {
+  if (!effectStats) return [];
+  return Object.entries(effectStats).map(([k, mag]) => {
+    const arrows = "↑".repeat(Math.max(1, Math.min(3, Math.abs(mag || 1))));
+    return `${arrows} ${ALL_STAT_LABELS[k] || k}`;
+  });
+}
+// Последствия отмены: [{label, delta, good}]
+function penaltyEntries(cancelPenalty) {
+  if (!cancelPenalty) return [];
+  return Object.entries(cancelPenalty).map(([k, v]) => {
+    // Для инфляции/напряжённости/изоляции/коррупции рост = плохо
+    const inverse = ["inflation", "social_tension", "isolation", "corruption"].includes(k);
+    const good = inverse ? v < 0 : v > 0;
+    return { label: ALL_STAT_LABELS[k] || k, delta: v, good };
+  });
+}
+
 function Bar({ value, color }) {
   return (
     <div style={{ height: 6, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", position: "relative" }}>
@@ -4167,7 +4194,9 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
     <div style={{ position: "fixed", inset: 0, background: "rgba(20,24,31,0.85)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#f5f1e6", borderRadius: 8, width: "min(95vw,520px)", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
         <div style={{ background: "#1a1f2c", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347" }}>УКАЗ · ДЕТАЛИ</span>
+          <span className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: (POLICY_CATEGORY[policy.category]?.color) || "#9c8347" }}>
+            {(POLICY_CATEGORY[policy.category]?.label) || "ПОЛИТИКА"} · ДЕТАЛИ
+          </span>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "#a8a294", cursor: "pointer", fontSize: 18 }}>×</button>
         </div>
         <div style={{ padding: "18px 20px" }}>
@@ -4198,6 +4227,18 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
             </div>
           )}
 
+          {/* Влияет на (при успехе) */}
+          {policy.effect_stats && Object.keys(policy.effect_stats).length > 0 && (
+            <div style={{ background: "#e3eadf", border: "1px solid #3a8a7a", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 8, color: "#2f6f5f", marginBottom: 5 }}>ПРИ УСПЕХЕ ВЫРАСТУТ</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 12px" }}>
+                {boostStrings(policy.effect_stats).map((s, i) => (
+                  <span key={i} className="doc-font" style={{ fontSize: 13, color: "#2f6f5f", fontWeight: 700 }}>{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Условие выполнения */}
           {policy.completion_conditions && (
             <div style={{ background: "#dce5dc", border: "1px solid #4a6b5c", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
@@ -4206,9 +4247,23 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
             </div>
           )}
 
+          {/* Последствия отмены */}
+          {!isCancelled && policy.cancel_penalty && Object.keys(policy.cancel_penalty).length > 0 && (
+            <div style={{ background: "#f0e6e0", border: "1px solid #b07a5a", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 8, color: "#9a5a3a", marginBottom: 5 }}>ПОСЛЕДСТВИЯ ОТМЕНЫ</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 12px" }}>
+                {penaltyEntries(policy.cancel_penalty).map((e, i) => (
+                  <span key={i} className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: e.good ? "#2f6f5f" : "#a8313a" }}>
+                    {e.label} {e.delta > 0 ? "+" : ""}{e.delta}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Пункты */}
           <div style={{ marginBottom: 14 }}>
-            <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>СОДЕРЖАНИЕ УКАЗА</div>
+            <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>СОДЕРЖАНИЕ</div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {(policy.items || []).map((item, i) => (
                 <li key={i} className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 5 }}>{item}</li>
@@ -4232,9 +4287,15 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
           {/* Отмена */}
           {!isCancelled && policy.status !== "completed" && (
             !confirmCancel
-              ? <button onClick={() => setConfirmCancel(true)} style={{ background: "none", border: "1px solid #a8313a", borderRadius: 4, padding: "7px 14px", color: "#a8313a", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>Отменить указ</button>
+              ? <button onClick={() => setConfirmCancel(true)} style={{ background: "none", border: "1px solid #a8313a", borderRadius: 4, padding: "7px 14px", color: "#a8313a", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>Отменить политику</button>
               : <div style={{ background: "#3a2424", border: "1px solid #a8313a", borderRadius: 4, padding: "12px 14px" }}>
-                  <div className="doc-font" style={{ fontSize: 13, color: "#ece7d8", marginBottom: 10 }}>Отмена указа даст штраф: стабильность −2, рейтинг −1. Продолжить?</div>
+                  <div className="doc-font" style={{ fontSize: 13, color: "#ece7d8", marginBottom: 10 }}>
+                    {policy.cancel_penalty && Object.keys(policy.cancel_penalty).length > 0
+                      ? <>Последствия отмены: {penaltyEntries(policy.cancel_penalty).map((e, i) => (
+                          <span key={i} style={{ color: e.good ? "#a0c090" : "#e09090", fontWeight: 700 }}>{i > 0 ? ", " : ""}{e.label} {e.delta > 0 ? "+" : ""}{e.delta}</span>
+                        ))}. Продолжить?</>
+                      : "Отмена даст штраф: стабильность −2, рейтинг −1. Продолжить?"}
+                  </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={handleCancel} disabled={cancelling} style={{ background: "#a8313a", color: "#fff", border: "none", borderRadius: 4, padding: "7px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>{cancelling ? "Отмена…" : "Да, отменить"}</button>
                     <button onClick={() => setConfirmCancel(false)} style={{ background: "none", border: "1px solid #5c5648", borderRadius: 4, padding: "7px 14px", color: "#5c5648", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>Нет</button>
@@ -4257,43 +4318,66 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
   const active = state.policies.filter(p => p.status !== "cancelled");
   const cancelled = state.policies.filter(p => p.status === "cancelled");
 
+  const renderCard = (policy, i) => {
+    const totalDuration = policy.duration_turns || (policy.target_turn ? policy.target_turn - policy.turn : 5);
+    const elapsed = (currentTurn || 0) - policy.turn;
+    const progress = Math.min(100, Math.round((elapsed / totalDuration) * 100));
+    const turnsLeft = policy.target_turn ? Math.max(0, policy.target_turn - (currentTurn || 0)) : null;
+    const cat = POLICY_CATEGORY[policy.category];
+    const boosts = boostStrings(policy.effect_stats);
+    return (
+      <div key={i} onClick={() => setOpenPolicy(policy)} style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "13px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
+        onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+          <span className="doc-font" style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{policy.title}</span>
+          {cat && <span className="mono-font" style={{ fontSize: 8, letterSpacing: "0.06em", padding: "3px 7px", borderRadius: 3, background: cat.color + "22", color: cat.color, flexShrink: 0, marginLeft: 8, whiteSpace: "nowrap" }}>{cat.label}</span>}
+        </div>
+        {boosts.length > 0 && (
+          <div className="doc-font" style={{ fontSize: 11.5, color: "#2f6f5f", marginBottom: 7 }}>при успехе: {boosts.join(" · ")}</div>
+        )}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ height: 5, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
+            <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {policy.turn} → {policy.target_turn || "?"}</span>
+            <span className="mono-font" style={{ fontSize: 8, color: turnsLeft !== null && turnsLeft <= 1 ? "#a8313a" : "#8a8472" }}>
+              {turnsLeft !== null ? (turnsLeft === 0 ? "завершается" : `ост. ${turnsLeft} х.`) : `${progress}%`}
+            </span>
+          </div>
+        </div>
+        <ul style={{ margin: 0, paddingLeft: 16 }}>
+          {(policy.items || []).slice(0, 2).map((item, j) => (
+            <li key={j} className="doc-font" style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 3, color: "#5c5648" }}>{item}</li>
+          ))}
+          {(policy.items || []).length > 2 && <li className="mono-font" style={{ fontSize: 9, color: "#8a8472", listStyle: "none" }}>…ещё {policy.items.length - 2}</li>}
+        </ul>
+      </div>
+    );
+  };
+
+  // Группировка активных по типу: программы → реформы → указы → прочее
+  const grouped = POLICY_CATEGORY_ORDER.map(cat => ({ cat, items: active.filter(p => p.category === cat) }));
+  const uncategorized = active.filter(p => !POLICY_CATEGORY_ORDER.includes(p.category));
+
   return (
     <>
-      <div style={{ display: "grid", gap: 14 }}>
-        {[...active].reverse().map((policy, i) => {
-          const totalDuration = policy.duration_turns || (policy.target_turn ? policy.target_turn - policy.turn : 5);
-          const elapsed = (currentTurn || 0) - policy.turn;
-          const progress = Math.min(100, Math.round((elapsed / totalDuration) * 100));
-          const turnsLeft = policy.target_turn ? Math.max(0, policy.target_turn - (currentTurn || 0)) : null;
-          return (
-            <div key={i} onClick={() => setOpenPolicy(policy)} style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "13px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
-              onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <span className="doc-font" style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{policy.title}</span>
-                <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", borderRadius: 3, background: "#dce5dc", color: "#4a6b5c", flexShrink: 0, marginLeft: 8, whiteSpace: "nowrap" }}>АКТИВНО</span>
-              </div>
-              {/* Прогресс-бар */}
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ height: 5, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
-                  <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {policy.turn} → {policy.target_turn || "?"}</span>
-                  <span className="mono-font" style={{ fontSize: 8, color: turnsLeft !== null && turnsLeft <= 1 ? "#a8313a" : "#8a8472" }}>
-                    {turnsLeft !== null ? (turnsLeft === 0 ? "завершается" : `ост. ${turnsLeft} х.`) : `${progress}%`}
-                  </span>
-                </div>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: 16 }}>
-                {(policy.items || []).slice(0, 2).map((item, j) => (
-                  <li key={j} className="doc-font" style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 3, color: "#5c5648" }}>{item}</li>
-                ))}
-                {(policy.items || []).length > 2 && <li className="mono-font" style={{ fontSize: 9, color: "#8a8472", listStyle: "none" }}>…ещё {policy.items.length - 2}</li>}
-              </ul>
+      <div style={{ display: "grid", gap: 18 }}>
+        {grouped.filter(g => g.items.length > 0).map(({ cat, items }) => (
+          <div key={cat}>
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: POLICY_CATEGORY[cat].color, marginBottom: 8 }}>
+              {POLICY_CATEGORY[cat].section} · {items.length}
             </div>
-          );
-        })}
+            <div style={{ display: "grid", gap: 12 }}>{items.map((p, i) => renderCard(p, `${cat}-${i}`))}</div>
+          </div>
+        ))}
+        {uncategorized.length > 0 && (
+          <div>
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#8a8472", marginBottom: 8 }}>ПРОЧЕЕ · {uncategorized.length}</div>
+            <div style={{ display: "grid", gap: 12 }}>{uncategorized.map((p, i) => renderCard(p, `u-${i}`))}</div>
+          </div>
+        )}
         {cancelled.length > 0 && (
           <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginTop: 4 }}>+ {cancelled.length} отменённых</div>
         )}
