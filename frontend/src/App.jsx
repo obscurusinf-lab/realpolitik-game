@@ -3050,10 +3050,9 @@ function WelcomeModal({ state, playerName, onClose }) {
               ))}
             </div>
             <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ВАЖНО ПРО МИРНЫЙ ТРЕК</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 16 }}>
               {[
                 { label: "⚔️ Военное наступление", desc: "Срывает переговоры — мирный трек откатывается. Установленный мир (≥40) держится крепче, чем низкий. Наступление двигает территории, но мир придётся строить дипломатией", color: "#9c6347" },
-                { label: "🤝 Вероломство Киева", desc: "На мирные шаги Киев может ответить вероломством (макс. 2 раза за партию): откат мира и территорий. 2-е — только если вы НЕ доминируете военно. Раздавите фронт — не рискнёт", color: "#ab47bc" },
                 { label: "☢️ Ядерный удар", desc: "Катастрофический откат мирного трека (-40). Международная изоляция", color: "#a8313a" },
               ].map(({ label, desc, color }) => (
                 <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
