@@ -1037,7 +1037,7 @@ function generateSmartHints(stats, turn) {
   if (init < 30 && hints.length < 4) hints.push({
     priority: 7, icon: "⚙",
     title: "Инициатива на исходе — перегруппировка",
-    why: `Инициатива ${init}. Перегруппировка восстанавливает +75 инициативы: армия отдыхает, мораль растёт. Без жёстких штрафов пропуска.`,
+    why: `Инициатива ${init}. Перегруппировка восстанавливает +75 инициативы: армия отдыхает, мораль и готовность растут.`,
     mode: "regroup",
     example: null,
     effect: "инициатива +75, мораль +3..+5",
@@ -2467,6 +2467,14 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </div>
           )}
 
+          {/* Разведбонус — следующее действие усилено успешной операцией */}
+          {(state?.stats?.next_action_boost ?? 0) > 0 && (
+            <div style={{ background: "#1a1426", border: "1px solid #6a4aa0", borderRadius: 4, padding: "7px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: "#b08ad8", fontSize: 13 }}>🕵️</span>
+              <span className="mono-font" style={{ fontSize: 9, color: "#b08ad8", letterSpacing: "0.08em" }}>РАЗВЕДКА ВСКРЫЛА СЛАБЫЕ МЕСТА — СЛЕДУЮЩЕЕ ДЕЙСТВИЕ УСИЛЕНО (+30% к эффекту)</span>
+            </div>
+          )}
+
           {/* Кризисный режим — баннер */}
           {state?.overview?.crisis_mode && (
             <div style={{ background: "#3a1414", border: "1px solid #c04040", borderRadius: 4, padding: "7px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
@@ -2599,10 +2607,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 <button
                   onClick={handleEndTurn}
                   disabled={confirming}
-                  title="Пропустить ход — инициатива +55, но штраф к показателям"
-                  style={{ ...btnStyle("#1f2733", "#5a6070"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
+                  title="Гражданская передышка — восстанавливает тыл (экономика/рейтинг/стабильность) и +40 инициативы. Без боевых бонусов, фронт без внимания."
+                  style={{ ...btnStyle("#1f2733", "#7a8aa0"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
                 >
-                  {confirming ? "…" : "⏭ Пропустить ход (+55 инициативы)"}
+                  {confirming ? "…" : "🏠 Гражданская передышка (тыл +)"}
                 </button>
               </div>
             )}

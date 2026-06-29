@@ -99,6 +99,17 @@ const DECREE_DURATION = {
   decree:         5,
 };
 
+// Сила эффекта по тиру указа: быстрый — слабее, программа — мощнее (но дороже/дольше).
+// Делает выбор типа осмысленным: «дёшево-слабо-сразу» vs «дорого-сильно-надолго».
+const TIER_MULTIPLIER = {
+  decree_fast:    0.7,
+  decree_reform:  1.0,
+  decree_program: 1.45,
+};
+
+// Бонус «разведка готовит почву»: успешная intel-операция усиливает следующее действие.
+const INTEL_BOOST_FACTOR = 1.3;
+
 // В кризисном режиме 1 ход = 2 недели (коэффициент 0.5 от обычного)
 const CRISIS_TURN_WEEKS = 2;
 const NORMAL_TURN_WEEKS = 4; // 1 месяц
@@ -237,6 +248,18 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   newStats.peace_progress = newPeaceProgress;
   statDeltas.peace_progress = peaceDelta;
 
+  // Множитель силы по тиру указа (fast<reform<program); для прочих режимов = 1.
+  const tierMult = TIER_MULTIPLIER[actionMode] ?? 1.0;
+  // Разведбонус: если прошлая intel-операция была успешной — усиливаем ПОЛОЖИТЕЛЬНЫЕ
+  // эффекты текущего (не-разведывательного) хода. Бонус разовый — расходуется здесь.
+  const isIntelAction = typeof action_type === "string" && action_type.startsWith("intel");
+  const intelBoostActive = (state.stats.next_action_boost ?? 0) > 0 && !isIntelAction;
+  const effMult = (delta) => {
+    let d = delta * tierMult;
+    if (intelBoostActive && delta > 0) d *= INTEL_BOOST_FACTOR;
+    return Math.round(d);
+  };
+
   for (const stat of Object.keys(MAX_DELTA_PER_TURN)) {
     if (stat === "peace_progress") continue; // уже посчитано выше
     if (action_type === "nuclear_strike") {
@@ -248,10 +271,18 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
       statDeltas[stat] = delta;
       newStats[stat] = Math.max(0, Math.min(100, (state.stats[stat] ?? 50) + delta));
     } else {
-      const delta = computeStatDelta({ category: action_type, stat, severity, seed });
+      const baseDelta = computeStatDelta({ category: action_type, stat, severity, seed });
+      const delta = (tierMult !== 1.0 || intelBoostActive) ? effMult(baseDelta) : baseDelta;
       statDeltas[stat] = delta;
       newStats[stat] = applyClamped(state.stats[stat], delta);
     }
+  }
+
+  // Учёт разведбонуса: успешная разведка ставит бонус на следующий ход; обычный ход — расходует.
+  if (action_type === "intel_success" || action_type === "intel_critical_success") {
+    newStats.next_action_boost = action_type === "intel_critical_success" ? 2 : 1;
+  } else if (intelBoostActive) {
+    newStats.next_action_boost = 0; // бонус израсходован
   }
 
   // Отношения: прямое влияние + спилловер на связанные страны

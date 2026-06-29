@@ -1095,38 +1095,47 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       const turnNumber = game.current_turn + 1;
       const currentStats = game.stats || {};
-      const { INITIATIVE_MAX, INITIATIVE_SKIP_REGEN, applyTurn } = require("../rules/rules-engine");
+      const { INITIATIVE_MAX } = require("../rules/rules-engine");
 
-      // Применяем null_action через rules-engine — штрафы к статам + бонусная регенерация инициативы
-      const { newStats, statDeltas } = applyTurn({
-        state: { stats: currentStats, relations: game.relations || [] },
-        gmClassification: { action_type: "null_action", severity: 2, affected_relations: [] },
-        gameId,
-        turnNumber,
-        actionMode: "skip",
-      });
+      // ГРАЖДАНСКАЯ ПЕРЕДЫШКА: президент сосредоточился на тыле.
+      // Восстанавливает экономику/рейтинг/стабильность (и связанные субметрики),
+      // НЕ даёт боевых бонусов (это работа перегруппировки) и оставляет фронт без внимания.
+      const clamp = (v) => Math.max(0, Math.min(100, v));
+      const newStats = { ...currentStats };
+      const statDeltas = {};
+      const homeRecovery = {
+        economy: 3, approval: 3, stability: 3,
+        lower_class_mood: 3, reserves: 2, employment: 1, social_tension: -2,
+        inflation: -1,
+      };
+      for (const [k, d] of Object.entries(homeRecovery)) {
+        const before = newStats[k] ?? 50;
+        newStats[k] = clamp(before + d);
+        statDeltas[k] = newStats[k] - before;
+      }
 
-      // Пропуск: инициатива не тратится, а восстанавливается на INITIATIVE_SKIP_REGEN
+      // Передышка восстанавливает инициативу умеренно (меньше перегруппировки: +40).
       const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
-      newStats.initiative = Math.min(INITIATIVE_MAX, currentInit + INITIATIVE_SKIP_REGEN);
+      newStats.initiative = Math.min(INITIATIVE_MAX, currentInit + 40);
       statDeltas.initiative = newStats.initiative - currentInit;
 
-      // Территориальные потери при бездействии — ВСУ контратакуют
+      // Фронт без внимания — лёгкий откат (мягче прежнего пропуска)
       for (const key of ["kharkiv_control", "kherson_control"]) {
         const cur = newStats[key] ?? 0;
-        if (cur > 0) newStats[key] = Math.max(0, cur - 3);
+        if (cur > 0) { newStats[key] = Math.max(0, cur - 1); statDeltas[key] = newStats[key] - cur; }
       }
-      newStats["zaporizhzhia_control"] = Math.max(0, (newStats["zaporizhzhia_control"] ?? 68) - 1);
-      // Peace decay при бездействии
-      newStats.peace_progress = Math.max(0, (newStats.peace_progress ?? 0) - 4);
+      // Не дипломатия — мирный трек слегка проседает
+      const peaceBefore = newStats.peace_progress ?? 0;
+      newStats.peace_progress = Math.max(0, peaceBefore - 2);
+      statDeltas.peace_progress = newStats.peace_progress - peaceBefore;
 
-      const narrative = "Президент бездействует. Страна теряет темп — рейтинг и экономика проседают.";
+      const narrative = "Гражданская передышка. Президент сосредоточился на внутренних делах — экономика, доходы населения и общественные настроения восстанавливаются. Фронт остаётся без активного внимания.";
 
       await client.query(
         `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [gameId, turnNumber, "[Пропуск хода]", "decree",
-          JSON.stringify({ action_type: "null_action", severity: 2 }),
+        [gameId, turnNumber, "[Гражданская передышка]", "skip",
+          JSON.stringify({ action_type: "civilian_breather", severity: 1 }),
           JSON.stringify(statDeltas),
           "[]", narrative, null, JSON.stringify(newStats)]
       );
