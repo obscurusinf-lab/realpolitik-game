@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -1284,6 +1284,7 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
   const [argumentText, setArgumentText] = useState("");
   const [advisorReply, setAdvisorReply] = useState(null);
   const [sendingArg, setSendingArg] = useState(false);
+  const [revisedNote, setRevisedNote] = useState(null);
 
   const deltas = Object.entries(preview.statDeltasPreview || {}).filter(([, d]) => d !== 0);
 
@@ -1296,6 +1297,7 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
       if (result.withdrawn) {
         setObjection(null);
         setArguing(false);
+        if (result.revisedNarrative) setRevisedNote(result.revisedNarrative);
         onObjectionWithdrawn?.();
       }
     } catch {
@@ -1387,6 +1389,13 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
       <div className="doc-font" style={{ fontSize: 13.5, color: "#ece7d8", lineHeight: 1.5, marginBottom: 10 }}>
         {preview.narrative}
       </div>
+
+      {revisedNote && (
+        <div style={{ background: "#101a10", border: "1px solid #2a5030", borderRadius: 4, padding: "6px 11px", marginBottom: 10 }}>
+          <span className="mono-font" style={{ fontSize: 9, color: "#5a9060", letterSpacing: "0.08em" }}>✓ РЕШЕНИЕ СКОРРЕКТИРОВАНО · </span>
+          <span className="doc-font" style={{ fontSize: 12, color: "#9fc090" }}>{revisedNote}</span>
+        </div>
+      )}
 
       {preview.effectLogic && (
         <div style={{ background: "#111c14", border: "1px solid #2a4030", borderRadius: 4, padding: "7px 11px", marginBottom: 10 }}>
@@ -2417,7 +2426,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         )}
         {tab === "policies" && <PoliciesTab state={state} gameId={gameId} currentTurn={state.turn} onStateRefresh={loadState} />}
         {tab === "relations" && <RelationsTab state={state} />}
-        {tab === "newsfeed" && <NewsfeedTab state={state} />}
+        {tab === "newsfeed" && <NewsfeedTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "log" && <LogTab state={state} />}
         {tab === "wiki" && <WikiTab />}
       </div>
@@ -4710,13 +4719,116 @@ function StatDeltaBadges({ delta }) {
   );
 }
 
-function NewsfeedTab({ state }) {
+function UkraineActionCard({ item, gameId, respondedType, onResponded }) {
+  const [loading, setLoading] = useState(null); // responseType being submitted
+  const [error, setError] = useState(null);
+
+  // reactions хранится как объект {type, responses} для ukraine_action
+  const eventData = item.reactions && !Array.isArray(item.reactions) ? item.reactions : null;
+  const responses = eventData?.responses || [];
+
+  const RESPONSE_STYLE = {
+    defend:   { label: "🛡 Оборонительные меры", bg: "#0d1a10", border: "#2a5a30", color: "#7fae93" },
+    retaliate:{ label: "⚔ Контрудар", bg: "#1a0d08", border: "#7a3020", color: "#e09070" },
+    accept:   { label: "📋 Принять потери", bg: "#141420", border: "#3a3a5a", color: "#9090c0" },
+  };
+
+  async function handleRespond(responseType) {
+    setLoading(responseType);
+    setError(null);
+    try {
+      await respondToUkraineEvent(gameId, item.turn, responseType);
+      onResponded(item.turn, responseType);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  return (
+    <div style={{ background: "#140808", border: "2px solid #7a2020", borderRadius: 4, overflow: "hidden" }}>
+      <div style={{ padding: "10px 13px", borderLeft: "4px solid #c03030" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+          <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.08em", color: "#e05050" }}>
+            ⚔ {item.source?.toUpperCase()} · ДЕЙСТВИЕ ПРОТИВНИКА
+          </span>
+          <span className="mono-font" style={{ fontSize: 9, color: "#6a3030" }}>ХОД {item.turn}</span>
+        </div>
+        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.45, color: "#e8c0b0" }}>{item.text}</div>
+      </div>
+      <div style={{ padding: "10px 13px 12px", background: "#1a0a0a", borderTop: "1px solid #5a1a1a" }}>
+        {respondedType ? (
+          <div className="mono-font" style={{ fontSize: 11, color: "#7fae93" }}>
+            ✓ Ответ дан: {RESPONSE_STYLE[respondedType]?.label || respondedType}
+          </div>
+        ) : (
+          <>
+            <div className="mono-font" style={{ fontSize: 9, color: "#8a5050", marginBottom: 8, letterSpacing: "0.08em" }}>
+              ВЫБЕРИТЕ ОТВЕТНЫЕ МЕРЫ
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              {responses.map((r) => {
+                const style = RESPONSE_STYLE[r.type] || {};
+                return (
+                  <button
+                    key={r.type}
+                    onClick={() => handleRespond(r.type)}
+                    disabled={!!loading}
+                    style={{
+                      background: loading === r.type ? "#2a1a1a" : style.bg || "#1a1a2a",
+                      border: `1px solid ${style.border || "#4a4a6a"}`,
+                      color: style.color || "#a0a0c0",
+                      borderRadius: 4, padding: "8px 12px",
+                      fontFamily: "'PT Serif',serif", fontSize: 12.5,
+                      textAlign: "left", cursor: loading ? "wait" : "pointer",
+                      opacity: loading && loading !== r.type ? 0.5 : 1,
+                    }}
+                  >
+                    {loading === r.type ? "Выполняется…" : r.label}
+                  </button>
+                );
+              })}
+            </div>
+            {error && <div className="mono-font" style={{ fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewsfeedTab({ state, gameId, onRefresh }) {
+  const [respondedMap, setRespondedMap] = useState(() => state.stats?.ukraine_responses || {});
+
+  // Синхронизируем при обновлении state
+  useEffect(() => {
+    setRespondedMap(state.stats?.ukraine_responses || {});
+  }, [state.stats?.ukraine_responses]);
+
+  function handleResponded(turnN, responseType) {
+    setRespondedMap(prev => ({ ...prev, [turnN]: responseType }));
+    onRefresh?.();
+  }
+
   if (!state.newsfeed?.length) {
     return <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>Лента пуста.</div>;
   }
   return (
     <div style={{ display: "grid", gap: 12 }}>
       {[...state.newsfeed].reverse().map((item, i) => {
+        if (item.type === "ukraine_action") {
+          return (
+            <UkraineActionCard
+              key={i}
+              item={item}
+              gameId={gameId}
+              respondedType={respondedMap[item.turn]}
+              onResponded={handleResponded}
+            />
+          );
+        }
+
         const meta = NEWSFEED_TYPE[item.type] || NEWSFEED_TYPE.news;
         const isWorldMove = item.type === "world_move";
         const analystNote = isWorldMove ? item.reactions?.[0] : null;
@@ -4737,7 +4849,7 @@ function NewsfeedTab({ state }) {
               <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? "#d0a090" : undefined }}>{item.text}</div>
               {isWorldMove && <StatDeltaBadges delta={moveDelta} />}
             </div>
-            {!isWorldMove && item.reactions?.length > 0 && (
+            {!isWorldMove && Array.isArray(item.reactions) && item.reactions.length > 0 && (
               <div style={{ background: "#ebe5d4", padding: "8px 13px 10px" }}>
                 <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 6, letterSpacing: "0.05em" }}>КОММЕНТАРИИ</div>
                 <div style={{ display: "grid", gap: 6 }}>

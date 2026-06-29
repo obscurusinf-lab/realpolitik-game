@@ -72,6 +72,7 @@ async function registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore
     return reply.send({
       withdrawn: !!parsed.withdrawn,
       advisorResponse: parsed.advisor_response || "Советник принял ваши аргументы.",
+      revisedNarrative: parsed.withdrawn && parsed.revised_note ? parsed.revised_note : null,
     });
   });
 }
@@ -94,7 +95,7 @@ function buildArguePrompt({ countryName, playerTitle, narrative, objection, play
 - Отвечай живым разговорным языком, 2-3 предложения, в роли конкретного советника. Обращайся к президенту как "${playerTitle}"
 
 Верни ТОЛЬКО JSON без markdown:
-{"withdrawn": true/false, "advisor_response": "ответ советника"}`;
+{"withdrawn": true/false, "advisor_response": "ответ советника 2-3 предложения", "revised_note": "если withdrawn=true: одна фраза о том, что именно скорректировано в подходе — иначе null"}`;
 }
 
 module.exports = { registerArgueRoute };

@@ -286,3 +286,17 @@ export async function cancelPolicy(gameId, policyTitle) {
   if (!res.ok) throw new Error("Ошибка отмены указа");
   return res.json();
 }
+
+
+export async function respondToUkraineEvent(gameId, turnN, responseType) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/ukraine/respond`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ turnN, responseType }),
+  }, 10000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Ошибка ответа на событие");
+  }
+  return res.json();
+}

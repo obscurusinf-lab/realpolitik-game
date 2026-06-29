@@ -1169,8 +1169,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
       const newStats = { ...game.stats };
 
-      // Рефилл инициативы — бюджет нового месяца
-      newStats.initiative = INITIATIVE_MAX;
+      // Рефилл инициативы — бюджет нового месяца.
+      // Carryover 40%: неизрасходованная инициатива частично переходит в следующий месяц,
+      // позволяя накопить до 130 (бонус за экономию). Стимул не тратить всё до копейки.
+      const prevInitiative = typeof game.stats.initiative === "number" ? game.stats.initiative : 0;
+      const carryover = Math.round(prevInitiative * 0.4);
+      newStats.initiative = Math.min(130, INITIATIVE_MAX + carryover);
       // Сброс флага передышки — новый месяц, можно снова
       delete newStats.skip_used_this_month;
 
@@ -1658,6 +1662,92 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     );
 
     return reply.send({ ok: true, statPenalty: penalty });
+  });
+  // POST /games/:gameId/ukraine/respond — ответ на действие Украины из ленты
+  // Применяет последствия выбранной стратегии реагирования.
+  fastify.post("/games/:gameId/ukraine/respond", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { turnN, responseType } = request.body || {};
+    if (!turnN || !["defend", "retaliate", "accept"].includes(responseType)) {
+      return reply.code(400).send({ error: "turnN и responseType (defend|retaliate|accept) обязательны" });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const gsRes = await client.query(
+        `SELECT gs.stats, gs.relations, g.current_turn FROM game_state gs JOIN games g ON g.id = gs.game_id WHERE gs.game_id = $1 FOR UPDATE`,
+        [gameId]
+      );
+      if (!gsRes.rowCount) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const newStats = { ...gsRes.rows[0].stats };
+      // Проверяем: уже отвечали на это событие?
+      const responded = newStats.ukraine_responses || {};
+      if (responded[turnN]) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "На это событие уже был дан ответ" });
+      }
+
+      // Эффекты по типу ответа
+      const clamp = (v) => Math.max(0, Math.min(100, v));
+      const RESPONSE_EFFECTS = {
+        defend: {
+          // Эффективное противодействие: укрепляет стабильность, стоит инициативы
+          label: "Оборонительные меры приняты",
+          statDelta: { stability: 2, approval: 2, army_morale: 1, initiative: -10 },
+        },
+        retaliate: {
+          // Контрудар: поднимает боевой дух, но эскалирует
+          label: "Контрудар нанесён",
+          statDelta: { army_morale: 3, military: 1, peace_progress: -5, war_escalation_counter: 1, approval: 1, initiative: -20 },
+        },
+        accept: {
+          // Принять потери: дёшево, но бьёт по авторитету
+          label: "Потери приняты, ситуация взята под контроль",
+          statDelta: { approval: -2, stability: -1 },
+        },
+      };
+      const effect = RESPONSE_EFFECTS[responseType];
+      for (const [k, v] of Object.entries(effect.statDelta)) {
+        if (k === "initiative") {
+          newStats.initiative = Math.max(0, (newStats.initiative ?? 100) + v);
+        } else if (k === "war_escalation_counter") {
+          newStats.war_escalation_counter = Math.min(5, (newStats.war_escalation_counter ?? 0) + v);
+        } else if (k === "peace_progress") {
+          newStats.peace_progress = Math.max(0, Math.min(100, (newStats.peace_progress ?? 0) + v));
+        } else if (typeof newStats[k] === "number") {
+          newStats[k] = clamp(newStats[k] + v);
+        } else {
+          newStats[k] = clamp(50 + v);
+        }
+      }
+
+      // Помечаем что ответили
+      newStats.ukraine_responses = { ...responded, [turnN]: responseType };
+
+      await client.query(
+        `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
+        [JSON.stringify(newStats), gameId]
+      );
+
+      const currentTurn = gsRes.rows[0].current_turn || turnN;
+      await client.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        [gameId, currentTurn, "Штаб", `Ответ на действие противника (ход ${turnN}): ${effect.label}.`]
+      );
+
+      await client.query("COMMIT");
+      return reply.send({ ok: true, label: effect.label, statDelta: effect.statDelta, newStats });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Respond failed" });
+    } finally {
+      client.release();
+    }
   });
 }
 
