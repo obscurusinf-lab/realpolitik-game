@@ -53,11 +53,12 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
       (stats.kharkiv_control ?? 0) >= 50,
     ].filter(Boolean).length;
     if (militaryDominance && armyReady && homeStable && economyHolds && donbassSecured && otherRegions >= 2) {
-      // Если параллельно построен мирный трек — это «принуждение к миру»,
-      // дипломатия с позиции силы. Лучший исход: оба пути сошлись.
+      // Принуждение к миру: территории взяты + построен мирный трек (дипломатия с позиции силы).
       const peace = (stats.peace_progress ?? 0);
-      if (peace >= 50) return "victory_combined";
-      return "victory_military";
+      if (peace >= 40) return "victory_combined";   // лучший исход — оба пути сошлись
+      if (peace < 35) return "victory_military";     // чистая военная победа
+      // Зона 35..40 — игрок явно ведёт переговоры: не завершаем партию автоматически,
+      // даём окно дожать мирный трек до 40 и получить принуждение к миру.
     }
   }
 
@@ -812,7 +813,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           type: "ceasefire_betrayal",
           title: "Киев нарушил перемирие",
           text: "Пока шли переговоры и российские войска отводились на согласованные позиции, ВСУ внезапно перешли в наступление на оголённых участках. Киев публично заявил, что «не связан договорённостями с агрессором». Доверие к переговорному процессу подорвано.",
-          khersonDelta: -4, kharkivDelta: -4, zaporizhzhiaDelta: -3,
+          khersonDelta: -2, kharkivDelta: -1, zaporizhzhiaDelta: -1,
           army_moraleDelta: -3, peace_progressDelta: -18, stabilityDelta: -2,
           responses: [
             { label: "Возобновить наступление — переговоры были ошибкой, отвечаем силой", type: "retaliate" },
