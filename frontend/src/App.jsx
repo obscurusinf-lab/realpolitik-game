@@ -4692,16 +4692,20 @@ function StatDeltaBadges({ delta }) {
   if (!delta || !Object.keys(delta).length) return null;
   return (
     <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
-      {Object.entries(delta).map(([k, v]) => (
-        <span key={k} className="mono-font" style={{
-          fontSize: 10, padding: "2px 7px", borderRadius: 3,
-          background: v < 0 ? "#2a0808" : "#0a1a0d",
-          color: v < 0 ? "#e07070" : "#7fae93",
-          border: `1px solid ${v < 0 ? "#6a1010" : "#2a4030"}`,
-        }}>
-          {ALL_STAT_LABELS[k] || k} {v > 0 ? "+" : ""}{v}
-        </span>
-      ))}
+      {Object.entries(delta).map(([k, v]) => {
+        const c = deltaColor(k, v);
+        const isBad = c === "#e09090";
+        return (
+          <span key={k} className="mono-font" style={{
+            fontSize: 10, padding: "2px 7px", borderRadius: 3,
+            background: isBad ? "#2a0808" : "#0a1a0d",
+            color: c,
+            border: `1px solid ${isBad ? "#6a1010" : "#2a4030"}`,
+          }}>
+            {ALL_STAT_LABELS[k] || k} {v > 0 ? "+" : ""}{v}
+          </span>
+        );
+      })}
     </div>
   );
 }
