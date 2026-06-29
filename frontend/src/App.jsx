@@ -1158,11 +1158,13 @@ function SmartHintsPanel({ stats, turn, onSelectHint, onClose }) {
                 <span className="mono-font" style={{ fontSize: 8, color: "#4a5a70", whiteSpace: "nowrap" }}>{adv.metric}</span>
               </div>
               <div className="doc-font" style={{ fontSize: 11, color: "#7a8898", lineHeight: 1.35, marginTop: 3 }}>{adv.read}</div>
-              {clickable && (
+              {clickable ? (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, gap: 8 }}>
                   <span className="doc-font" style={{ fontSize: 11, color: "#a8b8c8", fontStyle: "italic" }}>{adv.action.example ? `«${adv.action.example}»` : "Перегруппировка войск"}</span>
-                  <span className="mono-font" style={{ fontSize: 8, color: "#4a5a70", whiteSpace: "nowrap" }}>{MODE_LABELS[adv.action.mode]}</span>
+                  <span className="mono-font" style={{ fontSize: 8, color: sc, whiteSpace: "nowrap" }}>{MODE_LABELS[adv.action.mode]} →</span>
                 </div>
+              ) : (
+                <div className="mono-font" style={{ fontSize: 8, color: "#3a6a4a", marginTop: 3 }}>✓ в норме — действий не требуется</div>
               )}
             </div>
           );
@@ -2393,10 +2395,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             ) : (
               <button
                 onClick={toggleTutorial}
-                title={tutorialMode ? "Советник включён — нажмите чтобы выключить" : "Советник выключен — нажмите чтобы включить"}
-                style={{ background: tutorialMode ? "#0e1a10" : "transparent", border: `1px solid ${tutorialMode ? "#2a5030" : "#2a3040"}`, borderRadius: 4, padding: "3px 8px", fontFamily: "monospace", fontSize: 9, color: tutorialMode ? "#4a9c6a" : "#3a4050", cursor: "pointer", flexShrink: 0, letterSpacing: "0.04em" }}
+                title={tutorialMode ? "Советник включён — нажмите чтобы скрыть" : "Советник скрыт — нажмите чтобы показать подсказки"}
+                style={{ background: tutorialMode ? "#0e1a10" : "#2a2410", border: `1px solid ${tutorialMode ? "#2a5030" : "#9c8347"}`, borderRadius: 4, padding: "3px 8px", fontFamily: "monospace", fontSize: 9, color: tutorialMode ? "#4a9c6a" : "#c8b87a", cursor: "pointer", flexShrink: 0, letterSpacing: "0.04em" }}
               >
-                {tutorialMode ? "💡 советник" : "💡 off"}
+                {tutorialMode ? "💡 советник" : "💡 показать подсказки"}
               </button>
             )}
           </div>
