@@ -3035,23 +3035,25 @@ function WelcomeModal({ state, playerName, onClose }) {
               ))}
             </div>
 
-            {/* Два пути к победе */}
-            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ДВА ПУТИ К ПОБЕДЕ</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+            {/* Три пути к победе */}
+            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ТРИ ПУТИ К ПОБЕДЕ</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 10 }}>
               {[
-                { label: "☮ Дипломатический путь", desc: "Диппереговоры (+4..+8) и Мирная инициатива (+10..+20) заполняют мирный трек до 100. Требует: экономика ≥65, рейтинг ≥65, стабильность ≥65", color: "#4a6b8c" },
-                { label: "⚔️ Военный путь", desc: "Занять Донецк 100%, Луганск 100%, Запорожье ≥85%, Херсон ≥65%, Харьков ≥50%. Требует: армия ≥85, страна жива", color: "#9c6347" },
+                { label: "⚔️ Военный путь", desc: "Донецк 100%, Луганск 100% + 2 из 3 (Запорожье ≥85%, Херсон ≥65%, Харьков ≥50%). Армия ≥85, мораль/готовность ≥70, тыл ≥52, экономика ≥36. Срабатывает при мирном треке < 35.", color: "#9c6347" },
+                { label: "🕊 Принуждение к миру", desc: "Те же территории, НО мирный трек ≥40 — «дипломатия с позиции силы». Лучший исход: оба пути сошлись.", color: "#26a69a" },
+                { label: "☮ Дипломатический путь", desc: "Мирный трек до 100 (диппереговоры). Требует: экономика ≥65, рейтинг ≥65, стабильность ≥65.", color: "#4a6b8c" },
               ].map(({ label, desc, color }) => (
                 <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
                   <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>
-                  <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", lineHeight: 1.3 }}>{desc}</div>
+                  <div className="doc-font" style={{ fontSize: 10.5, color: "#5a6070", lineHeight: 1.3 }}>{desc}</div>
                 </div>
               ))}
             </div>
             <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ВАЖНО ПРО МИРНЫЙ ТРЕК</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
               {[
-                { label: "⚔️ Военное наступление", desc: "Срывает переговоры — мирный трек откатывается назад (-7). Это не значит что наступление плохо: оно двигает территории, но мир придётся строить дипломатией", color: "#9c6347" },
+                { label: "⚔️ Военное наступление", desc: "Срывает переговоры — мирный трек откатывается. Установленный мир (≥40) держится крепче, чем низкий. Наступление двигает территории, но мир придётся строить дипломатией", color: "#9c6347" },
+                { label: "🤝 Вероломство Киева", desc: "На мирные шаги Киев может ответить вероломством (макс. 2 раза за партию): откат мира и территорий. 2-е — только если вы НЕ доминируете военно. Раздавите фронт — не рискнёт", color: "#ab47bc" },
                 { label: "☢️ Ядерный удар", desc: "Катастрофический откат мирного трека (-40). Международная изоляция", color: "#a8313a" },
               ].map(({ label, desc, color }) => (
                 <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
@@ -3059,6 +3061,46 @@ function WelcomeModal({ state, playerName, onClose }) {
                   <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", lineHeight: 1.3 }}>{desc}</div>
                 </div>
               ))}
+            </div>
+
+            {/* Ресурсы хода */}
+            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>РЕСУРСЫ: МЕСЯЦ, ИНИЦИАТИВА, КАЗНА</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+              {[
+                { label: "🗓 Несколько действий в месяц", desc: "За один месяц можно принять несколько решений, пока хватает инициативы. Месяц продвигается только по кнопке «Завершить месяц».", color: "#9c8347" },
+                { label: "⚡ Инициатива", desc: "Политическая воля — бюджет действий на месяц. Тратится на каждое решение, восстанавливается в конце месяца.", color: "#7fae93" },
+                { label: "💰 Казна (бюджет)", desc: "Деньги. Действия стоят казны (война — дороже всего). Доход: экономика + налоговые политики. Расход: содержание программ. Минус = дефицит (инфляция, экономика, стабильность).", color: "#c8b87a" },
+                { label: "⚙ Перегруппировка / 🏠 Передышка", desc: "Перегруппировка — отдых фронта (мораль, готовность, инициатива). Передышка — восстановление тыла (экономика, рейтинг, стабильность).", color: "#5a8050" },
+              ].map(({ label, desc, color }) => (
+                <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
+                  <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>
+                  <div className="doc-font" style={{ fontSize: 10.5, color: "#5a6070", lineHeight: 1.3 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Типы решений */}
+            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ТИПЫ РЕШЕНИЙ (сила растёт с ценой)</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+              {[
+                { label: "📜 Быстрый указ", desc: "Дёшево, эффект слабее (~2 хода). ⚡20 💰3", color: "#5a9c6a" },
+                { label: "📋 Реформа", desc: "Средняя сила и длительность (~5 ходов). ⚡35 💰8", color: "#9c8347" },
+                { label: "🏛 Программа", desc: "Сильнее всех, держится ~10 ходов, но дорого. ⚡55 💰15", color: "#c89347" },
+                { label: "🕵️ Разведка", desc: "Случайный исход. Успех даёт +30% к эффекту СЛЕДУЮЩЕГО действия. ⚡20 💰5", color: "#b08ad8" },
+              ].map(({ label, desc, color }) => (
+                <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
+                  <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>
+                  <div className="doc-font" style={{ fontSize: 10.5, color: "#5a6070", lineHeight: 1.3 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Политики */}
+            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ДЕЙСТВУЮЩИЕ ПОЛИТИКИ</div>
+            <div style={{ background: "#1a2030", borderRadius: 3, padding: "8px 11px", marginBottom: 16 }}>
+              <div className="doc-font" style={{ fontSize: 11, color: "#7a8090", lineHeight: 1.45 }}>
+                Вкладка «Политики» сгруппирована: <span style={{ color: "#9c7ab0" }}>программы</span>, <span style={{ color: "#3a8a7a" }}>реформы</span>, <span style={{ color: "#5b6b8c" }}>указы</span>. У каждой видно, что вырастет при успехе и последствия отмены. Налоговые (НДС, утильсбор) <b>пополняют казну</b>, но бьют по рейтингу; программы <b>стоят на содержание</b>. Отмена непопулярной политики может поднять рейтинг — но лишит дохода.
+              </div>
             </div>
 
             {/* Условия поражения */}
@@ -3084,11 +3126,12 @@ function WelcomeModal({ state, playerName, onClose }) {
             <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 12 }}>КАК ИГРАТЬ</div>
             <div style={{ display: "grid", gap: 10 }}>
               {[
-                ["1", "Читайте «Обстановку»", "Очаги напряжённости кликабельны — открываются с подробностями. Вкладка «Мир» показывает ходы других стран."],
-                ["2", "Запрашивайте совет", "Вкладка «Советники» → «Запросить совет». Можно с черновиком решения — каждый советник реагирует по-своему. Нажмите «Принять совет» чтобы взять рекомендацию за основу."],
-                ["3", "Формулируйте указ", "Напишите решение в поле внизу или нажмите «💡 Подсказки» для вариантов под текущую ситуацию."],
-                ["4", "«Рассмотреть →»", "ИИ-геймместер оценит последствия, покажет прогноз изменений и возможное возражение советника."],
-                ["5", "«Подписать и огласить»", "Ход применяется. Мир реагирует — смотрите «Лента» и «Мир» после каждого хода."],
+                ["1", "Читайте «Обстановку»", "Очаги напряжённости кликабельны. Вкладка «Мир» — ходы других стран, «Политики» — что уже действует."],
+                ["2", "Спросите кабинет министров", "Вкладка «Кабинет министров» → «Запросить совет». Каждый министр даёт мнение И готовую формулировку указа. «Принять совет» вставит её и выставит нужный тип. Советник 💡 внизу подсказывает по всем направлениям сразу."],
+                ["3", "Сформулируйте решение", "Выберите тип (указ/реформа/программа/военная/дипломатия/разведка) — под полем видно цену ⚡ инициативы и 💰 казны. Напишите текст или возьмите вариант из «💡 Подсказок»."],
+                ["4", "«Рассмотреть →» и подтвердите", "ИИ-геймместер покажет прогноз и возражение советника. Подтверждение тратит инициативу и казну, но месяц НЕ заканчивает."],
+                ["5", "Несколько решений за месяц", "Пока хватает инициативы — принимайте ещё решения. Это и есть «несколько действий за месяц»."],
+                ["6", "«Завершить месяц»", "Восстановит инициативу, начислит доход в казну, спишет содержание программ, покажет реакцию мира и действия Украины. Месяц сменится."],
               ].map(([n, title, desc]) => (
                 <div key={n} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
                   <div style={{ width: 24, height: 24, borderRadius: "50%", background: "#2a3040", border: "1px solid #9c8347", color: "#9c8347", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "monospace", fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{n}</div>
