@@ -73,7 +73,25 @@ const SUBSTAT_DEFAULTS = {
   regional_unity: 64,
   // peace
   peace_progress: 12,
+  // бюджет/казна (0–100 для баланса; на экране — ещё и в ₽ трлн). Может уходить в минус (дефицит).
+  treasury: 52,
 };
+
+// Стоимость действий ДЕНЬГАМИ (из казны), отдельно от инициативы.
+// Война дорогая, дипломатия дешёвая. Может уводить казну в дефицит (мягкое последствие).
+const ACTION_BUDGET_COST = {
+  military:        20,
+  decree_program:  15,
+  decree_reform:   8,
+  decree_fast:     3,
+  decree:          8,
+  diplomacy_op:    5,
+  intel:           5,
+  crisis:          4,
+  regroup:         2,
+};
+const TREASURY_MIN = -100; // жёсткий пол, чтобы дефицит не уходил в бесконечность
+const TREASURY_PER_TRILLION = 0.8; // 1 пункт казны ≈ ₽0.8 трлн (для отображения)
 
 // Стоимость инициативы по типу действия
 // decree_fast: быстрый указ (1–2 мес.), decree_reform: реформа (3–6 мес.), decree_program: крупная программа (7–12 мес.)
@@ -247,6 +265,14 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   newStats.initiative = Math.max(0, regenedInitiative - cost);
   statDeltas.initiative = newStats.initiative - currentInitiative;
 
+  // Казна: списываем стоимость действия деньгами (может уходить в дефицит).
+  const budgetCost = ACTION_BUDGET_COST[actionMode] ?? 0;
+  if (budgetCost) {
+    const currentTreasury = typeof newStats.treasury === "number" ? newStats.treasury : 52;
+    newStats.treasury = Math.max(TREASURY_MIN, currentTreasury - budgetCost);
+    statDeltas.treasury = newStats.treasury - currentTreasury;
+  }
+
   // Peace progress — отдельная механика мирного трека
   const currentPeaceProgress = typeof state.stats.peace_progress === "number" ? state.stats.peace_progress : 0;
   const peaceArmyValue = newStats.military ?? 50;
@@ -359,4 +385,7 @@ module.exports = {
   applyTurn,
   seededFraction,
   MULTI_ACTION_TURNS,
+  ACTION_BUDGET_COST,
+  TREASURY_MIN,
+  TREASURY_PER_TRILLION,
 };

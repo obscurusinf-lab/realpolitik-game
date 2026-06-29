@@ -1135,6 +1135,25 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.peace_progress = Math.max(0, p - decay);
       }
 
+      // --- КАЗНА: месячный доход и расход ---
+      const { TREASURY_MIN } = require("../rules/rules-engine");
+      const activePolicies = (game.policies || []).filter(p => p.status !== "cancelled");
+      const taxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
+      const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
+      const economyIncome = Math.round((newStats.economy ?? 50) * 0.4); // налоговые поступления от экономики
+      const monthlyNet = economyIncome + taxIncome - programUpkeep;
+      const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
+      let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
+      // Дефицит: казна в минусе → инфляция растёт, экономика и стабильность проседают
+      let deficitHit = false;
+      if (treasuryAfter < 0) {
+        deficitHit = true;
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 2);
+        newStats.economy = Math.max(0, (newStats.economy ?? 50) - 2);
+        newStats.stability = Math.max(0, (newStats.stability ?? 50) - 1);
+      }
+      newStats.treasury = treasuryAfter;
+
       // Сдвиг даты + продвижение месяца
       const currentGameDate = game.overview?.date;
       const newGameDate = currentGameDate ? advanceGameDate(currentGameDate, crisisMode) : null;
@@ -1159,6 +1178,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         `INSERT INTO leaderboard_snap (game_id, turn_n, score, score_breakdown) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
         [gameId, completedMonth, score, JSON.stringify(Object.fromEntries(scoreKeys.map(k => [k, newStats[k] ?? 50])))]
       );
+      // Бюджетная сводка в ленту
+      const T = 0.8; // ₽ трлн за пункт казны
+      const flowSign = monthlyNet >= 0 ? "+" : "";
+      await client.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        [gameId, completedMonth, "Минфин",
+         `Бюджет за месяц: доходы +${(economyIncome + taxIncome)} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}. Итог: ${flowSign}${monthlyNet} → казна ${(treasuryAfter * T).toFixed(1)} трлн ₽.` +
+         (deficitHit ? " ДЕФИЦИТ: инфляция растёт, экономика и стабильность под давлением." : "")]
+      );
+
       await client.query("COMMIT");
       await pendingTurnStore.clear(gameId);
 
@@ -1169,6 +1198,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         initiative: newStats.initiative,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
+        budget: { economyIncome, taxIncome, programUpkeep, net: monthlyNet, treasury: treasuryAfter, deficit: deficitHit },
       });
     } catch (err) {
       await client.query("ROLLBACK");

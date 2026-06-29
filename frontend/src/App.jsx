@@ -1069,12 +1069,12 @@ const MODE_LABELS = { military: "⚔️ военная", decree_fast: "📜 бы
 
 // Что даёт каждый тип действия: цена инициативы, длительность эффекта, риск.
 const ACTION_MODE_INFO = {
-  decree_fast:    { cost: 20, duration: "эффект ~2 хода",  risk: "низкий риск",       riskColor: "#5a9c6a", desc: "Быстрый указ — дёшево и сразу. Разовые меры: льготы, выплаты, объявления. Слабее реформы, но почти без штрафов." },
-  decree_reform:  { cost: 35, duration: "эффект ~5 ходов", risk: "средний эффект",    riskColor: "#9c8347", desc: "Системная реформа — сильнее и дольше быстрого указа, но дороже по инициативе и эффект разворачивается не сразу." },
-  decree_program: { cost: 55, duration: "эффект ~10 ходов",risk: "долго, но дорого",  riskColor: "#c89347", desc: "Крупная программа — самый длительный эффект (держится ~10 ходов), но самая дорогая по инициативе. Выгодна в долгую." },
-  intel:          { cost: 20, duration: "разовый исход",   risk: "СЛУЧАЙНЫЙ исход",   riskColor: "#c0653a", desc: "Разведоперация — азартна: успех укрепляет армию/мораль, провал бьёт по дипломатии (−3..−5) и репутации. Чем сильнее армия — тем выше шанс успеха." },
-  diplomacy_op:   { cost: 35, duration: "двигает мирный трек", risk: "роняет военный темп", riskColor: "#9c8347", desc: "Дипломатическая операция — главный двигатель мирного трека. Но мирные шаги Киев может использовать для вероломства." },
-  military:       { cost: 55, duration: "двигает территории", risk: "роняет мир/экономику", riskColor: "#a8313a", desc: "Военная операция — продвигает контроль над территориями, но дорого по инициативе, бьёт по экономике и мирному треку." },
+  decree_fast:    { cost: 20, money: 3,  duration: "эффект ~2 хода",  risk: "низкий риск",       riskColor: "#5a9c6a", desc: "Быстрый указ — дёшево и сразу. Разовые меры: льготы, выплаты, объявления. Слабее реформы, но почти без штрафов." },
+  decree_reform:  { cost: 35, money: 8,  duration: "эффект ~5 ходов", risk: "средний эффект",    riskColor: "#9c8347", desc: "Системная реформа — сильнее и дольше быстрого указа, но дороже по инициативе и деньгам, эффект разворачивается не сразу." },
+  decree_program: { cost: 55, money: 15, duration: "эффект ~10 ходов",risk: "долго, но дорого",  riskColor: "#c89347", desc: "Крупная программа — самый длительный эффект (~10 ходов), но самая дорогая по инициативе и деньгам. Выгодна в долгую." },
+  intel:          { cost: 20, money: 5,  duration: "разовый исход",   risk: "СЛУЧАЙНЫЙ исход",   riskColor: "#c0653a", desc: "Разведоперация — азартна: успех укрепляет армию/мораль, провал бьёт по дипломатии (−3..−5) и репутации. Чем сильнее армия — тем выше шанс успеха." },
+  diplomacy_op:   { cost: 35, money: 5,  duration: "двигает мирный трек", risk: "роняет военный темп", riskColor: "#9c8347", desc: "Дипломатическая операция — главный двигатель мирного трека, недорогая по деньгам. Но мирные шаги Киев может использовать для вероломства." },
+  military:       { cost: 55, money: 20, duration: "двигает территории", risk: "роняет мир/экономику", riskColor: "#a8313a", desc: "Военная операция — продвигает контроль над территориями, но самая дорогая (инициатива + деньги), бьёт по экономике и мирному треку." },
 };
 const STATUS_COLORS = { ok: "#3a9c6a", warn: "#c8a347", crit: "#a8313a" };
 const STATUS_DOTS = { ok: "🟢", warn: "🟡", crit: "🔴" };
@@ -1222,6 +1222,7 @@ const ALL_STAT_LABELS = {
   ally_trust: "Доверие союзников", isolation: "Изоляция", soft_power: "Мягкая сила", reputation: "Репутация",
   law_order: "Правопорядок", social_tension: "Соц. напряж.", media_control: "Контроль СМИ", regional_unity: "Ед. регионов",
   elite_satisfaction: "Элиты", corruption: "Коррупция", middle_class: "Средний класс", lower_class_mood: "Народ",
+  treasury: "Казна",
 };
 
 // Тип политики: программа / реформа / указ
@@ -2494,6 +2495,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                   <div style={{ background: "#141b24", border: "1px solid #2a3545", borderRadius: 4, padding: "6px 9px", marginBottom: 7 }}>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginBottom: 3 }}>
                       <span className="mono-font" style={{ fontSize: 9, color: "#9c8347" }}>⚡ {info.cost} инициативы</span>
+                      {info.money != null && <span className="mono-font" style={{ fontSize: 9, color: "#c8b87a" }}>💰 {info.money} казны (~₽{(info.money*0.8).toFixed(1)} трлн)</span>}
                       <span className="mono-font" style={{ fontSize: 9, color: "#7a8898" }}>⏳ {info.duration}</span>
                       <span className="mono-font" style={{ fontSize: 9, color: info.riskColor }}>⚠ {info.risk}</span>
                     </div>
@@ -2543,9 +2545,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           {(() => {
             const initiative = state?.stats?.initiative ?? 100;
             const crisisMode = !!(state?.overview?.crisis_mode);
-            const COST = { decree_fast: 20, decree_reform: 35, decree_program: 55, decree: 35, intel: 20, military: 55, crisis: 15 };
+            const multi = !!state?.multiActionTurns;
+            const COST = { decree_fast: 20, decree_reform: 35, decree_program: 55, decree: 35, intel: 20, military: 55, crisis: 15, diplomacy_op: 35 };
             const cost = COST[actionMode] ?? 35;
-            const regen = crisisMode ? 35 : 25;
+            const regen = multi ? 0 : (crisisMode ? 35 : 25);
             const after = Math.min(100, initiative + regen) - cost;
             const color = after < 0 ? "#e09090" : after < 20 ? "#9c8347" : "#7fae93";
             return (
@@ -2557,9 +2560,35 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{initiative}</div>
                 <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>→</div>
                 <div className="mono-font" style={{ fontSize: 9, color }}>
-                  {after < 0 ? "недостаточно" : after} после хода
+                  {after < 0 ? "недостаточно" : after} {multi ? "после действия" : "после хода"}
                 </div>
-                <div className="mono-font" style={{ fontSize: 8, color: "#3a4050" }}>(+{regen} ↻ −{cost} ⚡)</div>
+                <div className="mono-font" style={{ fontSize: 8, color: "#3a4050" }}>{multi ? `(−${cost} ⚡)` : `(+${regen} ↻ −${cost} ⚡)`}</div>
+              </div>
+            );
+          })()}
+
+          {/* Казна (бюджет) */}
+          {(() => {
+            const T = 0.8; // ₽ трлн за пункт
+            const treasury = state?.stats?.treasury ?? 52;
+            const MONEY = { military: 20, decree_program: 15, decree_reform: 8, decree: 8, decree_fast: 3, diplomacy_op: 5, intel: 5, crisis: 4 };
+            const cost = MONEY[actionMode] ?? 0;
+            const after = treasury - cost;
+            const deficit = treasury < 0;
+            const barPct = Math.max(0, Math.min(100, treasury));
+            const afterColor = after < 0 ? "#e09090" : after < 15 ? "#c89347" : "#7fae93";
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", flexShrink: 0 }}>КАЗНА</div>
+                <div style={{ flex: 1, height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${barPct}%`, height: "100%", background: deficit ? "#e09090" : treasury > 40 ? "#c8b87a" : "#c89347", transition: "width 0.3s", borderRadius: 2 }} />
+                </div>
+                <div className="mono-font" style={{ fontSize: 9, color: deficit ? "#e09090" : "#c8b87a" }}>{deficit ? "ДЕФИЦИТ " : ""}₽{(treasury * T).toFixed(1)} трлн</div>
+                {cost > 0 && <>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>→</div>
+                  <div className="mono-font" style={{ fontSize: 9, color: afterColor }}>₽{(after * T).toFixed(1)} трлн</div>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#3a4050" }}>(−{cost} 💰)</div>
+                </>}
               </div>
             );
           })()}

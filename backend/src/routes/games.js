@@ -243,6 +243,8 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     for (const [key, val] of Object.entries(TERRITORY_DEFAULTS)) {
       if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
     }
+    // Казна — дефолт для партий, созданных до бюджетной механики
+    if (statsWithTerritories.treasury === undefined) statsWithTerritories.treasury = 52;
 
     // Merge full relations list for games created before extra countries were added
     const FULL_RELATIONS = [
