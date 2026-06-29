@@ -2332,7 +2332,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             draftInput={draftInput}
             actionMode={actionMode}
             onConsult={handleConsult}
-            onSelectAdvice={(text) => { setDraftInput(text); setTab("overview"); }}
+            onSelectAdvice={(adv) => {
+              setDraftInput(adv.proposed_decree || adv.recommendation || "");
+              const scale = adv.suggested_scale;
+              if (scale && ["decree_fast","decree_reform","decree_program","intel","military","diplomacy_op"].includes(scale)) setActionMode(scale);
+              setTab("overview");
+            }}
           />
         )}
         {tab === "policies" && <PoliciesTab state={state} gameId={gameId} currentTurn={state.turn} onStateRefresh={loadState} />}
@@ -2758,9 +2763,16 @@ function AdvisorsTab({ advisors, consulting, advisorError, draftInput, actionMod
                 <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.55, color: "#3a362e", marginBottom: 10 }}>
                   {adv.recommendation}
                 </div>
+                {adv.proposed_decree && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
+                  <div style={{ background: "#ece3cf", borderLeft: "3px solid #9c8347", borderRadius: 3, padding: "6px 9px", marginBottom: 10 }}>
+                    <div className="mono-font" style={{ fontSize: 8, color: "#9c8347", letterSpacing: "0.08em", marginBottom: 2 }}>ПРЕДЛАГАЕМЫЙ УКАЗ</div>
+                    <div className="doc-font" style={{ fontSize: 12.5, color: "#3a362e", fontStyle: "italic", lineHeight: 1.45 }}>«{adv.proposed_decree}»</div>
+                  </div>
+                )}
                 {adv.suggested_direction && adv.suggested_direction !== "null_action" && (
                   <button
-                    onClick={() => onSelectAdvice(adv.recommendation)}
+                    onClick={() => onSelectAdvice(adv)}
+                    title={adv.proposed_decree ? `Вставит указ: «${adv.proposed_decree}»` : undefined}
                     style={{
                       background: "#9c8347", color: "#1a1f2c", border: "none",
                       borderRadius: 3, padding: "5px 12px",

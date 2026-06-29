@@ -133,21 +133,26 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
 ФОРМАТ ОТВЕТА
 ═══════════════════════════════════════════
 Верни ТОЛЬКО валидный JSON без markdown-обёрток.
-Каждая рекомендация: 3-4 предложения живой речью, строго в стиле персонажа.
+"recommendation" — мнение советника живой речью (3-4 предложения, в стиле персонажа).
+"proposed_decree" — ОТДЕЛЬНО: готовая формулировка указа от первого лица президента,
+которую можно сразу подать как решение. Одно-два повелительных предложения, БЕЗ ремарок
+и пояснений, например: "Провести налоговую реформу с переходом на прогрессивную шкалу и
+льготами для оборонных предприятий." Это НЕ пересказ мнения, а конкретный приказ.
 
 {
   "advisors": [
     {
       "id": "defense",
       "recommendation": "...",
+      "proposed_decree": "...",
       "suggested_direction": "одно из: military_offensive | military_defensive | diplomacy_outreach | diplomacy_confrontation | economic_stimulus | economic_austerity | domestic_repression | domestic_liberalization | info_narrative | intelligence_covert | peace_initiative | null_action",
       "suggested_scale": "одно из: decree_fast | decree_reform | decree_program | intel | military",
       "tone": "одно из: supportive | cautious | critical | alarmed"
     },
-    { "id": "foreign", "recommendation": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
-    { "id": "finance", "recommendation": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
-    { "id": "security", "recommendation": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
-    { "id": "press", "recommendation": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." }
+    { "id": "foreign", "recommendation": "...", "proposed_decree": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
+    { "id": "finance", "recommendation": "...", "proposed_decree": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
+    { "id": "security", "recommendation": "...", "proposed_decree": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
+    { "id": "press", "recommendation": "...", "proposed_decree": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." }
   ]
 }`;
 
