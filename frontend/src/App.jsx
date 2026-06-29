@@ -1066,6 +1066,16 @@ function generateSmartHints(stats, turn) {
 }
 
 const MODE_LABELS = { military: "⚔️ военная", decree_fast: "📜 быстрый", decree_reform: "📋 реформа", decree_program: "🏛 программа", diplomacy_op: "🤝 дипломатия", intel: "🕵️ разведка", regroup: "⚙ перегруппировка" };
+
+// Что даёт каждый тип действия: цена инициативы, длительность эффекта, риск.
+const ACTION_MODE_INFO = {
+  decree_fast:    { cost: 20, duration: "эффект ~2 хода",  risk: "низкий риск",       riskColor: "#5a9c6a", desc: "Быстрый указ — дёшево и сразу. Разовые меры: льготы, выплаты, объявления. Слабее реформы, но почти без штрафов." },
+  decree_reform:  { cost: 35, duration: "эффект ~5 ходов", risk: "средний эффект",    riskColor: "#9c8347", desc: "Системная реформа — сильнее и дольше быстрого указа, но дороже по инициативе и эффект разворачивается не сразу." },
+  decree_program: { cost: 55, duration: "эффект ~10 ходов",risk: "долго, но дорого",  riskColor: "#c89347", desc: "Крупная программа — самый длительный эффект (держится ~10 ходов), но самая дорогая по инициативе. Выгодна в долгую." },
+  intel:          { cost: 20, duration: "разовый исход",   risk: "СЛУЧАЙНЫЙ исход",   riskColor: "#c0653a", desc: "Разведоперация — азартна: успех укрепляет армию/мораль, провал бьёт по дипломатии (−3..−5) и репутации. Чем сильнее армия — тем выше шанс успеха." },
+  diplomacy_op:   { cost: 35, duration: "двигает мирный трек", risk: "роняет военный темп", riskColor: "#9c8347", desc: "Дипломатическая операция — главный двигатель мирного трека. Но мирные шаги Киев может использовать для вероломства." },
+  military:       { cost: 55, duration: "двигает территории", risk: "роняет мир/экономику", riskColor: "#a8313a", desc: "Военная операция — продвигает контроль над территориями, но дорого по инициативе, бьёт по экономике и мирному треку." },
+};
 const STATUS_COLORS = { ok: "#3a9c6a", warn: "#c8a347", crit: "#a8313a" };
 const STATUS_DOTS = { ok: "🟢", warn: "🟡", crit: "🔴" };
 
@@ -2386,8 +2396,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             )}
           </div>
 
-          {/* Панель подсказок — скрыта в режиме «сам по себе» */}
-          {tutorialMode && !lastActionResult && assistMode !== "hardcore" && (
+          {/* Панель подсказок — скрыта в режиме «сам по себе». Показывается каждый ход. */}
+          {tutorialMode && assistMode !== "hardcore" && (
             <SmartHintsPanel
               stats={state?.stats}
               turn={state?.turn ?? 0}
@@ -2422,6 +2432,20 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>
                 {{ decree_reform: "ВАРИАНТЫ РЕФОРМ", decree_program: "ВАРИАНТЫ ПРОГРАММ", intel: "ВАРИАНТЫ ОПЕРАЦИЙ", military: "ВАРИАНТЫ ОПЕРАЦИЙ" }[actionMode] || "ВАРИАНТЫ УКАЗОВ"} — нажмите чтобы выбрать:
               </div>
+              {(() => {
+                const info = ACTION_MODE_INFO[actionMode] || ACTION_MODE_INFO.decree_fast;
+                return (
+                  <div style={{ background: "#141b24", border: "1px solid #2a3545", borderRadius: 4, padding: "6px 9px", marginBottom: 7 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginBottom: 3 }}>
+                      <span className="mono-font" style={{ fontSize: 9, color: "#9c8347" }}>⚡ {info.cost} инициативы</span>
+                      <span className="mono-font" style={{ fontSize: 9, color: "#7a8898" }}>⏳ {info.duration}</span>
+                      <span className="mono-font" style={{ fontSize: 9, color: info.riskColor }}>⚠ {info.risk}</span>
+                    </div>
+                    <div className="doc-font" style={{ fontSize: 11, color: "#8a96a6", lineHeight: 1.35 }}>{info.desc}</div>
+                    <div className="doc-font" style={{ fontSize: 10.5, color: "#5a6a7a", fontStyle: "italic", marginTop: 2 }}>Точные изменения статов покажет «Рассмотреть».</div>
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 {suggestions.map((s, i) => (
                   <button
