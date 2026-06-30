@@ -289,6 +289,21 @@ function generateFinalChapterEvent(stats, month) {
 // привязан к stats.oil_price напрямую. Эта функция парсит такой текст по ключевым словам
 // и сразу подвигает цену/курс, чтобы заголовок и цифры в "Казне" не противоречили друг другу.
 // Не используется для MARKET_EVENTS (там дельта уже задаётся явно — иначе будет двойной счёт).
+// --- РЕЗЕРВЫ: демпфер валютных шоков ---
+// ЗВР (stats.reserves, 0-100) — не просто фоновая цифра: при ослаблении рубля ЦБ может
+// интервенциями сгладить часть удара, расходуя резервы. Чем их больше — тем сильнее демпфер
+// (и тем больше резервов уходит), при низких резервах (<20) интервенции невозможны — курс
+// летит без тормозов. Усиление рубля резервы не трогает (валюту для покупки не нужно искать).
+function dampenFxShock(fxDeltaRaw, newStats) {
+  if (!fxDeltaRaw || fxDeltaRaw <= 0) return fxDeltaRaw || 0;
+  const reservesNow = newStats.reserves ?? 48;
+  const dampening = reservesNow > 70 ? 0.45 : reservesNow > 45 ? 0.25 : reservesNow > 20 ? 0.1 : 0;
+  if (dampening <= 0) return fxDeltaRaw;
+  const spent = Math.max(1, Math.round(fxDeltaRaw * dampening * 0.4));
+  newStats.reserves = Math.max(0, reservesNow - spent);
+  return Math.round(fxDeltaRaw * (1 - dampening) * 10) / 10;
+}
+
 function applyOilFxTextImpact(text, newStats) {
   if (!text) return;
   const t = text.toLowerCase();
@@ -308,7 +323,8 @@ function applyOilFxTextImpact(text, newStats) {
     newStats.oil_price = Math.round(Math.max(OIL_MIN, Math.min(OIL_MAX, (newStats.oil_price ?? 68) + oilDelta)) * 10) / 10;
   }
   if (fxDelta) {
-    newStats.usd_rub = Math.round(Math.max(FX_MIN, Math.min(FX_MAX, (newStats.usd_rub ?? 80) + fxDelta)) * 10) / 10;
+    const dampened = dampenFxShock(fxDelta, newStats);
+    newStats.usd_rub = Math.round(Math.max(FX_MIN, Math.min(FX_MAX, (newStats.usd_rub ?? 80) + dampened)) * 10) / 10;
   }
 }
 
@@ -1385,7 +1401,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         ];
         const ev = MARKET_EVENTS[Math.floor(Math.random() * MARKET_EVENTS.length)];
         if (ev.oilDelta) oilNow = Math.max(35, Math.min(120, oilNow + ev.oilDelta));
-        if (ev.fxDelta) fxNow = Math.max(55, Math.min(140, fxNow + ev.fxDelta));
+        if (ev.fxDelta) fxNow = Math.max(55, Math.min(140, fxNow + dampenFxShock(ev.fxDelta, newStats)));
         marketEventLine = ev.text;
         await client.query(
           `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -1409,6 +1425,19 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const oilIncome = Math.round((newStats.oil_price - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
       const fxIncome = Math.round((newStats.usd_rub - FX_BASELINE) * 0.4);
       if (newStats.usd_rub > FX_BASELINE + 10) {
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
+      }
+
+      // --- РЕЗЕРВЫ: помесячный дрейф + уязвимость при низком уровне ---
+      // Профицит торгового баланса (дорогая нефть + выгодный курс) понемногу пополняет ЗВР,
+      // дефицит — расходует. Высокая изоляция размывает резервы (заморозка активов за рубежом,
+      // ограничения на расчёты). Резервы ниже 20 означают, что ЦБ нечем защищать рубль —
+      // это усиливает инфляцию (см. также демпфер валютных шоков выше).
+      const tradeBalance = oilIncome + fxIncome;
+      let reservesDelta = tradeBalance > 5 ? 1 : tradeBalance < -5 ? -1 : 0;
+      if (isolationVal > 75) reservesDelta -= 1;
+      newStats.reserves = Math.max(0, Math.min(100, (newStats.reserves ?? 48) + reservesDelta));
+      if (newStats.reserves < 20) {
         newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
       }
 
@@ -1942,10 +1971,23 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       p.title === policyTitle ? { ...p, status: "cancelled" } : p
     );
 
-    // Последствия отмены: индивидуальные для политики (cancel_penalty), иначе дефолт.
-    const penalty = (target && target.cancel_penalty && typeof target.cancel_penalty === "object")
-      ? target.cancel_penalty
-      : { stability: -2, approval: -1 };
+    // Последствия отмены: индивидуальные для политики (cancel_penalty), иначе дефолт,
+    // который масштабируется под реальный бюджетный эффект отменяемой политики — иначе
+    // отмена доходной (например, защитной пошлины) политики выглядит как бесплатное действие,
+    // хотя казна со следующего месяца теряет её budget_income.
+    const income = Number(target?.budget_income) || 0;
+    const upkeep = Number(target?.budget_upkeep) || 0;
+    let penalty;
+    if (target && target.cancel_penalty && typeof target.cancel_penalty === "object") {
+      penalty = target.cancel_penalty;
+    } else {
+      penalty = { stability: -2, approval: -1 };
+      // Доходная/протекционистская политика (пошлина, сбор и т.п.) — отмена бьёт по экономике
+      // пропорционально потерянному доходу: рынок открывается, но бюджет теряет приток.
+      if (income > 0) penalty.economy = -Math.min(6, Math.max(1, Math.round(income / 4)));
+      // Крупная затратная программа (>8 содержания) — у неё были бенефициары, недовольные отменой.
+      if (upkeep > 8) penalty.approval = (penalty.approval || 0) - Math.min(3, Math.round(upkeep / 10));
+    }
     const stats = { ...gsRes.rows[0].stats };
     for (const [k, v] of Object.entries(penalty)) {
       if (typeof v === "number") stats[k] = Math.max(0, Math.min(100, (stats[k] ?? 50) + v));
@@ -1961,12 +2003,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     const STAT_RU = { stability: "стабильность", approval: "рейтинг", economy: "экономика", military: "армия", diplomacy: "дипломатия", reserves: "резервы", inflation: "инфляция", middle_class: "средний класс", lower_class_mood: "настроения населения", social_tension: "напряжённость", army_morale: "боевой дух", readiness: "боеготовность", equipment: "оснащение", media_control: "контроль СМИ", employment: "занятость" };
     const penaltyText = Object.entries(penalty)
       .map(([k, v]) => `${STAT_RU[k] || k} ${v > 0 ? "+" : ""}${v}`).join(", ");
+    const budgetBits = [];
+    if (income > 0) budgetBits.push(`казна теряет ${income} пункт${income === 1 ? "" : income < 5 ? "а" : "ов"}/мес. дохода`);
+    if (upkeep > 0) budgetBits.push(`казна экономит ${upkeep} пункт${upkeep === 1 ? "" : upkeep < 5 ? "а" : "ов"}/мес. на содержании`);
+    const budgetText = budgetBits.length ? ` ${budgetBits.join(", ")}.` : "";
     await db.query(
       `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
-      [gameId, turnN, "Кремль", `Политика «${policyTitle}» отменена. Последствия: ${penaltyText}.`]
+      [gameId, turnN, "Кремль", `Политика «${policyTitle}» отменена. Последствия: ${penaltyText}.${budgetText}`]
     );
 
-    return reply.send({ ok: true, statPenalty: penalty });
+    return reply.send({ ok: true, statPenalty: penalty, lostIncome: income, savedUpkeep: upkeep });
   });
   // POST /games/:gameId/ukraine/respond — ответ на действие Украины из ленты
   // Применяет последствия выбранной стратегии реагирования.
