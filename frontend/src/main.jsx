@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { createGame, createUser, deleteGame, fetchAdminStats, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
+import { createGame, createUser, deleteGame, fetchAdminStats, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://realpolitik-game-production.up.railway.app";
@@ -217,7 +217,7 @@ function NewsVideoPanel() {
 
 const GAME_SLOT_LIMIT = 5;
 
-function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onAdminOpen, onLogout }) {
+function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onAdminOpen, onLogout, onLeaderboard }) {
   const [showFeedback, setShowFeedback] = useState(false);
   // auth form state
   const [authMode, setAuthMode] = useState("login"); // "login" | "register"
@@ -231,6 +231,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
   const [selectedCountry, setSelectedCountry] = useState("RU");
   const [selectedMode, setSelectedMode] = useState("advisor"); // "advisor" | "hardcore"
   const [presidentName, setPresidentName] = useState("");
+  const [showInLeaderboard, setShowInLeaderboard] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(null);
 
@@ -292,7 +293,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
     setStarting(true);
     setStartError(null);
     try {
-      const { gameId } = await createGame(selectedCountry, selectedMode, presidentName.trim() || authUser.displayName);
+      const { gameId } = await createGame(selectedCountry, selectedMode, presidentName.trim() || authUser.displayName, showInLeaderboard);
       onStart(gameId, presidentName.trim() || authUser.displayName, selectedCountry);
     } catch (err) {
       setStartError(err.message);
@@ -509,6 +510,17 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                 </div>
               </div>
 
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                  <input type="checkbox" checked={showInLeaderboard} onChange={e => setShowInLeaderboard(e.target.checked)}
+                    style={{ marginTop: 2, accentColor: "#9c8347", cursor: "pointer", flexShrink: 0 }} />
+                  <div>
+                    <div className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.06em", marginBottom: 2 }}>ДОБАВИТЬ В ЗАЛ СЛАВЫ</div>
+                    <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", lineHeight: 1.4 }}>Разрешить публикацию итогов этой партии в общем рейтинге. Имя президента и результат будут видны всем.</div>
+                  </div>
+                </label>
+              </div>
+
               {startError && <div className="doc-font" style={{ color: "#e09090", fontSize: 13.5, marginBottom: 14 }}>{startError}</div>}
 
               {myGames.length >= GAME_SLOT_LIMIT ? (
@@ -524,12 +536,20 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
             </div>
           )}
 
-          <button onClick={() => setShowFeedback(true)}
-            style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
-            🐞 СООБЩИТЬ О БАГЕ / ОБРАТНАЯ СВЯЗЬ
-          </button>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={() => onLeaderboard?.()}
+              style={{ flex: 1, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
+              🏆 ЗАЛ СЛАВЫ
+            </button>
+            <button onClick={() => setShowFeedback(true)}
+              style={{ flex: 1, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
+              🐞 БАГ / ФИДБЕК
+            </button>
+          </div>
 
           <div style={{ marginTop: 18, background: "#2a2010", border: "1px solid #5a4520", borderRadius: 4, padding: "10px 14px" }}>
             <div className="mono-font" style={{ fontSize: 8, color: "#c8a857", letterSpacing: "0.08em", marginBottom: 4 }}>⚠ АЛЬФА-ВЕРСИЯ</div>
@@ -563,6 +583,79 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 }
 
 const COUNTRY_FLAG = { RU: "🇷🇺", US: "🇺🇸", CN: "🇨🇳", UA: "🇺🇦", DE: "🇩🇪", TR: "🇹🇷" };
+
+const STAT_LABELS = { stability: "Стабильность", economy: "Экономика", military: "Армия", diplomacy: "Дипломатия", approval: "Рейтинг" };
+
+function LeaderboardPage({ onBack }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchLeaderboard()
+      .then(data => setEntries(data.entries || []))
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const maxScore = entries.length > 0 ? Math.max(...entries.map(e => e.score)) : 100;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#1a1f2c", padding: "24px 16px" }}>
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+          <button onClick={onBack} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "6px 12px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer" }}>← НАЗАД</button>
+          <div className="mono-font" style={{ fontSize: 13, color: "#9c8347", letterSpacing: "0.1em" }}>🏆 ЗАЛ СЛАВЫ — ТОП ПРЕЗИДЕНТОВ</div>
+        </div>
+
+        {loading && <div className="mono-font" style={{ color: "#5a6070", fontSize: 11, textAlign: "center", padding: 40 }}>ЗАГРУЗКА…</div>}
+        {error && <div className="doc-font" style={{ color: "#e09090", fontSize: 13, textAlign: "center", padding: 40 }}>{error}</div>}
+        {!loading && !error && entries.length === 0 && (
+          <div className="doc-font" style={{ color: "#5a6070", fontSize: 13, textAlign: "center", padding: 40, lineHeight: 1.6 }}>
+            Зал Славы пуст.<br />
+            <span style={{ fontSize: 11 }}>Включите «Добавить в Зал Славы» при создании партии — и ваш результат появится здесь.</span>
+          </div>
+        )}
+
+        {entries.map((e, i) => {
+          const flag = COUNTRY_FLAG[e.country_id] || "🌐";
+          const pct = maxScore > 0 ? Math.round((e.score / maxScore) * 100) : 0;
+          const breakdown = e.score_breakdown || {};
+          return (
+            <div key={e.game_id + e.turn_n} style={{ background: "#1f2733", border: `1px solid ${i === 0 ? "#9c8347" : "#2a3040"}`, borderRadius: 6, padding: "14px 16px", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 20, minWidth: 28 }}>{flag}</div>
+                <div style={{ flex: 1 }}>
+                  <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: i === 0 ? "#9c8347" : "#ece7d8" }}>
+                    {i === 0 ? "🥇 " : i === 1 ? "🥈 " : i === 2 ? "🥉 " : `${i + 1}. `}{e.player_name}
+                  </div>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>{e.country_name} · ход {e.turn_n}</div>
+                </div>
+                <div className="mono-font" style={{ fontSize: 18, color: "#9c8347", fontWeight: 700 }}>{e.score}</div>
+              </div>
+              <div style={{ background: "#14181f", borderRadius: 3, height: 4, marginBottom: 8 }}>
+                <div style={{ background: "#9c8347", height: 4, borderRadius: 3, width: `${pct}%`, transition: "width 0.4s" }} />
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {Object.entries(STAT_LABELS).map(([k, label]) => (
+                  breakdown[k] !== undefined ? (
+                    <div key={k} className="mono-font" style={{ fontSize: 9, color: "#5a6070", background: "#14181f", borderRadius: 3, padding: "2px 6px" }}>
+                      {label} {breakdown[k]}
+                    </div>
+                  ) : null
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="mono-font" style={{ fontSize: 9, color: "#2a3040", textAlign: "center", marginTop: 16 }}>
+          Показаны только партии с включённой публикацией
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function loadSessions() {
   try { return JSON.parse(localStorage.getItem("savedSessions") || "[]"); } catch { return []; }
@@ -909,6 +1002,7 @@ function saveActiveGame(game) {
 function Root() {
   const [game, setGame] = useState(loadActiveGame);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [authUser, setAuthUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [myGames, setMyGames] = useState([]);
@@ -1005,8 +1099,9 @@ function Root() {
   }
 
   let screen;
-  if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} showWelcome={game.isNew === true} />;
-  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onNameChanged={handleNameChanged} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} />;
+  if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
+  else if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} showWelcome={game.isNew === true} />;
+  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onNameChanged={handleNameChanged} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} onLeaderboard={() => setShowLeaderboard(true)} />;
 
   return (
     <>

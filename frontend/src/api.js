@@ -135,11 +135,18 @@ export async function createUser(displayName) {
   return res.json();
 }
 
-export async function createGame(countryId, assistMode = "advisor", presidentName = "") {
+export async function fetchLeaderboard(countryId) {
+  const params = countryId ? `?countryId=${countryId}` : "";
+  const res = await fetchWithTimeout(`${API_BASE}/leaderboard${params}`, {}, 15000);
+  if (!res.ok) throw new Error(`fetchLeaderboard failed: ${res.status}`);
+  return res.json();
+}
+
+export async function createGame(countryId, assistMode = "advisor", presidentName = "", showInLeaderboard = false) {
   const res = await fetchWithTimeout(`${API_BASE}/games`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ countryId, assistMode, presidentName }),
+    body: JSON.stringify({ countryId, assistMode, presidentName, showInLeaderboard }),
   }, 30000);
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || `createGame failed: ${res.status}`);

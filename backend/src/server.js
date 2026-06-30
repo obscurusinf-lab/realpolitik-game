@@ -69,6 +69,8 @@ async function buildServer() {
   await db.query(`ALTER TABLE countries ADD COLUMN IF NOT EXISTS country_profile JSONB`);
   // Имя президента — закреплено за конкретной партией, отдельно от логина/аккаунта.
   await db.query(`ALTER TABLE games ADD COLUMN IF NOT EXISTS president_name TEXT`);
+  // Зал Славы: игрок явно соглашается на публикацию результата.
+  await db.query(`ALTER TABLE games ADD COLUMN IF NOT EXISTS show_in_leaderboard BOOLEAN NOT NULL DEFAULT false`);
   // Обратная связь / баг-репорты от игроков.
   await db.query(`
     CREATE TABLE IF NOT EXISTS feedback_items (

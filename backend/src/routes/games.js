@@ -46,12 +46,14 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const payload = verifyToken(request, reply);
     if (!payload) return;
 
-    const { countryId, assistMode, presidentName } = request.body || {};
+    const { countryId, assistMode, presidentName, showInLeaderboard } = request.body || {};
     const userId = payload.userId;
     // Режим закрепляется на старте: 'advisor' (по умолчанию) | 'hardcore'
     const mode = assistMode === "hardcore" ? "hardcore" : "advisor";
     // Имя президента — своё на каждую партию, не путать с логином/аккаунтом.
     const president = (typeof presidentName === "string" ? presidentName.trim() : "").slice(0, 40) || null;
+    // Зал Славы: игрок явно выбирает публикацию (false по умолчанию).
+    const leaderboardOpt = showInLeaderboard === true;
 
     const countRes = await db.query(
       `SELECT COUNT(*) AS cnt FROM games WHERE owner_user_id = $1 AND status = 'active'`,
@@ -91,9 +93,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       await client.query("BEGIN");
 
       const gameRes = await client.query(
-        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode, president_name)
-         VALUES ($1, $2, 'active', 0, $3, $4) RETURNING id`,
-        [userId, countryId, mode, president]
+        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode, president_name, show_in_leaderboard)
+         VALUES ($1, $2, 'active', 0, $3, $4, $5) RETURNING id`,
+        [userId, countryId, mode, president, leaderboardOpt]
       );
       const gameId = gameRes.rows[0].id;
 
@@ -519,6 +521,26 @@ ${historyLines || "(история пуста)"}
     await db.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
 
     return reply.send({ ok: true, delta, outcome, outcomeText });
+  });
+
+  // ---------- GET /leaderboard — Зал Славы (только opt-in партии) ----------
+  fastify.get("/leaderboard", async (request, reply) => {
+    const { countryId, limit = 20 } = request.query;
+    let queryText = `
+      SELECT ls.game_id, ls.turn_n, ls.score, ls.score_breakdown, ls.created_at,
+             c.name AS country_name, c.id AS country_id,
+             COALESCE(g.president_name, u.display_name) AS player_name
+      FROM leaderboard_snap ls
+      JOIN games g ON g.id = ls.game_id
+      JOIN countries c ON c.id = g.country_id
+      JOIN users u ON u.id = g.owner_user_id
+      WHERE g.show_in_leaderboard = true
+    `;
+    const params = [];
+    if (countryId) { queryText += ` AND c.id = $1`; params.push(countryId); }
+    queryText += ` ORDER BY ls.score DESC LIMIT ${parseInt(limit, 10) || 20}`;
+    const res = await db.query(queryText, params);
+    return reply.send({ entries: res.rows });
   });
 
 }
