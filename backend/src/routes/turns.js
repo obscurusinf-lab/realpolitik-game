@@ -1326,28 +1326,33 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- НЕФТЬ И ВАЛЮТА: помесячный дрейф + рыночные события ---
-      // Реальные единицы: $/баррель Brent (база 68) и ₽/$ (база 80). Дрейфуют случайным
-      // блужданием каждый месяц, плюс ~15% шанс рыночного события (нефтешок, валютный шок).
+      // Реальные единицы: $/баррель Brent (база 68) и ₽/$ (база 80). Случайное блуждание
+      // каждый месяц, но с лёгким возвратом к базе (mean reversion) — без геополитических
+      // причин цена/курс со временем стягиваются обратно к норме, а не «убегают» навсегда
+      // к границам диапазона. Плюс ~15% шанс геополитического события, которое толкает
+      // нефть/курс резко в плюс или в минус (Иран и т.п. — отдельный, более сильный сдвиг).
       const OIL_BASELINE = 68;
       const FX_BASELINE = 80;
       const oilBefore = typeof newStats.oil_price === "number" ? newStats.oil_price : OIL_BASELINE;
       const fxBefore = typeof newStats.usd_rub === "number" ? newStats.usd_rub : FX_BASELINE;
-      let oilNow = Math.max(20, Math.min(150, oilBefore + (Math.random() * 6 - 3))); // дрейф ±3$
-      let fxNow = Math.max(40, Math.min(200, fxBefore + (Math.random() * 4 - 2)));   // дрейф ±2₽
+      const oilReversion = (OIL_BASELINE - oilBefore) * 0.08;
+      const fxReversion = (FX_BASELINE - fxBefore) * 0.08;
+      let oilNow = Math.max(35, Math.min(120, oilBefore + oilReversion + (Math.random() * 6 - 3))); // возврат к базе + дрейф ±3$
+      let fxNow = Math.max(55, Math.min(140, fxBefore + fxReversion + (Math.random() * 4 - 2)));    // возврат к базе + дрейф ±2₽
       let marketEventLine = "";
       if (Math.random() < 0.15) {
         const MARKET_EVENTS = [
-          { source: "Bloomberg", oilDelta: 9, text: "Эскалация вокруг Ирана: удары по объектам в Персидском заливе подняли страх перебоев поставок. Нефть Brent подскочила на фоне угрозы блокады Ормузского пролива." },
-          { source: "Reuters", oilDelta: 6, text: "ОПЕК+ объявила о неожиданном сокращении добычи. Картель ссылается на «стабилизацию рынка» — цены на нефть пошли вверх." },
-          { source: "WSJ", oilDelta: -7, text: "Опасения рецессии в Китае и США обвалили прогнозы спроса на нефть. Котировки Brent резко просели." },
-          { source: "Financial Times", oilDelta: -5, text: "США объявили о выбросе нефти из стратегического резерва, чтобы сбить цены перед выборами. Рынок отреагировал распродажей." },
-          { source: "Коммерсантъ", fxDelta: 5, text: "Новый пакет санкций ударил по экспортным расчётам — рубль ослаб на фоне дефицита валютной ликвидности." },
-          { source: "РБК", fxDelta: -4, text: "Сильный экспортный квартал и удержание капитала в стране укрепили рубль." },
-          { source: "Forbes", fxDelta: 6, text: "Отток капитала ускорился: крупный бизнес выводит резервы за рубеж на фоне неопределённости. Рубль слабеет." },
+          { source: "Bloomberg", oilDelta: 14, text: "Эскалация вокруг Ирана: удары по объектам в Персидском заливе подняли страх перебоев поставок. Нефть Brent подскочила на фоне угрозы блокады Ормузского пролива." },
+          { source: "Reuters", oilDelta: 8, text: "ОПЕК+ объявила о неожиданном сокращении добычи. Картель ссылается на «стабилизацию рынка» — цены на нефть пошли вверх." },
+          { source: "WSJ", oilDelta: -9, text: "Опасения рецессии в Китае и США обвалили прогнозы спроса на нефть. Котировки Brent резко просели." },
+          { source: "Financial Times", oilDelta: -7, text: "США объявили о выбросе нефти из стратегического резерва, чтобы сбить цены перед выборами. Рынок отреагировал распродажей." },
+          { source: "Коммерсантъ", fxDelta: 7, text: "Новый пакет санкций ударил по экспортным расчётам — рубль ослаб на фоне дефицита валютной ликвидности." },
+          { source: "РБК", fxDelta: -6, text: "Сильный экспортный квартал и удержание капитала в стране укрепили рубль." },
+          { source: "Forbes", fxDelta: 8, text: "Отток капитала ускорился: крупный бизнес выводит резервы за рубеж на фоне неопределённости. Рубль слабеет." },
         ];
         const ev = MARKET_EVENTS[Math.floor(Math.random() * MARKET_EVENTS.length)];
-        if (ev.oilDelta) oilNow = Math.max(20, Math.min(150, oilNow + ev.oilDelta));
-        if (ev.fxDelta) fxNow = Math.max(40, Math.min(200, fxNow + ev.fxDelta));
+        if (ev.oilDelta) oilNow = Math.max(35, Math.min(120, oilNow + ev.oilDelta));
+        if (ev.fxDelta) fxNow = Math.max(55, Math.min(140, fxNow + ev.fxDelta));
         marketEventLine = ev.text;
         await client.query(
           `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
