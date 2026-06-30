@@ -10,8 +10,10 @@
  * Механика ОФЗ:
  *   - Максимум 3 активных выпуска (stats.ofz_count)
  *   - 1 выпуск за месяц (stats.ofz_used_this_month)
- *   - Каждый выпуск: +20 к казне немедленно, -3/мес. в end-month + давление инфляции +1
- *   - Погашение: -20 к казне, снимает 1 выпуск (давление инфляции -1 в следующий end-month)
+ *   - Каждый выпуск: +20 к казне немедленно, -3/мес. в end-month + давление инфляции +2
+ *   - Погашение: -22 к казне (премия за досрочное погашение выше суммы выпуска), снимает 1 выпуск,
+ *     давление инфляции -1 (не симметрично выпуску — долг нельзя "обнулить" без следа:
+ *     быстрый цикл выпуск→погашение всегда оставляет чистый минус в казне и +1 инфляции)
  *
  * Механика ключевой ставки:
  *   - stats.key_rate — текущая ставка (5–25%), ЦБ двигает автономно каждый месяц
@@ -29,7 +31,7 @@
 const OFZ_TREASURY_GAIN = 20;        // немедленный прирост казны
 const OFZ_MAX_COUNT = 3;             // максимум активных выпусков
 const OFZ_MONTHLY_COST = 3;          // стоимость обслуживания 1 выпуска в месяц
-const OFZ_REPAY_COST = 20;           // сколько казны нужно для погашения
+const OFZ_REPAY_COST = 22;           // сколько казны нужно для погашения (выше суммы выпуска — премия за досрочный выкуп)
 
 async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
   async function loadGameForUpdate(client, gameId) {
@@ -139,8 +141,8 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       const { TREASURY_MIN } = require("../rules/rules-engine");
       newStats.treasury = Math.max(TREASURY_MIN, treasuryCurrent - OFZ_REPAY_COST);
       newStats.ofz_count = ofzCount - 1;
-      // Снижение инфляционного давления
-      newStats.inflation = Math.max(0, (newStats.inflation ?? 64) - 2);
+      // Снижение инфляционного давления (меньше, чем прирост при выпуске — погашение не "отменяет" эффект бесплатно)
+      newStats.inflation = Math.max(0, (newStats.inflation ?? 64) - 1);
 
       await client.query(
         `UPDATE game_state SET stats = $1 WHERE game_id = $2`,
@@ -151,9 +153,9 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, game.current_turn + 1, "Минфин",
-         `Погашен 1 выпуск ОФЗ — казна сократилась на ${OFZ_REPAY_COST} пунктов (≈₽${(OFZ_REPAY_COST * T).toFixed(1)} трлн). ` +
+         `Погашен 1 выпуск ОФЗ — казна сократилась на ${OFZ_REPAY_COST} пунктов (≈₽${(OFZ_REPAY_COST * T).toFixed(1)} трлн, с премией за досрочный выкуп). ` +
          `Осталось активных выпусков: ${newStats.ofz_count}/${OFZ_MAX_COUNT}. ` +
-         `Ежемесячное обслуживание снижено до ${newStats.ofz_count * OFZ_MONTHLY_COST} пунктов/мес. Инфляционное давление снижено.`]
+         `Ежемесячное обслуживание снижено до ${newStats.ofz_count * OFZ_MONTHLY_COST} пунктов/мес. Инфляционное давление −1.`]
       );
 
       await client.query("COMMIT");

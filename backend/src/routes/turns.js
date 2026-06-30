@@ -283,6 +283,35 @@ function generateFinalChapterEvent(stats, month) {
   return [];
 }
 
+// --- НЕФТЬ/ВАЛЮТА: реакция на текст новости ---
+// Свободный нарратив (от ИИ или захардкоженных событий) может упоминать вещи, двигающие
+// рынок нефти/рубля (Ормузский пролив, ОПЕК, SWIFT, отток капитала и т.п.), но не быть
+// привязан к stats.oil_price напрямую. Эта функция парсит такой текст по ключевым словам
+// и сразу подвигает цену/курс, чтобы заголовок и цифры в "Казне" не противоречили друг другу.
+// Не используется для MARKET_EVENTS (там дельта уже задаётся явно — иначе будет двойной счёт).
+function applyOilFxTextImpact(text, newStats) {
+  if (!text) return;
+  const t = text.toLowerCase();
+  const OIL_MIN = 35, OIL_MAX = 120, FX_MIN = 55, FX_MAX = 140;
+  let oilDelta = 0, fxDelta = 0;
+
+  if (/ормузск|блокад\w* пролив|перебо[йи]\w* постав|опек\+? .*сокра|удар\w* по .*(нефт|танкер)|атак\w* на танкер/.test(t)) oilDelta += 10;
+  if (/нефт\w* (подскочил|вырос|взлетел)|цены? на нефть .*(вырос|подскочил)|нефть .*(максимум|рекорд)/.test(t)) oilDelta += 6;
+  if (/нефт\w* (обвал|рухн|просел)|выброс\w* .*резерв\w* нефт|рецесси\w* .*спрос|увеличил\w* добычу нефти|обвалив\w* цены|нефтегазовые доходы .*упал/.test(t)) oilDelta -= 8;
+
+  if (/рубль (упал|обвалился|ослаб|просел|рухнул)|курс .*(ослаб|обвал)/.test(t)) fxDelta += 6;
+  if (/swift|заморозил\w* .*счет|корреспондентск\w* счет/.test(t)) fxDelta += 5;
+  if (/рубль (укрепился|вырос|окреп)/.test(t)) fxDelta -= 5;
+
+  if (!oilDelta && !fxDelta) return;
+  if (oilDelta) {
+    newStats.oil_price = Math.round(Math.max(OIL_MIN, Math.min(OIL_MAX, (newStats.oil_price ?? 68) + oilDelta)) * 10) / 10;
+  }
+  if (fxDelta) {
+    newStats.usd_rub = Math.round(Math.max(FX_MIN, Math.min(FX_MAX, (newStats.usd_rub ?? 80) + fxDelta)) * 10) / 10;
+  }
+}
+
 async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore, verifyToken }) {
   async function loadGameForUpdate(client, gameId) {
     const res = await client.query(
@@ -673,6 +702,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const isSecret = pendingActionMode === "intel";
       const isDiplomacy = pendingActionMode === "diplomacy_op";
       const isDecree = pendingActionMode.startsWith("decree") || pendingActionMode === "crisis";
+      applyOilFxTextImpact(gmClassification.narrative, newStats);
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
          VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -724,6 +754,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         if (blowback.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + blowback.approvalDelta));
         if (blowback.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + blowback.economyDelta));
         if (blowback.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + blowback.stabilityDelta));
+        applyOilFxTextImpact(blowback.text, newStats);
         // Счётчик военной эскалации — накапливается, ведёт к defeat_war
         newStats.war_escalation_counter = Math.min(5, (newStats.war_escalation_counter ?? 0) + 1);
         await client.query(
@@ -765,6 +796,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         if (crisis.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + crisis.approvalDelta));
         if (crisis.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
         if (crisis.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + crisis.stabilityDelta));
+        applyOilFxTextImpact(crisis.text, newStats);
         await client.query(
           `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
           [gameId, turnNumber, "news", crisis.source, crisis.text, JSON.stringify([
@@ -855,6 +887,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             if (actor.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + actor.stabilityDelta));
             if (actor.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + actor.economyDelta));
             if (actor.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + actor.approvalDelta));
+            applyOilFxTextImpact(actor.text, newStats);
             await client.query(
               `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
               [gameId, turnNumber, "news", actor.source, actor.text, JSON.stringify([
