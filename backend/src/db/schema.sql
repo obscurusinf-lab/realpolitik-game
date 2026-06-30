@@ -7,7 +7,8 @@ CREATE TABLE countries (
   base_stats    JSONB NOT NULL,             -- { economy, military, stability, diplomacy, approval }
   base_relations JSONB NOT NULL,            -- [{ name, value, trend, note }]
   relations_graph JSONB NOT NULL DEFAULT '{}'::jsonb, -- { "США": { allies: ["ЕС","Украина"], rivals: ["Китай","Иран"] } }
-  context_summary TEXT,                     -- актуальный геополитический контекст на момент создания
+  context_summary TEXT,                     -- актуальный геополитический контекст ("что происходит сейчас") — для всплывающего окна
+  country_profile JSONB,                    -- { description, strengths: [...], weaknesses: [...] } — статичный профиль для брифинга
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

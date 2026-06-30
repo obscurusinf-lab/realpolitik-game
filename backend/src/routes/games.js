@@ -173,7 +173,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const gameRes = await db.query(
       `SELECT g.id, g.current_turn, g.status, g.created_at, g.owner_user_id, g.assist_mode,
               gs.stats, gs.relations, gs.policies, gs.overview,
-              c.name AS country_name, c.context_summary
+              c.name AS country_name, c.context_summary, c.country_profile
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id
@@ -287,6 +287,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       policies: game.policies || [],
       overview: game.overview || {},
       contextSummary: game.context_summary || null,
+      countryProfile: game.country_profile || null,
       newsfeed,
       log,
     });

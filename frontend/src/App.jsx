@@ -3020,7 +3020,9 @@ function WelcomeModal({ state, playerName, onClose }) {
   const countryName = state?.countryName || "страну";
   const countryAcc = COUNTRY_ACCUSATIVE[countryName] || countryName;
   const context = state?.contextSummary || null;
+  const profile = state?.countryProfile || null;
   const [expandedStat, setExpandedStat] = useState(null);
+  const [showSituation, setShowSituation] = useState(false);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
@@ -3048,8 +3050,56 @@ function WelcomeModal({ state, playerName, onClose }) {
             </div>
           </div>
 
-          {/* Контекст страны */}
-          {context && (
+          {/* Профиль страны: кто мы, сильные/слабые стороны (статично) */}
+          {profile && (
+            <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "14px 16px", marginBottom: 22 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+                <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", paddingTop: 2 }}>СТРАНА · {countryName.toUpperCase()}</div>
+                {context && (
+                  <button
+                    onClick={() => setShowSituation(true)}
+                    style={{ background: "transparent", border: "1px solid #9c8347", color: "#9c8347", borderRadius: 3, padding: "4px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.05em", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
+                  >
+                    Что сейчас происходит →
+                  </button>
+                )}
+              </div>
+              <div className="doc-font" style={{ fontSize: 13, color: "#c8c4b8", lineHeight: 1.65, marginBottom: (profile.strengths?.length || profile.weaknesses?.length) ? 14 : 0 }}>
+                {profile.description}
+              </div>
+              {(profile.strengths?.length > 0 || profile.weaknesses?.length > 0) && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                  {profile.strengths?.length > 0 && (
+                    <div>
+                      <div className="mono-font" style={{ fontSize: 8.5, color: "#4a8a6a", letterSpacing: "0.1em", marginBottom: 6 }}>СИЛЬНЫЕ СТОРОНЫ</div>
+                      <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                        {profile.strengths.map((s, i) => (
+                          <li key={i} className="doc-font" style={{ fontSize: 11, color: "#a8a294", lineHeight: 1.45, marginBottom: 5, paddingLeft: 13, position: "relative" }}>
+                            <span style={{ position: "absolute", left: 0, color: "#4a8a6a", fontWeight: 700 }}>+</span>{s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {profile.weaknesses?.length > 0 && (
+                    <div>
+                      <div className="mono-font" style={{ fontSize: 8.5, color: "#c05050", letterSpacing: "0.1em", marginBottom: 6 }}>СЛАБЫЕ СТОРОНЫ</div>
+                      <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                        {profile.weaknesses.map((s, i) => (
+                          <li key={i} className="doc-font" style={{ fontSize: 11, color: "#a8a294", lineHeight: 1.45, marginBottom: 5, paddingLeft: 13, position: "relative" }}>
+                            <span style={{ position: "absolute", left: 0, color: "#c05050", fontWeight: 700 }}>−</span>{s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Фоллбэк для партий без country_profile: старый блок с текущим контекстом инлайн */}
+          {!profile && context && (
             <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "14px 16px", marginBottom: 22 }}>
               <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>ГЕОПОЛИТИЧЕСКИЙ КОНТЕКСТ · {countryName.toUpperCase()}</div>
               <div className="doc-font" style={{ fontSize: 13, color: "#c8c4b8", lineHeight: 1.65 }}>{context}</div>
@@ -3251,6 +3301,30 @@ function WelcomeModal({ state, playerName, onClose }) {
           </button>
         </div>
       </div>
+
+      {/* Попап «Что сейчас происходит» — актуальные события, отдельно от статичного профиля страны */}
+      {showSituation && context && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2100, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+          onClick={() => setShowSituation(false)}
+        >
+          <div
+            style={{ background: "#14181f", border: "1px solid #3a4156", borderTop: "3px solid #9c8347", borderRadius: 6, maxWidth: 520, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 30px 80px rgba(0,0,0,0.8)", padding: "20px 22px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347", fontWeight: 700 }}>ЧТО СЕЙЧАС ПРОИСХОДИТ · {countryName.toUpperCase()}</div>
+              <button
+                onClick={() => setShowSituation(false)}
+                style={{ background: "transparent", border: "none", color: "#5a6070", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }}
+              >
+                ×
+              </button>
+            </div>
+            <div className="doc-font" style={{ fontSize: 13.5, color: "#c8c4b8", lineHeight: 1.7 }}>{context}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

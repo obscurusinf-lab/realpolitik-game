@@ -28,14 +28,15 @@ async function seedCountries(db) {
 
   for (const country of countries) {
     await db.query(
-      `INSERT INTO countries (id, name, base_stats, base_relations, relations_graph, context_summary, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, now())
+      `INSERT INTO countries (id, name, base_stats, base_relations, relations_graph, context_summary, country_profile, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now())
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          base_stats = EXCLUDED.base_stats,
          base_relations = EXCLUDED.base_relations,
          relations_graph = EXCLUDED.relations_graph,
          context_summary = EXCLUDED.context_summary,
+         country_profile = EXCLUDED.country_profile,
          updated_at = now()`,
       [
         country.id,
@@ -44,6 +45,7 @@ async function seedCountries(db) {
         JSON.stringify(country.base_relations),
         JSON.stringify(country.relations_graph),
         country.context_summary,
+        JSON.stringify(country.country_profile || null),
       ]
     );
     console.log(`Seeded country: ${country.id} (${country.name})`);
