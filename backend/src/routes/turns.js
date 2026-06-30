@@ -620,7 +620,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       let updatedPolicies = game.policies || [];
       if (gmClassification.policy_update?.is_new_policy) {
-        const policyDuration = gmClassification.policy_update.duration_turns || DECREE_DURATION[pendingActionMode] || 5;
+        const GAME_MAX_TURNS = 24;
+        const rawDuration = gmClassification.policy_update.duration_turns || DECREE_DURATION[pendingActionMode] || 5;
+        // Срок не может выйти за пределы партии (24 хода) и не превышает разумный потолок (12 — госпрограмма).
+        const remainingTurns = Math.max(1, GAME_MAX_TURNS - turnNumber);
+        const policyDuration = Math.min(rawDuration, 12, remainingTurns);
         updatedPolicies = [
           ...updatedPolicies,
           {
