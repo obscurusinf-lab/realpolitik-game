@@ -3060,7 +3060,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                     onClick={() => setShowSituation(true)}
                     style={{ background: "transparent", border: "1px solid #9c8347", color: "#9c8347", borderRadius: 3, padding: "4px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.05em", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
                   >
-                    Что сейчас происходит →
+                    Актуальная информация →
                   </button>
                 )}
               </div>
@@ -3314,7 +3314,7 @@ function WelcomeModal({ state, playerName, onClose }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347", fontWeight: 700 }}>ЧТО СЕЙЧАС ПРОИСХОДИТ · {countryName.toUpperCase()}</div>
+              <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347", fontWeight: 700 }}>АКТУАЛЬНАЯ ИНФОРМАЦИЯ · {countryName.toUpperCase()}</div>
               <button
                 onClick={() => setShowSituation(false)}
                 style={{ background: "transparent", border: "none", color: "#5a6070", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }}

@@ -66,6 +66,12 @@ async function buildServer() {
   await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username) WHERE username IS NOT NULL`);
   // Профиль страны для брифинга: общее описание + сильные/слабые стороны (статично, не "текущие события").
   await db.query(`ALTER TABLE countries ADD COLUMN IF NOT EXISTS country_profile JSONB`);
+  // Заполнить country_profile для существующих стран (идемпотентно — только если NULL).
+  const russiaProfile = require("./db/seed/countries/russia-2026-06.json");
+  await db.query(
+    `UPDATE countries SET country_profile = $1 WHERE id = $2 AND country_profile IS NULL`,
+    [JSON.stringify(russiaProfile.country_profile), russiaProfile.id]
+  );
 
   // --- Redis ---
   if (!process.env.REDIS_URL) throw new Error("REDIS_URL env var is required");
