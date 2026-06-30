@@ -5159,7 +5159,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 textAlign: "left",
               }}
             >
-              {loading === "issue" ? "Выпуск…" : ofzUsedThisMonth ? "⚠ Выпуск уже использован в этом месяце" : ofzCount >= OFZ_MAX ? "✕ Лимит долга исчерпан" : `📄 Выпустить ОФЗ (+20 казны, инфляция +2)`}
+              {loading === "issue" ? "Выпуск…" : ofzUsedThisMonth ? "⚠ Выпуск уже использован в этом месяце" : ofzCount >= OFZ_MAX ? "✕ Лимит долга исчерпан" : `📄 Выпустить ОФЗ (+20 казны, давление инфляции +2)`}
             </button>
             <button
               onClick={handleRepay}
@@ -5173,7 +5173,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 textAlign: "left",
               }}
             >
-              {loading === "repay" ? "Погашение…" : `💸 Погасить выпуск (−20 казны, инфляция −2)`}
+              {loading === "repay" ? "Погашение…" : `💸 Погасить выпуск (−20 казны, давление инфляции −2)`}
             </button>
           </div>
           {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
