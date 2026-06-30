@@ -5160,11 +5160,11 @@ function LogTab({ state }) {
 }
 
 function WikiTab() {
-  const S = { h: { fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#9c8347", letterSpacing: "0.12em", marginBottom: 8, marginTop: 20 }, p: { fontFamily: "'PT Serif',serif", fontSize: 13, color: "#a0a8b8", lineHeight: 1.6, marginBottom: 6 }, b: { color: "#c8b87a" } };
+  const S = { h: { fontFamily: "'JetBrains Mono',monospace", fontSize: 11.5, color: "#c8a857", letterSpacing: "0.1em", marginBottom: 10, marginTop: 26, fontWeight: 700 }, p: { fontFamily: "'PT Serif',serif", fontSize: 15.5, color: "#cdd3e0", lineHeight: 1.75, marginBottom: 12 }, b: { color: "#e0c878", fontWeight: 700 } };
   return (
-    <div style={{ maxWidth: 640 }}>
-      <div className="mono-font" style={{ fontSize: 13, color: "#9c8347", fontWeight: 700, marginBottom: 4 }}>📖 ЛИКБЕЗ — КАК РАБОТАЕТ ИГРА</div>
-      <div className="doc-font" style={{ fontSize: 12, color: "#5a6070", marginBottom: 20 }}>Прочтите один раз — потом всё встанет на место.</div>
+    <div style={{ maxWidth: 680 }}>
+      <div className="mono-font" style={{ fontSize: 15, color: "#c8a857", fontWeight: 700, marginBottom: 6 }}>📖 ЛИКБЕЗ — КАК РАБОТАЕТ ИГРА</div>
+      <div className="doc-font" style={{ fontSize: 13.5, color: "#7a8294", marginBottom: 22 }}>Прочтите один раз — потом всё встанет на место.</div>
 
       <div style={S.h}>РЕСУРСЫ</div>
       <div style={S.p}><span style={S.b}>Инициатива</span> — политическая воля президента. Восстанавливается полностью в начале каждого месяца. Каждое действие тратит её: военная операция — 55, реформа — 35, быстрый указ — 20. Если инициативы не хватает — действие недоступно.</div>
