@@ -1404,6 +1404,39 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
       // Сбрасываем флаг выпуска ОФЗ за месяц
       delete newStats.ofz_used_this_month;
+      // Сбрасываем флаг давления на ЦБ
+      delete newStats.cb_pressure_used;
+
+      // --- КЛЮЧЕВАЯ СТАВКА ЦБ (автономная логика) ---
+      // ЦБ медленно тянет ставку к целевому значению, зависящему от инфляции.
+      // Глава ЦБ ("soft"/"hawkish") смещает цель и скорость реакции.
+      {
+        const cbHead = newStats.cb_head_type ?? "neutral";
+        const inflForRate = newStats.inflation ?? 64;
+        // Целевая ставка: жёсткая реакция на инфляцию
+        const baseTarget = inflForRate > 70 ? 21 : inflForRate > 60 ? 18 : inflForRate < 50 ? 13 : 16;
+        const cbTarget = cbHead === "soft" ? baseTarget - 3 : cbHead === "hawkish" ? baseTarget + 2 : baseTarget;
+        const clampedTarget = Math.max(5, Math.min(25, cbTarget));
+        const currentRate = newStats.key_rate ?? 18.5;
+        // Скорость реакции: 15% разрыва в месяц (медленно, как реальный ЦБ)
+        const rateSpeed = cbHead === "hawkish" ? 0.20 : cbHead === "soft" ? 0.10 : 0.15;
+        const newRate = currentRate + (clampedTarget - currentRate) * rateSpeed;
+        newStats.key_rate = Math.round(newRate * 2) / 2; // шаг 0.5%
+
+        // Эффект ставки на инфляцию и экономику
+        if (newStats.key_rate > 17) {
+          newStats.inflation = Math.max(0, (newStats.inflation ?? 64) - 1); // высокая ставка сдерживает инфляцию
+          newStats.economy = Math.max(0, (newStats.economy ?? 50) - 1);     // но душит кредитование
+        } else if (newStats.key_rate < 11) {
+          newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1); // низкая разгоняет инфляцию
+          newStats.economy = Math.min(100, (newStats.economy ?? 50) + 1);     // стимулирует рост
+        }
+        // Мягкий глава дополнительно давит ставку вниз: инфляционный риск
+        if (cbHead === "soft" && newStats.key_rate > 10) {
+          newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
+        }
+      }
+
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.
       // Каждые 10 пунктов сверх 70 = -1 к экономике и одобрению. Максимум: -3 при инфляции 100.
       const inflationNow = newStats.inflation ?? 64;

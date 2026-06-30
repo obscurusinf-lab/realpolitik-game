@@ -3,12 +3,20 @@
  *
  * POST /games/:gameId/treasury/issue-bonds   — выпуск ОФЗ (+20 казны, +долг)
  * POST /games/:gameId/treasury/repay-bonds   — погашение выпуска (-20 казны, -долг)
+ * POST /games/:gameId/treasury/cb-pressure   — давление на ЦБ (body: {direction:"raise"|"lower"})
+ * POST /games/:gameId/treasury/cb-replace    — смена главы ЦБ (body: {type:"soft"|"hawkish"})
  *
  * Механика ОФЗ:
  *   - Максимум 3 активных выпуска (stats.ofz_count)
  *   - 1 выпуск за месяц (stats.ofz_used_this_month)
- *   - Каждый выпуск: +20 к казне немедленно, -3/мес. в end-month + инфляция +1
- *   - Погашение: -20 к казне, снимает 1 выпуск (инфляция -1 в следующий end-month)
+ *   - Каждый выпуск: +20 к казне немедленно, -3/мес. в end-month + давление инфляции +1
+ *   - Погашение: -20 к казне, снимает 1 выпуск (давление инфляции -1 в следующий end-month)
+ *
+ * Механика ключевой ставки:
+ *   - stats.key_rate — текущая ставка (5–25%), ЦБ двигает автономно каждый месяц
+ *   - stats.cb_head_type — "neutral"|"soft"|"hawkish" (глава ЦБ)
+ *   - stats.cb_pressure_used — флаг: давление уже оказано в этом месяце
+ *   - stats.cb_replaced — true, если глава ЦБ уже был заменён (одноразово)
  */
 
 const OFZ_TREASURY_GAIN = 20;        // немедленный прирост казны
@@ -153,6 +161,141 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       await client.query("ROLLBACK");
       fastify.log.error(err);
       return reply.code(500).send({ error: "Ошибка погашения ОФЗ" });
+    } finally {
+      client.release();
+    }
+  });
+  // ---------- ДАВЛЕНИЕ НА ЦБ ----------
+  fastify.post("/games/:gameId/treasury/cb-pressure", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { direction } = request.body || {};
+    if (direction !== "raise" && direction !== "lower") {
+      return reply.code(400).send({ error: "direction должен быть 'raise' или 'lower'" });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const newStats = { ...game.stats };
+      if (newStats.cb_pressure_used) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Давление на ЦБ уже оказано в этом месяце." });
+      }
+      const initiative = typeof newStats.initiative === "number" ? newStats.initiative : 100;
+      if (initiative < 25) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Недостаточно инициативы (нужно 25)." });
+      }
+
+      const delta = direction === "raise" ? 2 : -2;
+      newStats.key_rate = Math.max(5, Math.min(25, Math.round(((newStats.key_rate ?? 18.5) + delta) * 2) / 2));
+      newStats.initiative = initiative - 25;
+      newStats.cb_pressure_used = true;
+
+      // 30% шанс утечки в прессу
+      const leaked = Math.random() < 0.3;
+      if (leaked) {
+        newStats.isolation = Math.min(100, (newStats.isolation ?? 68) + 3);
+        newStats.reputation = Math.max(0, (newStats.reputation ?? 28) - 5);
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+          [gameId, game.current_turn + 1, "Reuters",
+           `Источники в Кремле сообщают о прямом вмешательстве президента в решение ЦБ по ключевой ставке. ` +
+           `Западные партнёры расценивают это как подрыв независимости регулятора. Изоляция России усилилась.`]
+        );
+      }
+
+      await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+      await client.query("COMMIT");
+
+      const dirLabel = direction === "raise" ? `повышена до ${newStats.key_rate}%` : `снижена до ${newStats.key_rate}%`;
+      await client.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        [gameId, game.current_turn + 1, "ЦБ РФ",
+         `Внеплановое решение по ключевой ставке: ${dirLabel}. ` +
+         `${direction === "raise" ? "Цель — сдержать инфляционное давление." : "Цель — стимулировать кредитование и экономический рост."}`]
+      );
+
+      return reply.send({ stats: newStats, leaked });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Ошибка операции ЦБ" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // ---------- СМЕНА ГЛАВЫ ЦБ ----------
+  fastify.post("/games/:gameId/treasury/cb-replace", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { type } = request.body || {};
+    if (type !== "soft" && type !== "hawkish") {
+      return reply.code(400).send({ error: "type должен быть 'soft' или 'hawkish'" });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const newStats = { ...game.stats };
+      if (newStats.cb_replaced) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Глава ЦБ уже был заменён — повторная замена невозможна." });
+      }
+      const initiative = typeof newStats.initiative === "number" ? newStats.initiative : 100;
+      if (initiative < 40) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Недостаточно инициативы (нужно 40)." });
+      }
+
+      newStats.cb_replaced = true;
+      newStats.cb_head_type = type;
+      newStats.initiative = initiative - 40;
+
+      // Немедленный сдвиг ставки в зависимости от назначенца
+      if (type === "soft") {
+        newStats.key_rate = Math.max(5, (newStats.key_rate ?? 18.5) - 3);
+        // Мягкий глава: рынок ожидает смягчения — небольшое снижение ожиданий инфляции
+        newStats.approval = Math.min(100, (newStats.approval ?? 63) + 3); // бизнес доволен
+        newStats.elite_satisfaction = Math.min(100, (newStats.elite_satisfaction ?? 62) + 2);
+      } else {
+        newStats.key_rate = Math.min(25, (newStats.key_rate ?? 18.5) + 2);
+        // Жёсткий глава: сигнал рынку, инфляционные ожидания снижаются
+        newStats.inflation = Math.max(0, (newStats.inflation ?? 64) - 2);
+      }
+
+      await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+
+      const headName = type === "soft"
+        ? ["Кириллов А.В.", "Соколов Д.Р.", "Власенко П.И."][Math.floor(Math.random() * 3)]
+        : ["Громов С.К.", "Казаков Н.Е.", "Фёдоров В.М."][Math.floor(Math.random() * 3)];
+      const typeLabel = type === "soft" ? "«голубь»" : "«ястреб»";
+      const policyLabel = type === "soft"
+        ? `Новый глава известен приверженностью стимулирующей политике. Ожидается снижение ставки до ${newStats.key_rate}% и оживление кредитования. Риск: рост инфляционного давления.`
+        : `Новый глава известен жёсткой антиинфляционной позицией. Ставка повышена до ${newStats.key_rate}%. Эффект: сдерживание инфляции. Риск: замедление экономики.`;
+
+      await client.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        [gameId, game.current_turn + 1, "Кремль",
+         `Указом президента назначен новый председатель Центрального банка — ${headName} (${typeLabel}). ${policyLabel}`]
+      );
+
+      await client.query("COMMIT");
+      return reply.send({ stats: newStats, headName, type });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Ошибка смены главы ЦБ" });
     } finally {
       client.release();
     }

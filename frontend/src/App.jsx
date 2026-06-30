@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -5031,6 +5031,20 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     finally { setLoading(null); }
   }
 
+  async function handleCbPressure(direction) {
+    setLoading("cb_pressure_" + direction); setError(null);
+    try { await cbPressure(gameId, direction); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
+  async function handleCbReplace(type) {
+    setLoading("cb_replace"); setError(null);
+    try { await cbReplace(gameId, type); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
   const sectionStyle = { marginBottom: 20 };
   const labelStyle = { fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", marginBottom: 8 };
   const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #e0dac8" };
@@ -5179,6 +5193,160 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
         </div>
       </div>
+
+      {/* Ключевая ставка ЦБ */}
+      {(() => {
+        const keyRate = stats.key_rate ?? 18.5;
+        const cbHead = stats.cb_head_type ?? "neutral";
+        const cbReplaced = !!stats.cb_replaced;
+        const cbPressureUsed = !!stats.cb_pressure_used;
+        const initiative = stats.initiative ?? 0;
+
+        const rateColor = keyRate > 17 ? "#4a7a5a" : keyRate > 13 ? "#9c8347" : "#c05030";
+        const headLabel = cbHead === "soft" ? "«голубь» (мягкая политика)" : cbHead === "hawkish" ? "«ястреб» (жёсткая политика)" : "нейтральный";
+        const headColor = cbHead === "soft" ? "#c89060" : cbHead === "hawkish" ? "#4a7a9a" : "#8a8472";
+
+        // Эффект ставки
+        const rateEffect = keyRate > 17
+          ? { inf: "−1 давление/мес.", eco: "−1 экономика/мес.", color: "#4a7a5a" }
+          : keyRate < 11
+          ? { inf: "+1 давление/мес.", eco: "+1 экономика/мес.", color: "#c05030" }
+          : { inf: "нейтрально", eco: "нейтрально", color: "#8a8472" };
+
+        // Целевое значение (то же что в бэкенде)
+        const inf_ = stats.inflation ?? 64;
+        const baseTarget = inf_ > 70 ? 21 : inf_ > 60 ? 18 : inf_ < 50 ? 13 : 16;
+        const cbTarget = cbHead === "soft" ? baseTarget - 3 : cbHead === "hawkish" ? baseTarget + 2 : baseTarget;
+        const rateTrend = keyRate < cbTarget ? "▲ растёт" : keyRate > cbTarget + 0.5 ? "▼ снижается" : "→ стабильна";
+
+        return (
+          <div style={sectionStyle}>
+            <div style={labelStyle}>КЛЮЧЕВАЯ СТАВКА ЦБ</div>
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
+
+              {/* Текущая ставка */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 26, fontWeight: 700, color: rateColor, lineHeight: 1 }}>
+                    {keyRate.toFixed(1)}%
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", marginTop: 3 }}>
+                    {rateTrend} · цель ЦБ ~{Math.max(5, Math.min(25, cbTarget)).toFixed(0)}%
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: headColor, marginBottom: 3 }}>
+                    ГЛАВА ЦБ · {headLabel}
+                  </div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: rateEffect.color }}>
+                      Инфл.: {rateEffect.inf}
+                    </div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: rateEffect.color }}>
+                      Эк.: {rateEffect.eco}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Шкала 5–25% */}
+              <div style={{ position: "relative", height: 6, background: "#1a2030", borderRadius: 3, marginBottom: 14 }}>
+                <div style={{ position: "absolute", left: `${(keyRate - 5) / 20 * 100}%`, top: -3, width: 12, height: 12, borderRadius: "50%", background: rateColor, transform: "translateX(-50%)", border: "2px solid #14181f" }} />
+                <div style={{ position: "absolute", left: `${(17 - 5) / 20 * 100}%`, top: 0, width: 1, height: "100%", background: "#4a7a5a44" }} />
+                <div style={{ position: "absolute", left: `${(11 - 5) / 20 * 100}%`, top: 0, width: 1, height: "100%", background: "#c0503044" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: "#3a4050", marginBottom: 14 }}>
+                <span>5% (стимул)</span><span>11%</span><span>17%</span><span>25% (жёстко)</span>
+              </div>
+
+              {/* Действие А: давление */}
+              <div style={{ borderTop: "1px solid #2a3040", paddingTop: 12, marginBottom: 10 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>
+                  ОКАЗАТЬ ДАВЛЕНИЕ НА ЦБ · ⚡25 · 30% шанс утечки в прессу
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => handleCbPressure("raise")}
+                    disabled={cbPressureUsed || initiative < 25 || loading === "cb_pressure_raise"}
+                    style={{
+                      flex: 1, background: cbPressureUsed || initiative < 25 ? "#1a2030" : "#0e1a10",
+                      border: `1px solid ${cbPressureUsed || initiative < 25 ? "#2a3040" : "#3a6a3a"}`,
+                      color: cbPressureUsed || initiative < 25 ? "#3a4050" : "#6a9a6a",
+                      borderRadius: 3, padding: "8px 10px",
+                      fontFamily: "'PT Serif',serif", fontSize: 12, cursor: cbPressureUsed || initiative < 25 ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {loading === "cb_pressure_raise" ? "…" : "▲ Повысить ставку (+2%)"}
+                  </button>
+                  <button
+                    onClick={() => handleCbPressure("lower")}
+                    disabled={cbPressureUsed || initiative < 25 || loading === "cb_pressure_lower"}
+                    style={{
+                      flex: 1, background: cbPressureUsed || initiative < 25 ? "#1a2030" : "#1a0e0a",
+                      border: `1px solid ${cbPressureUsed || initiative < 25 ? "#2a3040" : "#6a3a20"}`,
+                      color: cbPressureUsed || initiative < 25 ? "#3a4050" : "#c08050",
+                      borderRadius: 3, padding: "8px 10px",
+                      fontFamily: "'PT Serif',serif", fontSize: 12, cursor: cbPressureUsed || initiative < 25 ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {loading === "cb_pressure_lower" ? "…" : "▼ Снизить ставку (−2%)"}
+                  </button>
+                </div>
+                {cbPressureUsed && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 5 }}>
+                    Давление уже оказано в этом месяце. Доступно снова после завершения месяца.
+                  </div>
+                )}
+              </div>
+
+              {/* Действие В: смена главы */}
+              <div style={{ borderTop: "1px solid #2a3040", paddingTop: 12 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: cbReplaced ? "#3a4050" : "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>
+                  СМЕНИТЬ ГЛАВУ ЦБ · ⚡40 · {cbReplaced ? "УЖЕ ИСПОЛЬЗОВАНО" : "одноразово за игру"}
+                </div>
+                {!cbReplaced ? (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => handleCbReplace("hawkish")}
+                      disabled={cbReplaced || initiative < 40 || loading === "cb_replace"}
+                      style={{
+                        flex: 1, background: cbReplaced || initiative < 40 ? "#1a2030" : "#0a1020",
+                        border: `1px solid ${cbReplaced || initiative < 40 ? "#2a3040" : "#3a5a8a"}`,
+                        color: cbReplaced || initiative < 40 ? "#3a4050" : "#6a9aca",
+                        borderRadius: 3, padding: "8px 10px",
+                        fontFamily: "'PT Serif',serif", fontSize: 12, cursor: cbReplaced || initiative < 40 ? "not-allowed" : "pointer",
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {loading === "cb_replace" ? "…" : "🦅 «Ястреб»\nВысокая ставка, против инфляции"}
+                    </button>
+                    <button
+                      onClick={() => handleCbReplace("soft")}
+                      disabled={cbReplaced || initiative < 40 || loading === "cb_replace"}
+                      style={{
+                        flex: 1, background: cbReplaced || initiative < 40 ? "#1a2030" : "#1a1205",
+                        border: `1px solid ${cbReplaced || initiative < 40 ? "#2a3040" : "#8a6020"}`,
+                        color: cbReplaced || initiative < 40 ? "#3a4050" : "#c09050",
+                        borderRadius: 3, padding: "8px 10px",
+                        fontFamily: "'PT Serif',serif", fontSize: 12, cursor: cbReplaced || initiative < 40 ? "not-allowed" : "pointer",
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {loading === "cb_replace" ? "…" : "🕊 «Голубь»\nНизкая ставка, стимул роста"}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: headColor }}>
+                    Действующий глава: {headLabel}. Повторная замена невозможна.
+                  </div>
+                )}
+              </div>
+
+              {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Инфляция */}
       {(() => {
