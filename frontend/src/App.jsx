@@ -1232,25 +1232,22 @@ const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "is
 
 // Инфляция хранится как внутренний индекс давления 0–100 (стартует с 64) — это
 // НЕ проценты, но цифра "64" выглядит как пугающий уровень инфляции и сбивает с толку.
-// Переводим в правдоподобный г/г %, который игрок может сверить с реальностью:
-// индекс 64 (старт партии) ≈ 6% — текущая официальная инфляция РФ на момент старта.
-// Опорные точки откалиброваны под существующие игровые пороги (60/70/80 — где
-// меняется цвет и где >70 включает штраф «инфляционный шторм» в rules-engine/turns.js):
-//   0  →  0%   (дефляция/идеал)
-//   40 →  3%   (около таргета ЦБ)
-//   64 →  6%   (старт партии, июнь 2026 — комфортно, не должно пугать)
-//   70 → 10%   (двузначная — порог штрафов уже активен)
-//   80 → 16%   (шторм нарастает)
-//   100→ 40%   (коллапс/гиперинфляционная спираль)
-const INFLATION_PERCENT_POINTS = [[0, 0], [40, 3], [64, 6], [70, 10], [80, 16], [100, 40]];
+// Переводим в правдоподобный г/г % одной плавной экспоненциальной формулой (инфляция
+// и реально раскручивается по спирали, так что нелинейность тут концептуально верна):
+//   % = INFLATION_PCT_CAP × (балл/100)^INFLATION_PCT_EXP
+// Откалибровано по двум игровым опорам: 64 (старт партии) → 6%, 70 (порог штрафов
+// «инфляционный шторм» в rules-engine/turns.js) → ~10%. На балле 100 формула
+// упирается ровно в INFLATION_PCT_CAP (70%) — гиперинфляционный коллапс.
+const INFLATION_PCT_CAP = 70;
+const INFLATION_PCT_EXP = 5.5;
 function inflationPercent(score) {
   const s = Math.max(0, Math.min(100, score ?? 64));
-  for (let i = 0; i < INFLATION_PERCENT_POINTS.length - 1; i++) {
-    const [x0, y0] = INFLATION_PERCENT_POINTS[i];
-    const [x1, y1] = INFLATION_PERCENT_POINTS[i + 1];
-    if (s <= x1) return y0 + ((s - x0) / (x1 - x0)) * (y1 - y0);
-  }
-  return INFLATION_PERCENT_POINTS[INFLATION_PERCENT_POINTS.length - 1][1];
+  return INFLATION_PCT_CAP * Math.pow(s / 100, INFLATION_PCT_EXP);
+}
+// Доля заполнения индикатора — от % (через "потолок ужаса" 70%), а не от сырого балла.
+// Иначе полоса заполняется на 64% уже при стартовых 6% инфляции и выглядит как "почти всё плохо".
+function inflationBarFraction(score) {
+  return Math.min(100, (inflationPercent(score) / INFLATION_PCT_CAP) * 100);
 }
 function deltaColor(stat, delta) {
   if (delta === 0) return "#5a6070";
@@ -4168,7 +4165,10 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
                           {isInflation ? `${inflationPercent(s.value).toFixed(1)}% г/г` : s.value}
                         </span>
                       </div>
-                      <Bar value={s.inverted ? 100 - s.value : s.value} color={isInflation ? inflColor : s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : s.color} />
+                      <Bar
+                        value={isInflation ? 100 - inflationBarFraction(s.value) : s.inverted ? 100 - s.value : s.value}
+                        color={isInflation ? inflColor : s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : s.color}
+                      />
                     </div>
                   );
                 })}
@@ -5061,9 +5061,9 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 </span>
               </div>
               <div style={{ height: 8, background: inf > 70 ? "#2a1510" : "#e0dac8", borderRadius: 4, overflow: "hidden", marginBottom: 10, position: "relative" }}>
-                <div style={{ height: "100%", width: `${inf}%`, background: infColor, borderRadius: 4, transition: "width 0.4s" }} />
-                {/* порог 70 — маркер */}
-                <div style={{ position: "absolute", top: 0, left: "70%", width: 1, height: "100%", background: "#c03030", opacity: 0.6 }} />
+                <div style={{ height: "100%", width: `${inflationBarFraction(inf)}%`, background: infColor, borderRadius: 4, transition: "width 0.4s" }} />
+                {/* порог 70 (балл) — маркер на той же %-шкале, что и бар */}
+                <div style={{ position: "absolute", top: 0, left: `${inflationBarFraction(70)}%`, width: 1, height: "100%", background: "#c03030", opacity: 0.6 }} />
               </div>
               {/* Строки штрафов */}
               {ecoP > 0 ? (
