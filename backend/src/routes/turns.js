@@ -1367,7 +1367,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Слабый рубль номинально УВЕЛИЧИВАЕТ доход казны от долларовой нефти (как в реальном
       // бюджетном правиле РФ), но усиливает инфляцию через импорт. Сильная нефть — доход,
       // но не влияет напрямую на инфляцию.
-      const oilIncome = Math.round((newStats.oil_price - OIL_BASELINE) * 0.7);
+      // Санкционный дисконт: высокая изоляция снижает эффективную цену нефти (скидка Urals к Brent).
+      // isolation 0–50 → нет штрафа; 51–80 → до −30% дохода; 81–100 → до −50%.
+      const isolationVal = newStats.isolation ?? 68;
+      const sanctionDiscount = isolationVal <= 50 ? 0
+        : isolationVal <= 80 ? (isolationVal - 50) / 100   // 0..0.30
+        : 0.30 + (isolationVal - 80) / 200;               // 0.30..0.40
+      const oilIncome = Math.round((newStats.oil_price - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
       const fxIncome = Math.round((newStats.usd_rub - FX_BASELINE) * 0.4);
       if (newStats.usd_rub > FX_BASELINE + 10) {
         newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);

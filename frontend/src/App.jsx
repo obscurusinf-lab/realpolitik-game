@@ -5000,7 +5000,14 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const economyIncome = eco >= 50
     ? Math.round(20 + (eco - 50) * 0.6)
     : eco >= 35 ? Math.round(eco * 0.4) : Math.round(Math.max(5, eco * 0.2));
-  const projectedNet = economyIncome + taxIncome - programUpkeep - ofzDebt;
+  const OIL_BASELINE_T = 68, FX_BASELINE_T = 80;
+  const oilPriceT = stats.oil_price ?? OIL_BASELINE_T;
+  const usdRubT = stats.usd_rub ?? FX_BASELINE_T;
+  const isolationT = stats.isolation ?? 68;
+  const sanctionDiscountT = isolationT <= 50 ? 0 : isolationT <= 80 ? (isolationT - 50) / 100 : 0.30 + (isolationT - 80) / 200;
+  const oilIncomeT = Math.round((oilPriceT - OIL_BASELINE_T) * 0.7 * (1 - sanctionDiscountT));
+  const fxIncomeT = Math.round((usdRubT - FX_BASELINE_T) * 0.4);
+  const projectedNet = economyIncome + taxIncome - programUpkeep - ofzDebt + oilIncomeT + fxIncomeT;
   const projectedTreasury = Math.max(-100, Math.min(100, treasury + projectedNet));
 
   const T = TREASURY_PER_TRILLION;
@@ -5084,6 +5091,16 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{programUpkeep}</span>
             </div>
           )}
+          {(oilIncomeT !== 0 || fxIncomeT !== 0) && (
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: (oilIncomeT + fxIncomeT) >= 0 ? "#3a6a4a" : "#8a3030" }}>
+                {(oilIncomeT + fxIncomeT) >= 0 ? "+" : "−"} Нефть и курс (${ oilPriceT.toFixed(0)} / ₽{usdRubT.toFixed(0)})
+              </span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: (oilIncomeT + fxIncomeT) >= 0 ? "#3a6a4a" : "#8a3030", fontWeight: 700 }}>
+                {(oilIncomeT + fxIncomeT) >= 0 ? "+" : ""}{oilIncomeT + fxIncomeT}
+              </span>
+            </div>
+          )}
           {ofzDebt > 0 && (
             <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
               <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Обслуживание ОФЗ ({ofzCount} выпуска)</span>
@@ -5142,7 +5159,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 textAlign: "left",
               }}
             >
-              {loading === "issue" ? "Выпуск…" : ofzUsedThisMonth ? "⚠ Выпуск уже использован в этом месяце" : ofzCount >= OFZ_MAX ? "✕ Лимит долга исчерпан" : `📄 Выпустить ОФЗ (+20 казны, +2 давления)`}
+              {loading === "issue" ? "Выпуск…" : ofzUsedThisMonth ? "⚠ Выпуск уже использован в этом месяце" : ofzCount >= OFZ_MAX ? "✕ Лимит долга исчерпан" : `📄 Выпустить ОФЗ (+20 казны, инфляция +2)`}
             </button>
             <button
               onClick={handleRepay}
@@ -5156,7 +5173,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 textAlign: "left",
               }}
             >
-              {loading === "repay" ? "Погашение…" : `💸 Погасить выпуск (−20 казны, −2 давления)`}
+              {loading === "repay" ? "Погашение…" : `💸 Погасить выпуск (−20 казны, инфляция −2)`}
             </button>
           </div>
           {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
@@ -5228,29 +5245,124 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
       {/* Нефть и валюта */}
       {(() => {
-        const oilPrice = stats.oil_price ?? 68;
-        const usdRub = stats.usd_rub ?? 80;
+        const OIL_BASELINE = 68, FX_BASELINE = 80;
+        const oilPrice = stats.oil_price ?? OIL_BASELINE;
+        const usdRub = stats.usd_rub ?? FX_BASELINE;
+        const isolationVal = stats.isolation ?? 68;
         const oilColor = oilPrice >= 80 ? "#4a7a5a" : oilPrice >= 55 ? "#9c8347" : "#c03030";
         const fxColor = usdRub <= 75 ? "#4a7a5a" : usdRub <= 95 ? "#9c8347" : "#c03030";
+
+        // Та же формула, что в бэкенде
+        const sanctionDiscount = isolationVal <= 50 ? 0
+          : isolationVal <= 80 ? (isolationVal - 50) / 100
+          : 0.30 + (isolationVal - 80) / 200;
+        const oilIncome = Math.round((oilPrice - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
+        const fxIncome = Math.round((usdRub - FX_BASELINE) * 0.4);
+        const totalOilFx = oilIncome + fxIncome;
+
+        const discountPct = Math.round(sanctionDiscount * 100);
+        const discountColor = discountPct === 0 ? "#5a7050" : discountPct < 20 ? "#9c8347" : "#c05030";
+
+        const [showOilAdvice, setShowOilAdvice] = React.useState(false);
+
         return (
           <div style={sectionStyle}>
-            <div style={labelStyle}>НЕФТЬ И ВАЛЮТА</div>
-            <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "12px 14px", display: "flex", gap: 20 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a3020", marginBottom: 4 }}>Нефть Brent</div>
-                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: oilColor }}>
-                  ${oilPrice.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}> / барр.</span>
+            <div style={labelStyle}>НЕФТЕДОХОДЫ И ВАЛЮТА</div>
+
+            {/* Котировки */}
+            <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "12px 14px", marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 20, marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 12, color: "#5a5040", marginBottom: 3 }}>Нефть Brent</div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: oilColor }}>
+                    ${oilPrice.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}>/барр.</span>
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#8a8472", marginTop: 2 }}>
+                    база: ${OIL_BASELINE} · {oilPrice >= OIL_BASELINE ? `+${(oilPrice - OIL_BASELINE).toFixed(1)} (доп. доход)` : `${(oilPrice - OIL_BASELINE).toFixed(1)} (ниже базы)`}
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 12, color: "#5a5040", marginBottom: 3 }}>Курс ₽/$</div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: fxColor }}>
+                    ₽{usdRub.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}>/$</span>
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#8a8472", marginTop: 2 }}>
+                    база: ₽{FX_BASELINE} · {usdRub > FX_BASELINE ? `слабый рубль → +доход, +инфляция` : `крепкий рубль → −доход экспорта`}
+                  </div>
                 </div>
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a3020", marginBottom: 4 }}>Курс ₽/$</div>
-                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: fxColor }}>
-                  ₽{usdRub.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}> / $</span>
+
+              {/* Расчёт нефтедохода */}
+              <div style={{ borderTop: "1px solid #e0dac8", paddingTop: 10 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a7a60", marginBottom: 6 }}>РАСЧЁТ НЕФТЕДОХОДА / МЕС.</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
+                    <span style={{ color: "#5a5040" }}>Нефтяной доход (Brent−база)×0.7</span>
+                    <span style={{ color: oilIncome >= 0 ? "#3a6a4a" : "#8a3030", fontWeight: 700 }}>{oilIncome >= 0 ? "+" : ""}{oilIncome}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
+                    <span style={{ color: "#5a5040" }}>Валютный эффект (курс−база)×0.4</span>
+                    <span style={{ color: fxIncome >= 0 ? "#3a6a4a" : "#8a3030", fontWeight: 700 }}>{fxIncome >= 0 ? "+" : ""}{fxIncome}</span>
+                  </div>
+                  {discountPct > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
+                      <span style={{ color: discountColor }}>⚠ Санкционный дисконт (изоляция {Math.round(isolationVal)})</span>
+                      <span style={{ color: discountColor, fontWeight: 700 }}>−{discountPct}%</span>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, borderTop: "1px solid #e0dac8", paddingTop: 5, marginTop: 2 }}>
+                    <span style={{ color: "#3a3020", fontWeight: 700 }}>ИТОГ нефть+валюта</span>
+                    <span style={{ color: totalOilFx >= 0 ? "#2a6a3a" : "#8a2020", fontWeight: 700 }}>{totalOilFx >= 0 ? "+" : ""}{totalOilFx} / мес.</span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a7050", marginTop: 6 }}>
-              Дорогая нефть и слабый рубль увеличивают доход казны (экспорт в долларах), но слабый рубль разгоняет инфляцию.
+
+            {/* Советы */}
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4 }}>
+              <button
+                onClick={() => setShowOilAdvice(v => !v)}
+                style={{ width: "100%", background: "transparent", border: "none", padding: "9px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+              >
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a8472" }}>КАК УВЕЛИЧИТЬ НЕФТЕДОХОДЫ</span>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#5a6070" }}>{showOilAdvice ? "▲" : "▼"}</span>
+              </button>
+              {showOilAdvice && (
+                <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[
+                    {
+                      label: "🤝 Снизить изоляцию (дипломатия)",
+                      desc: `Изоляция ${Math.round(isolationVal)} → санкционный дисконт ${discountPct}%. Каждые −10 изоляции ≈ +1% к нефтедоходу. Инструменты: ОПЕК+ договорённости, торговые соглашения с нейтральными странами, дипломатические контакты.`,
+                      consequence: "Ослабление санкций займёт несколько ходов. Требует уступок в других областях.",
+                      color: discountPct > 10 ? "#c89060" : "#4a7a5a",
+                    },
+                    {
+                      label: "📦 Теневой флот и параллельный экспорт",
+                      desc: "Политика развития теневого флота снижает потери от санкций — повышает фактическую цену продажи нефти. Эффект: оилдоход ×1.1–1.2.",
+                      consequence: "Риск ужесточения санкций (изоляция +3–5) при обнаружении. Требует вложений.",
+                      color: "#9c8347",
+                    },
+                    {
+                      label: "⚡ Поддержать слабый рубль",
+                      desc: `Рубль ${usdRub.toFixed(0)}₽/$. Каждые +10₽ к курсу дают +4 к казне/мес. Инструменты: снижение ключевой ставки, скупка валюты ЦБ, ограничения на обязательную продажу экспортной выручки.`,
+                      consequence: "Слабый рубль разгоняет инфляцию (+1 инфл. давление при >₽90). Бьёт по импорту и доходам населения.",
+                      color: usdRub < FX_BASELINE ? "#c89060" : "#5a7a5a",
+                    },
+                    {
+                      label: "🛢 Влиять на цену нефти через ОПЕК+",
+                      desc: "Координация с Саудовской Аравией и ОПЕК+ по сокращению добычи поднимает мировую цену. Каждые +$10 к цене ≈ +7 к казне/мес. (до санкционного дисконта).",
+                      consequence: "Сокращение добычи снижает доходы в краткосроке. Ненадёжный инструмент — Эр-Рияд преследует собственные интересы.",
+                      color: "#9c8347",
+                    },
+                  ].map(({ label, desc, consequence, color }) => (
+                    <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "9px 12px", borderLeft: `3px solid ${color}` }}>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color, fontWeight: 700, marginBottom: 4 }}>{label}</div>
+                      <div style={{ fontFamily: "'PT Serif',serif", fontSize: 12, color: "#9a9484", lineHeight: 1.45, marginBottom: 4 }}>{desc}</div>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#7a6050" }}>⚠ {consequence}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         );
