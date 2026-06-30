@@ -6,7 +6,6 @@
  *   GET    /games/:gameId          — состояние партии (для App.jsx)
  *   GET    /games/:gameId/newsfeed — лента новостей
  *   GET    /games/:gameId/log      — журнал ходов
- *   GET    /leaderboard            — топ-20 партий по score
  */
 
 const fs = require("fs");
@@ -522,29 +521,6 @@ ${historyLines || "(история пуста)"}
     return reply.send({ ok: true, delta, outcome, outcomeText });
   });
 
-  // ---------- GET /leaderboard ----------
-  fastify.get("/leaderboard", async (request, reply) => {
-    const { countryId, limit = 20 } = request.query;
-
-    let queryText = `
-      SELECT ls.game_id, ls.turn_n, ls.score, ls.score_breakdown, ls.created_at,
-             c.name AS country_name, c.id AS country_id,
-             COALESCE(g.president_name, u.display_name) AS player_name
-      FROM leaderboard_snap ls
-      JOIN games g ON g.id = ls.game_id
-      JOIN countries c ON c.id = g.country_id
-      JOIN users u ON u.id = g.owner_user_id
-    `;
-    const params = [];
-    if (countryId) {
-      queryText += ` WHERE c.id = $1`;
-      params.push(countryId);
-    }
-    queryText += ` ORDER BY ls.score DESC LIMIT ${parseInt(limit, 10) || 20}`;
-
-    const res = await db.query(queryText, params);
-    return reply.send({ entries: res.rows });
-  });
 }
 
 module.exports = { registerGameRoutes };

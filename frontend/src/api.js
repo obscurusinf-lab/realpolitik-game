@@ -218,13 +218,6 @@ export async function skipTurn(gameId) {
   return res.json();
 }
 
-export async function fetchLeaderboard(countryId) {
-  const params = countryId ? `?countryId=${countryId}` : "";
-  const res = await fetchWithTimeout(`${API_BASE}/leaderboard${params}`, {}, 15000);
-  if (!res.ok) throw new Error(`fetchLeaderboard failed: ${res.status}`);
-  return res.json();
-}
-
 export async function fetchAdminStats(password) {
   const res = await fetchWithTimeout(`${API_BASE}/admin/stats`, {
     headers: { "x-admin-password": password },
@@ -349,6 +342,19 @@ export async function cbReplace(gameId, type) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Ошибка смены главы ЦБ");
+  }
+  return res.json();
+}
+
+export async function submitFeedback(message, contact, gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, contact, gameId, page: typeof window !== "undefined" ? window.location.pathname : "" }),
+  }, 15000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Не удалось отправить сообщение");
   }
   return res.json();
 }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign } from "./api";
+import { FeedbackModal } from "./FeedbackModal";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -1933,6 +1934,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [tab, setTab] = useState("overview");
   const [loaded, setLoaded] = useState(false);
   const [showWelcome, setShowWelcome] = useState(initialShowWelcome);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
   const [draftInput, setDraftInput] = useState("");
@@ -2360,6 +2362,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       {showWelcome && state && (
         <WelcomeModal state={state} playerName={playerName} onClose={() => setShowWelcome(false)} />
       )}
+      {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} gameId={gameId} />}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=PT+Serif:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
@@ -2388,8 +2391,18 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               {state.date} · Ход №{state.turn}{playerName ? ` · ${playerName}` : ""}
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-            <Lock size={20} color={NK.accent} />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>⚠ АЛЬФА</span>
+              <Lock size={20} color={NK.accent} />
+            </div>
+            <button onClick={() => setShowFeedback(true)}
+              style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#3a4156"; e.currentTarget.style.color = "#5a6070"; }}
+            >
+              🐞 БАГ
+            </button>
             {onNewGame && (
               <button
                 onClick={() => { if (window.confirm("Начать новую партию? Текущий прогресс останется в базе.")) onNewGame(); }}

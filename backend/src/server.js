@@ -15,6 +15,7 @@ const { registerSuggestionRoutes } = require("./routes/suggestions");
 const { registerArgueRoute } = require("./routes/argue");
 const { registerTreasuryRoutes } = require("./routes/treasury");
 const { registerAdminRoutes } = require("./routes/admin");
+const { registerFeedbackRoutes } = require("./routes/feedback");
 const { createPendingTurnStore } = require("./db/pending-turns");
 const { createAdminEventStore } = require("./db/admin-events");
 const { callClaudeApi } = require("./ai/claude-client");
@@ -66,9 +67,21 @@ async function buildServer() {
   await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username) WHERE username IS NOT NULL`);
   // Профиль страны для брифинга: общее описание + сильные/слабые стороны (статично, не "текущие события").
   await db.query(`ALTER TABLE countries ADD COLUMN IF NOT EXISTS country_profile JSONB`);
-  // Имя президента — закреплено за конкретной партией, отдельно от логина/аккаунта,
-  // чтобы в Зале славы партии одного игрока не сливались под одним именем.
+  // Имя президента — закреплено за конкретной партией, отдельно от логина/аккаунта.
   await db.query(`ALTER TABLE games ADD COLUMN IF NOT EXISTS president_name TEXT`);
+  // Обратная связь / баг-репорты от игроков.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS feedback_items (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id     UUID REFERENCES users(id),
+      game_id     UUID REFERENCES games(id),
+      message     TEXT NOT NULL,
+      contact     TEXT,
+      page        TEXT,
+      status      TEXT NOT NULL DEFAULT 'new',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
   // Заполнить country_profile для существующих стран (идемпотентно — только если NULL).
   const russiaProfile = require("./db/seed/countries/russia-2026-06.json");
   await db.query(
@@ -155,6 +168,7 @@ async function buildServer() {
   await registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore });
   await registerTreasuryRoutes(fastify, { db, verifyToken });
   await registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore });
+  await registerFeedbackRoutes(fastify, { db, verifyToken });
 
   const shutdown = async () => {
     fastify.log.info("Shutting down…");
