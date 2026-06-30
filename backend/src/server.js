@@ -64,6 +64,8 @@ async function buildServer() {
   // Мульти-режим: несколько действий за месяц делят один turn_n — снимаем уникальность.
   await db.query(`ALTER TABLE turns DROP CONSTRAINT IF EXISTS turns_game_id_turn_n_key`).catch(() => {});
   await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username) WHERE username IS NOT NULL`);
+  // Профиль страны для брифинга: общее описание + сильные/слабые стороны (статично, не "текущие события").
+  await db.query(`ALTER TABLE countries ADD COLUMN IF NOT EXISTS country_profile JSONB`);
 
   // --- Redis ---
   if (!process.env.REDIS_URL) throw new Error("REDIS_URL env var is required");

@@ -173,7 +173,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const gameRes = await db.query(
       `SELECT g.id, g.current_turn, g.status, g.created_at, g.owner_user_id, g.assist_mode,
               gs.stats, gs.relations, gs.policies, gs.overview,
-              c.name AS country_name, c.context_summary
+              c.name AS country_name, c.context_summary, c.country_profile
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id
@@ -245,6 +245,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     }
     // Казна — дефолт для партий, созданных до бюджетной механики
     if (statsWithTerritories.treasury === undefined) statsWithTerritories.treasury = 52;
+    // Нефть и валюта — дефолт для партий, созданных до этой механики
+    if (statsWithTerritories.oil_price === undefined) statsWithTerritories.oil_price = 68;
+    if (statsWithTerritories.usd_rub === undefined) statsWithTerritories.usd_rub = 80;
 
     // Merge full relations list for games created before extra countries were added
     const FULL_RELATIONS = [
@@ -287,6 +290,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       policies: game.policies || [],
       overview: game.overview || {},
       contextSummary: game.context_summary || null,
+      countryProfile: game.country_profile || null,
       newsfeed,
       log,
     });
