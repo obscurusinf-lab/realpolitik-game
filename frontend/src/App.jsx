@@ -5169,6 +5169,36 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           </div>
         );
       })()}
+
+      {/* Нефть и валюта */}
+      {(() => {
+        const oilPrice = stats.oil_price ?? 68;
+        const usdRub = stats.usd_rub ?? 80;
+        const oilColor = oilPrice >= 80 ? "#4a7a5a" : oilPrice >= 55 ? "#9c8347" : "#c03030";
+        const fxColor = usdRub <= 75 ? "#4a7a5a" : usdRub <= 95 ? "#9c8347" : "#c03030";
+        return (
+          <div style={sectionStyle}>
+            <div style={labelStyle}>НЕФТЬ И ВАЛЮТА</div>
+            <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "12px 14px", display: "flex", gap: 20 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a3020", marginBottom: 4 }}>Нефть Brent</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: oilColor }}>
+                  ${oilPrice.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}> / барр.</span>
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a3020", marginBottom: 4 }}>Курс ₽/$</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: fxColor }}>
+                  ₽{usdRub.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}> / $</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a7050", marginTop: 6 }}>
+              Дорогая нефть и слабый рубль увеличивают доход казны (экспорт в долларах), но слабый рубль разгоняет инфляцию.
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

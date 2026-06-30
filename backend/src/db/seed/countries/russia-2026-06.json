@@ -49,7 +49,9 @@
     "zaporizhzhia_control": 68,
     "kherson_control": 58,
     "kharkiv_control": 12,
-    "treasury": 52
+    "treasury": 52,
+    "oil_price": 68,
+    "usd_rub": 80
   },
   "stat_rationale": {
     "economy": "Структурная адаптация к санкциям продолжается, но темп замедлился до 0.6-1%, высокая ключевая ставка душит кредитование, бюджетный дефицит растёт.",

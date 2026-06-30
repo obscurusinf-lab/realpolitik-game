@@ -1325,6 +1325,49 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.peace_progress = Math.max(0, p - decay);
       }
 
+      // --- НЕФТЬ И ВАЛЮТА: помесячный дрейф + рыночные события ---
+      // Реальные единицы: $/баррель Brent (база 68) и ₽/$ (база 80). Дрейфуют случайным
+      // блужданием каждый месяц, плюс ~15% шанс рыночного события (нефтешок, валютный шок).
+      const OIL_BASELINE = 68;
+      const FX_BASELINE = 80;
+      const oilBefore = typeof newStats.oil_price === "number" ? newStats.oil_price : OIL_BASELINE;
+      const fxBefore = typeof newStats.usd_rub === "number" ? newStats.usd_rub : FX_BASELINE;
+      let oilNow = Math.max(20, Math.min(150, oilBefore + (Math.random() * 6 - 3))); // дрейф ±3$
+      let fxNow = Math.max(40, Math.min(200, fxBefore + (Math.random() * 4 - 2)));   // дрейф ±2₽
+      let marketEventLine = "";
+      if (Math.random() < 0.15) {
+        const MARKET_EVENTS = [
+          { source: "Bloomberg", oilDelta: 9, text: "Эскалация вокруг Ирана: удары по объектам в Персидском заливе подняли страх перебоев поставок. Нефть Brent подскочила на фоне угрозы блокады Ормузского пролива." },
+          { source: "Reuters", oilDelta: 6, text: "ОПЕК+ объявила о неожиданном сокращении добычи. Картель ссылается на «стабилизацию рынка» — цены на нефть пошли вверх." },
+          { source: "WSJ", oilDelta: -7, text: "Опасения рецессии в Китае и США обвалили прогнозы спроса на нефть. Котировки Brent резко просели." },
+          { source: "Financial Times", oilDelta: -5, text: "США объявили о выбросе нефти из стратегического резерва, чтобы сбить цены перед выборами. Рынок отреагировал распродажей." },
+          { source: "Коммерсантъ", fxDelta: 5, text: "Новый пакет санкций ударил по экспортным расчётам — рубль ослаб на фоне дефицита валютной ликвидности." },
+          { source: "РБК", fxDelta: -4, text: "Сильный экспортный квартал и удержание капитала в стране укрепили рубль." },
+          { source: "Forbes", fxDelta: 6, text: "Отток капитала ускорился: крупный бизнес выводит резервы за рубеж на фоне неопределённости. Рубль слабеет." },
+        ];
+        const ev = MARKET_EVENTS[Math.floor(Math.random() * MARKET_EVENTS.length)];
+        if (ev.oilDelta) oilNow = Math.max(20, Math.min(150, oilNow + ev.oilDelta));
+        if (ev.fxDelta) fxNow = Math.max(40, Math.min(200, fxNow + ev.fxDelta));
+        marketEventLine = ev.text;
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, completedMonth, "news", ev.source, ev.text, JSON.stringify([
+            { emoji: "🛢️", label: "рынок", count: Math.floor(Math.random() * 90) + 20 },
+          ])]
+        );
+        fastify.log.info({ gameId, source: ev.source }, "Oil/FX market event fired");
+      }
+      newStats.oil_price = Math.round(oilNow * 10) / 10;
+      newStats.usd_rub = Math.round(fxNow * 10) / 10;
+      // Слабый рубль номинально УВЕЛИЧИВАЕТ доход казны от долларовой нефти (как в реальном
+      // бюджетном правиле РФ), но усиливает инфляцию через импорт. Сильная нефть — доход,
+      // но не влияет напрямую на инфляцию.
+      const oilIncome = Math.round((newStats.oil_price - OIL_BASELINE) * 0.7);
+      const fxIncome = Math.round((newStats.usd_rub - FX_BASELINE) * 0.4);
+      if (newStats.usd_rub > FX_BASELINE + 10) {
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
+      }
+
       // --- КАЗНА: месячный доход и расход ---
       const { TREASURY_MIN } = require("../rules/rules-engine");
       const { OFZ_MONTHLY_COST } = require("./treasury");
@@ -1341,7 +1384,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         : eco >= 35
           ? Math.round(eco * 0.4)              // 35→14, 49→19 — почти стагнация
           : Math.round(Math.max(5, eco * 0.2)); // ниже 35 — минимальные поступления
-      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService;
+      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
       // ОФЗ инфляционное давление: +1 инфляции за каждый активный выпуск в месяц
@@ -1409,13 +1452,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const T = 0.8; // ₽ трлн за пункт казны
       const flowSign = monthlyNet >= 0 ? "+" : "";
       const ofzLine = ofzCount > 0 ? `, обслуживание ОФЗ −${ofzDebtService}` : "";
+      const oilFxLine = (oilIncome !== 0 || fxIncome !== 0)
+        ? `, нефть/валюта ${oilIncome + fxIncome >= 0 ? "+" : ""}${oilIncome + fxIncome} (нефть $${newStats.oil_price}/барр., курс ₽${newStats.usd_rub}/$)`
+        : "";
       const inflationLine = inflationEconomyPenalty > 0
         ? ` Инфляционный шок (${inflationPercent(inflationNow).toFixed(1)}% г/г): экономика −${inflationEconomyPenalty}, одобрение −${inflationApprovalPenalty}.`
         : "";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, completedMonth, "Минфин",
-         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
+         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}${oilFxLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
          (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
           economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
           economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "") +
@@ -1464,7 +1510,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         initiative: newStats.initiative,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
-        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow) },
+        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, oilIncome, fxIncome, net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow), oilPrice: newStats.oil_price, usdRub: newStats.usd_rub },
         autonomousEvents: autonomousEvents.map(e => ({ source: e.source, text: e.text })),
       });
     } catch (err) {

@@ -245,6 +245,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     }
     // Казна — дефолт для партий, созданных до бюджетной механики
     if (statsWithTerritories.treasury === undefined) statsWithTerritories.treasury = 52;
+    // Нефть и валюта — дефолт для партий, созданных до этой механики
+    if (statsWithTerritories.oil_price === undefined) statsWithTerritories.oil_price = 68;
+    if (statsWithTerritories.usd_rub === undefined) statsWithTerritories.usd_rub = 80;
 
     // Merge full relations list for games created before extra countries were added
     const FULL_RELATIONS = [
