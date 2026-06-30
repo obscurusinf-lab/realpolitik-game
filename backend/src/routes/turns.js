@@ -26,12 +26,12 @@ const { classifyTurn } = require("../ai/gamemaster");
 
 // Инфляция хранится как внутренний индекс давления 0–100 (старт 64), не проценты.
 // Игроку в текстах ленты нужен правдоподобный г/г % — держим формулу синхронной
-// с inflationPercent() в frontend/src/App.jsx (опорные точки: 64→6%, 70→~10%, 100→70%).
-const INFLATION_PCT_CAP = 70;
-const INFLATION_PCT_EXP = 5.5;
+// с inflationPercent() в frontend/src/App.jsx: линейно, 1 балл = 1 п.п., сдвиг
+// откалиброван так, что старт партии (64) = реальная инфляция РФ на июнь 2026 (~6%).
+const INFLATION_PCT_OFFSET = 58;
 function inflationPercent(score) {
   const s = Math.max(0, Math.min(100, score ?? 64));
-  return INFLATION_PCT_CAP * Math.pow(s / 100, INFLATION_PCT_EXP);
+  return Math.max(0, s - INFLATION_PCT_OFFSET);
 }
 
 /**

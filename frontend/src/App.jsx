@@ -1232,22 +1232,19 @@ const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "is
 
 // Инфляция хранится как внутренний индекс давления 0–100 (стартует с 64) — это
 // НЕ проценты, но цифра "64" выглядит как пугающий уровень инфляции и сбивает с толку.
-// Переводим в правдоподобный г/г % одной плавной экспоненциальной формулой (инфляция
-// и реально раскручивается по спирали, так что нелинейность тут концептуально верна):
-//   % = INFLATION_PCT_CAP × (балл/100)^INFLATION_PCT_EXP
-// Откалибровано по двум игровым опорам: 64 (старт партии) → 6%, 70 (порог штрафов
-// «инфляционный шторм» в rules-engine/turns.js) → ~10%. На балле 100 формула
-// упирается ровно в INFLATION_PCT_CAP (70%) — гиперинфляционный коллапс.
-const INFLATION_PCT_CAP = 70;
-const INFLATION_PCT_EXP = 5.5;
+// Переводим в г/г % линейно: 1 балл индекса = 1 п.п. инфляции, со сдвигом так,
+// чтобы старт партии (64) совпадал с реальной инфляцией РФ на июнь 2026 (~6%).
+const INFLATION_PCT_OFFSET = 58; // балл 64 (старт) → 6%
 function inflationPercent(score) {
   const s = Math.max(0, Math.min(100, score ?? 64));
-  return INFLATION_PCT_CAP * Math.pow(s / 100, INFLATION_PCT_EXP);
+  return Math.max(0, s - INFLATION_PCT_OFFSET);
 }
-// Доля заполнения индикатора — от % (через "потолок ужаса" 70%), а не от сырого балла.
-// Иначе полоса заполняется на 64% уже при стартовых 6% инфляции и выглядит как "почти всё плохо".
+// Доля заполнения индикатора — от % (нормировано к максимуму на балле 100), а не от
+// сырого балла. Иначе полоса заполняется на 64% уже при стартовых 6% инфляции и
+// выглядит как "почти всё плохо".
+const INFLATION_PCT_MAX = 100 - INFLATION_PCT_OFFSET; // 42% — потолок при балле 100
 function inflationBarFraction(score) {
-  return Math.min(100, (inflationPercent(score) / INFLATION_PCT_CAP) * 100);
+  return Math.min(100, (inflationPercent(score) / INFLATION_PCT_MAX) * 100);
 }
 function deltaColor(stat, delta) {
   if (delta === 0) return "#5a6070";
