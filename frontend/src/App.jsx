@@ -3144,7 +3144,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                               <div key={s.key}>
                                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                                   <span className="doc-font" style={{ fontSize: 11, color: "#8a9aaa" }}>{s.label}</span>
-                                  <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{s.value}</span>
+                                  <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{s.key === "inflation" ? `${inflationPercent(s.value).toFixed(1)}% г/г` : s.value}</span>
                                 </div>
                                 <div style={{ height: 3, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
                                   <div style={{ width: `${displayVal}%`, height: "100%", background: clr }} />
@@ -4380,7 +4380,7 @@ function StatsTab({ state, gameId }) {
                             <div key={s.key}>
                               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                                 <span className="doc-font" style={{ fontSize: 11, color: "#5c5648" }}>{s.label}</span>
-                                <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{s.value}</span>
+                                <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{s.key === "inflation" ? `${inflationPercent(s.value).toFixed(1)}% г/г` : s.value}</span>
                               </div>
                               <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden" }}>
                                 <div style={{ width: `${displayVal}%`, height: "100%", background: clr }} />
