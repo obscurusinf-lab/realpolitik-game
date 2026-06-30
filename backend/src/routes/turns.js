@@ -24,6 +24,20 @@
 const { classifyTurn } = require("../ai/gamemaster");
 // verifyToken injected via options
 
+// Инфляция хранится как внутренний индекс давления 0–100 (старт 64), не проценты.
+// Игроку в текстах ленты нужен правдоподобный г/г % — держим формулу синхронной
+// с inflationPercent() в frontend/src/App.jsx (те же опорные точки: 64→6%, 70→10%).
+const INFLATION_PERCENT_POINTS = [[0, 0], [40, 3], [64, 6], [70, 10], [80, 16], [100, 40]];
+function inflationPercent(score) {
+  const s = Math.max(0, Math.min(100, score ?? 64));
+  for (let i = 0; i < INFLATION_PERCENT_POINTS.length - 1; i++) {
+    const [x0, y0] = INFLATION_PERCENT_POINTS[i];
+    const [x1, y1] = INFLATION_PERCENT_POINTS[i + 1];
+    if (s <= x1) return y0 + ((s - x0) / (x1 - x0)) * (y1 - y0);
+  }
+  return INFLATION_PERCENT_POINTS[INFLATION_PERCENT_POINTS.length - 1][1];
+}
+
 /**
  * Проверяет победные/поражения условия после каждого хода.
  * Возвращает строку-статус или null если игра продолжается.
@@ -1400,7 +1414,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const flowSign = monthlyNet >= 0 ? "+" : "";
       const ofzLine = ofzCount > 0 ? `, обслуживание ОФЗ −${ofzDebtService}` : "";
       const inflationLine = inflationEconomyPenalty > 0
-        ? ` Инфляционный шок (${Math.round(inflationNow)}): экономика −${inflationEconomyPenalty}, одобрение −${inflationApprovalPenalty}.`
+        ? ` Инфляционный шок (${inflationPercent(inflationNow).toFixed(1)}% г/г): экономика −${inflationEconomyPenalty}, одобрение −${inflationApprovalPenalty}.`
         : "";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,

@@ -1229,6 +1229,29 @@ const ALL_STAT_LABELS = {
 };
 // Метрики где рост = плохо (инвертированные: красный при росте, зелёный при снижении)
 const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "isolation", "war_escalation_counter"]);
+
+// Инфляция хранится как внутренний индекс давления 0–100 (стартует с 64) — это
+// НЕ проценты, но цифра "64" выглядит как пугающий уровень инфляции и сбивает с толку.
+// Переводим в правдоподобный г/г %, который игрок может сверить с реальностью:
+// индекс 64 (старт партии) ≈ 6% — текущая официальная инфляция РФ на момент старта.
+// Опорные точки откалиброваны под существующие игровые пороги (60/70/80 — где
+// меняется цвет и где >70 включает штраф «инфляционный шторм» в rules-engine/turns.js):
+//   0  →  0%   (дефляция/идеал)
+//   40 →  3%   (около таргета ЦБ)
+//   64 →  6%   (старт партии, июнь 2026 — комфортно, не должно пугать)
+//   70 → 10%   (двузначная — порог штрафов уже активен)
+//   80 → 16%   (шторм нарастает)
+//   100→ 40%   (коллапс/гиперинфляционная спираль)
+const INFLATION_PERCENT_POINTS = [[0, 0], [40, 3], [64, 6], [70, 10], [80, 16], [100, 40]];
+function inflationPercent(score) {
+  const s = Math.max(0, Math.min(100, score ?? 64));
+  for (let i = 0; i < INFLATION_PERCENT_POINTS.length - 1; i++) {
+    const [x0, y0] = INFLATION_PERCENT_POINTS[i];
+    const [x1, y1] = INFLATION_PERCENT_POINTS[i + 1];
+    if (s <= x1) return y0 + ((s - x0) / (x1 - x0)) * (y1 - y0);
+  }
+  return INFLATION_PERCENT_POINTS[INFLATION_PERCENT_POINTS.length - 1][1];
+}
 function deltaColor(stat, delta) {
   if (delta === 0) return "#5a6070";
   const bad = INVERTED_STATS.has(stat) ? delta > 0 : delta < 0;
@@ -4006,7 +4029,7 @@ function MapTab({ state }) {
 const SUBSTAT_META = {
   economy: [
     { key: "gdp_growth",  label: "Рост ВВП",    color: "#3a8a7a", desc: "0,6–1% г/г — пик перегрева прошёл, темп замедлился. Ставка ЦБ 18,5% давит кредитование." },
-    { key: "inflation",   label: "Инфляция",    color: "#c06050", desc: "8,2% г/г — ЦБ удерживает высокую ставку. Рост цен бьёт по реальным доходам.", inverted: true },
+    { key: "inflation",   label: "Инфляция",    color: "#c06050", desc: "ЦБ удерживает высокую ставку, чтобы сдержать рост цен. Бьёт по реальным доходам.", inverted: true },
     { key: "employment",  label: "Занятость",   color: "#4a7a5c", desc: "Рынок труда перегрет: мобилизация и ВПК вытянули рабочих, безработица рекордно низкая." },
     { key: "reserves",    label: "Резервы",     color: "#9c8347", desc: "ФНБ расходуется на покрытие дефицита. $300 млрд заморожены Западом, доступны только около $290 млрд." },
   ],
@@ -4128,18 +4151,27 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
             <div style={{ marginBottom: 18 }}>
               <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 10 }}>ДЕТАЛЬНЫЕ ПОКАЗАТЕЛИ</div>
               <div style={{ display: "grid", gap: 10 }}>
-                {substats.map(s => (
-                  <div key={s.key}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                      <div>
-                        <span className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{s.label}</span>
-                        <span className="doc-font" style={{ fontSize: 11, color: "#8a8472", marginLeft: 6 }}>{s.desc}</span>
+                {substats.map(s => {
+                  const isInflation = s.key === "inflation";
+                  // Инфляция — три ступени (норма/повышенная/шторм) вместо резкого бинарного
+                  // красный/зелёный на пороге 60, который красит стартовое значение в красный.
+                  const inflColor = s.value > 70 ? "#a8313a" : s.value > 60 ? "#9c8347" : "#4a7a5a";
+                  const color = isInflation ? inflColor : s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : (s.value >= 60 ? "#4a6b5c" : s.value >= 40 ? "#9c8347" : "#a8313a");
+                  return (
+                    <div key={s.key}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                        <div>
+                          <span className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{s.label}</span>
+                          <span className="doc-font" style={{ fontSize: 11, color: "#8a8472", marginLeft: 6 }}>{s.desc}</span>
+                        </div>
+                        <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color }}>
+                          {isInflation ? `${inflationPercent(s.value).toFixed(1)}% г/г` : s.value}
+                        </span>
                       </div>
-                      <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : (s.value >= 60 ? "#4a6b5c" : s.value >= 40 ? "#9c8347" : "#a8313a") }}>{s.value}</span>
+                      <Bar value={s.inverted ? 100 - s.value : s.value} color={isInflation ? inflColor : s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : s.color} />
                     </div>
-                    <Bar value={s.inverted ? 100 - s.value : s.value} color={s.inverted ? (s.value > 60 ? "#a8313a" : "#4a6b5c") : s.color} />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -4983,7 +5015,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 textAlign: "left",
               }}
             >
-              {loading === "issue" ? "Выпуск…" : ofzUsedThisMonth ? "⚠ Выпуск уже использован в этом месяце" : ofzCount >= OFZ_MAX ? "✕ Лимит долга исчерпан" : `📄 Выпустить ОФЗ (+20 казны, +2 инфл.)`}
+              {loading === "issue" ? "Выпуск…" : ofzUsedThisMonth ? "⚠ Выпуск уже использован в этом месяце" : ofzCount >= OFZ_MAX ? "✕ Лимит долга исчерпан" : `📄 Выпустить ОФЗ (+20 казны, +2 давления)`}
             </button>
             <button
               onClick={handleRepay}
@@ -4997,7 +5029,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 textAlign: "left",
               }}
             >
-              {loading === "repay" ? "Погашение…" : `💸 Погасить выпуск (−20 казны, −2 инфл.)`}
+              {loading === "repay" ? "Погашение…" : `💸 Погасить выпуск (−20 казны, −2 давления)`}
             </button>
           </div>
           {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
@@ -5010,6 +5042,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const infColor = inf > 80 ? "#c03030" : inf > 70 ? "#b05020" : inf > 60 ? "#9c8347" : "#4a7a5a";
         const ecoP = inf > 70 ? Math.min(3, Math.floor((inf - 70) / 10) + 1) : 0;
         const appP = inf > 70 ? Math.min(2, Math.floor((inf - 70) / 15) + 1) : 0;
+        const pct = inflationPercent(inf);
+        const stormPct = inflationPercent(70); // порог штрафов в человеческом %
         return (
           <div style={sectionStyle}>
             <div style={labelStyle}>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
@@ -5017,8 +5051,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               {/* Значение + бар */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: inf > 70 ? "#e0c0a0" : "#3a3020" }}>Инфляция</span>
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: infColor }}>
-                  {Math.round(inf)}
+                <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: infColor }}>
+                    {pct.toFixed(1)}%
+                  </span>
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#8a8472" }}>
+                    г/г · давление {Math.round(inf)}/100
+                  </span>
                 </span>
               </div>
               <div style={{ height: 8, background: inf > 70 ? "#2a1510" : "#e0dac8", borderRadius: 4, overflow: "hidden", marginBottom: 10, position: "relative" }}>
@@ -5030,7 +5069,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               {ecoP > 0 ? (
                 <div style={{ background: inf > 70 ? "#200a06" : "#fff4f0", border: `1px solid ${inf > 80 ? "#8a2020" : "#c07040"}`, borderRadius: 3, padding: "6px 10px" }}>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: inf > 80 ? "#e05050" : "#b05030", letterSpacing: "0.06em", marginBottom: 4 }}>
-                    АКТИВНЫЙ ИНФЛЯЦИОННЫЙ ШТОРМ (порог &gt; 70)
+                    АКТИВНЫЙ ИНФЛЯЦИОННЫЙ ШТОРМ (выше {stormPct.toFixed(0)}% г/г)
                   </div>
                   <div style={{ display: "flex", gap: 16 }}>
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#c04040" }}>
@@ -5046,13 +5085,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 </div>
               ) : (
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a7050" }}>
-                  Инфляция в норме. Штрафов нет — порог активируется при значении &gt; 70.
+                  Инфляция в норме. Штрафов нет — порог активируется выше {stormPct.toFixed(0)}% г/г.
                 </div>
               )}
               {/* ОФЗ-вклад */}
               {ofzCount > 0 && (
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#8a6040", marginTop: 8, borderTop: `1px solid ${inf > 70 ? "#3a2010" : "#e0dac8"}`, paddingTop: 6 }}>
-                  ОФЗ вклад: +{ofzCount} инфл./мес. (обслуживание) + {ofzCount} инфл./мес. (базовый рост)
+                  ОФЗ вклад: +{ofzCount} давления/мес. (обслуживание) + {ofzCount} давления/мес. (базовый рост)
                 </div>
               )}
             </div>
