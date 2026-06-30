@@ -4802,6 +4802,44 @@ const NEWSFEED_TYPE = {
   world_move:      { icon: "⚡", color: "#8c4a2a", label: "ДЕЙСТВИЕ ПРОТИВНИКА" },
 };
 
+// Текст новости/события сворачивается до фиксированного числа строк, чтобы карточки
+// в ленте не «прыгали» по высоте (на мобильных это сбивает позицию шапки при скролле).
+// Разворачивается по клику, если игроку нужен полный текст.
+function ExpandableText({ text, lines = 3, className, style, toggleColor = "#8a8472" }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+  return (
+    <div>
+      <div
+        className={className}
+        style={{
+          ...style,
+          ...(expanded ? {} : {
+            display: "-webkit-box",
+            WebkitLineClamp: lines,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }),
+        }}
+      >
+        {text}
+      </div>
+      {text.length > 140 && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mono-font"
+          style={{
+            background: "none", border: "none", padding: "4px 0 0", cursor: "pointer",
+            fontSize: 10, letterSpacing: "0.05em", color: toggleColor,
+          }}
+        >
+          {expanded ? "▲ Свернуть" : "▼ Развернуть"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StatDeltaBadges({ delta }) {
   if (!delta || !Object.keys(delta).length) return null;
   return (
@@ -4863,7 +4901,12 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded, warCounte
           </span>
           <span className="mono-font" style={{ fontSize: 9, color: "#6a3030" }}>ХОД {item.turn}</span>
         </div>
-        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.45, color: "#e8c0b0" }}>{item.text}</div>
+        <ExpandableText
+          text={item.text}
+          className="doc-font"
+          style={{ fontSize: 13.5, lineHeight: 1.45, color: "#e8c0b0" }}
+          toggleColor="#8a5050"
+        />
       </div>
       <div style={{ padding: "10px 13px 12px", background: "#1a0a0a", borderTop: "1px solid #5a1a1a" }}>
         {respondedType ? (
@@ -5252,7 +5295,12 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
                 </span>
                 <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? "#6a4030" : "#8a8472" }}>ХОД {item.turn}</span>
               </div>
-              <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? "#d0a090" : undefined }}>{item.text}</div>
+              <ExpandableText
+                text={item.text}
+                className="doc-font"
+                style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? "#d0a090" : undefined }}
+                toggleColor={isWorldMove ? "#6a4030" : "#8a8472"}
+              />
               {isWorldMove && <StatDeltaBadges delta={moveDelta} />}
             </div>
             {!isWorldMove && Array.isArray(item.reactions) && item.reactions.length > 0 && (
