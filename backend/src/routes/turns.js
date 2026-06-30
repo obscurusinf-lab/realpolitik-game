@@ -1395,7 +1395,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         : eco >= 35
           ? Math.round(eco * 0.4)              // 35→14, 49→19 — почти стагнация
           : Math.round(Math.max(5, eco * 0.2)); // ниже 35 — минимальные поступления
-      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome;
+      // Коррупционная утечка: часть бюджета разворовывается каждый месяц, пропорционально уровню коррупции.
+      // 0-50 коррупции — утечки нет; 50-100 — растёт нелинейно (схемы крупнее при высокой коррупции).
+      const corrLevel = newStats.corruption ?? 55;
+      const corruptionDrain = corrLevel > 50 ? Math.round(Math.pow((corrLevel - 50) / 50, 1.3) * 12) : 0;
+      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome - corruptionDrain;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
       // ОФЗ инфляционное давление: +1 инфляции за каждый активный выпуск в месяц
@@ -1406,6 +1410,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       delete newStats.ofz_used_this_month;
       // Сбрасываем флаг давления на ЦБ
       delete newStats.cb_pressure_used;
+      // Сбрасываем флаг антикоррупционной кампании
+      delete newStats.anticorruption_used;
 
       // --- КЛЮЧЕВАЯ СТАВКА ЦБ (автономная логика) ---
       // ЦБ медленно тянет ставку к целевому значению, зависящему от инфляции.
@@ -1499,13 +1505,14 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const oilFxLine = (oilIncome !== 0 || fxIncome !== 0)
         ? `, нефть/валюта ${oilIncome + fxIncome >= 0 ? "+" : ""}${oilIncome + fxIncome} (нефть $${newStats.oil_price}/барр., курс ₽${newStats.usd_rub}/$)`
         : "";
+      const corruptionLine = corruptionDrain > 0 ? `, коррупционные потери −${corruptionDrain}` : "";
       const inflationLine = inflationEconomyPenalty > 0
         ? ` Инфляционный шок (${inflationPercent(inflationNow).toFixed(1)}% г/г): экономика −${inflationEconomyPenalty}, одобрение −${inflationApprovalPenalty}.`
         : "";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, completedMonth, "Минфин",
-         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}${oilFxLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
+         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}${oilFxLine}${corruptionLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
          (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
           economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
           economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "") +
@@ -1554,7 +1561,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         initiative: newStats.initiative,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
-        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, oilIncome, fxIncome, net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow), oilPrice: newStats.oil_price, usdRub: newStats.usd_rub },
+        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, oilIncome, fxIncome, corruptionDrain, net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow), oilPrice: newStats.oil_price, usdRub: newStats.usd_rub },
         autonomousEvents: autonomousEvents.map(e => ({ source: e.source, text: e.text })),
       });
     } catch (err) {

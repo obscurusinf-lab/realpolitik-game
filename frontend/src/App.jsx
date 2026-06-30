@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign } from "./api";
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -5007,7 +5007,10 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const sanctionDiscountT = isolationT <= 50 ? 0 : isolationT <= 80 ? (isolationT - 50) / 100 : 0.30 + (isolationT - 80) / 200;
   const oilIncomeT = Math.round((oilPriceT - OIL_BASELINE_T) * 0.7 * (1 - sanctionDiscountT));
   const fxIncomeT = Math.round((usdRubT - FX_BASELINE_T) * 0.4);
-  const projectedNet = economyIncome + taxIncome - programUpkeep - ofzDebt + oilIncomeT + fxIncomeT;
+  const corrLevelT = stats.corruption ?? 55;
+  const corruptionDrainT = corrLevelT > 50 ? Math.round(Math.pow((corrLevelT - 50) / 50, 1.3) * 12) : 0;
+  const anticorruptionUsed = !!stats.anticorruption_used;
+  const projectedNet = economyIncome + taxIncome - programUpkeep - ofzDebt + oilIncomeT + fxIncomeT - corruptionDrainT;
   const projectedTreasury = Math.max(-100, Math.min(100, treasury + projectedNet));
 
   const T = TREASURY_PER_TRILLION;
@@ -5041,6 +5044,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   async function handleCbReplace(type) {
     setLoading("cb_replace"); setError(null);
     try { await cbReplace(gameId, type); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
+  async function handleAntiCorruption() {
+    setLoading("anticorruption"); setError(null);
+    try { await antiCorruptionCampaign(gameId); onRefresh?.(); }
     catch (e) { setError(e.message); }
     finally { setLoading(null); }
   }
@@ -5119,6 +5129,12 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
               <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Обслуживание ОФЗ ({ofzCount} выпуска)</span>
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{ofzDebt}</span>
+            </div>
+          )}
+          {corruptionDrainT > 0 && (
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Коррупционные потери (уровень {Math.round(corrLevelT)})</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{corruptionDrainT}</span>
             </div>
           )}
           <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -5338,6 +5354,70 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 ) : (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: headColor }}>
                     Действующий глава: {headLabel}. Повторная замена невозможна.
+                  </div>
+                )}
+              </div>
+
+              {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Коррупция */}
+      {(() => {
+        const corrLevel = stats.corruption ?? 55;
+        const corrColor = corrLevel > 75 ? "#c03030" : corrLevel > 50 ? "#9c8347" : "#4a7a5a";
+        const initiative = stats.initiative ?? 0;
+        const canAfford = !anticorruptionUsed && initiative >= 35 && treasury >= 8;
+        return (
+          <div style={sectionStyle}>
+            <div style={labelStyle}>КОРРУПЦИЯ</div>
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 26, fontWeight: 700, color: corrColor, lineHeight: 1 }}>
+                    {Math.round(corrLevel)}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", marginTop: 3 }}>
+                    {corrLevel > 65 ? "высокий риск скандалов" : corrLevel > 50 ? "заметная утечка бюджета" : "под контролем"}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#8a8472", marginBottom: 3 }}>
+                    ЕЖЕМЕСЯЧНАЯ УТЕЧКА КАЗНЫ
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 700, color: corruptionDrainT > 0 ? "#c05050" : "#5a8a6a" }}>
+                    {corruptionDrainT > 0 ? `−${corruptionDrainT} пунктов/мес.` : "нет (уровень ≤ 50)"}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ height: 6, background: "#1a2030", borderRadius: 3, marginBottom: 14, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${corrLevel}%`, background: corrColor, borderRadius: 3, transition: "width 0.4s" }} />
+              </div>
+
+              <div style={{ borderTop: "1px solid #2a3040", paddingTop: 12 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>
+                  АНТИКОРРУПЦИОННАЯ КАМПАНИЯ · ⚡35, −8 казны · риск: саботаж / показательные аресты
+                </div>
+                <button
+                  onClick={handleAntiCorruption}
+                  disabled={!canAfford || loading === "anticorruption"}
+                  style={{
+                    width: "100%", background: !canAfford ? "#1a2030" : "#1a1208",
+                    border: `1px solid ${!canAfford ? "#2a3040" : "#8a6020"}`,
+                    color: !canAfford ? "#3a4050" : "#c09050",
+                    borderRadius: 3, padding: "9px 12px",
+                    fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: !canAfford ? "not-allowed" : "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  {loading === "anticorruption" ? "Кампания идёт…" : anticorruptionUsed ? "⚠ Кампания уже запущена в этом месяце" : "🔍 Запустить антикоррупционную кампанию"}
+                </button>
+                {anticorruptionUsed && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 5 }}>
+                    Доступно снова после завершения месяца. Возможные исходы: успешные аресты (коррупция −6…−10, элиты недовольны), показательный процесс (тот же эффект + рост одобрения), либо саботаж расследования (минимальный эффект, удар по стабильности).
                   </div>
                 )}
               </div>

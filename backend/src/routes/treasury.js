@@ -5,6 +5,7 @@
  * POST /games/:gameId/treasury/repay-bonds   — погашение выпуска (-20 казны, -долг)
  * POST /games/:gameId/treasury/cb-pressure   — давление на ЦБ (body: {direction:"raise"|"lower"})
  * POST /games/:gameId/treasury/cb-replace    — смена главы ЦБ (body: {type:"soft"|"hawkish"})
+ * POST /games/:gameId/treasury/anti-corruption — антикоррупционная кампания
  *
  * Механика ОФЗ:
  *   - Максимум 3 активных выпуска (stats.ofz_count)
@@ -17,6 +18,12 @@
  *   - stats.cb_head_type — "neutral"|"soft"|"hawkish" (глава ЦБ)
  *   - stats.cb_pressure_used — флаг: давление уже оказано в этом месяце
  *   - stats.cb_replaced — true, если глава ЦБ уже был заменён (одноразово)
+ *
+ * Механика антикоррупционной кампании:
+ *   - ⚡35 инициативы, −8 казны (расследования стоят денег), 1 раз в месяц (stats.anticorruption_used)
+ *   - Эффект: коррупция −(6..10), но элиты недовольны (-3 elite_satisfaction)
+ *   - 25% шанс "показательного процесса": доп. одобрение +3 (PR-эффект)
+ *   - 15% шанс провала: коррупция −2 (слабее) и стабильность −1 (саботаж расследования элитами)
  */
 
 const OFZ_TREASURY_GAIN = 20;        // немедленный прирост казны
@@ -296,6 +303,81 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       await client.query("ROLLBACK");
       fastify.log.error(err);
       return reply.code(500).send({ error: "Ошибка смены главы ЦБ" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // ---------- АНТИКОРРУПЦИОННАЯ КАМПАНИЯ ----------
+  fastify.post("/games/:gameId/treasury/anti-corruption", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const newStats = { ...game.stats };
+      if (newStats.anticorruption_used) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Кампания уже запущена в этом месяце." });
+      }
+      const initiative = typeof newStats.initiative === "number" ? newStats.initiative : 100;
+      if (initiative < 35) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Недостаточно инициативы (нужно 35)." });
+      }
+      const { TREASURY_MIN } = require("../rules/rules-engine");
+      const treasuryCurrent = typeof newStats.treasury === "number" ? newStats.treasury : 52;
+      if (treasuryCurrent < 8) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Недостаточно средств на расследования (нужно 8 казны)." });
+      }
+
+      newStats.initiative = initiative - 35;
+      newStats.treasury = Math.max(TREASURY_MIN, treasuryCurrent - 8);
+      newStats.anticorruption_used = true;
+
+      const corrBefore = newStats.corruption ?? 55;
+      const roll = Math.random();
+      let outcome, corrDrop, eliteDelta, approvalDelta, stabilityDelta;
+      if (roll < 0.15) {
+        outcome = "sabotaged";
+        corrDrop = 2; eliteDelta = -1; approvalDelta = 0; stabilityDelta = -1;
+      } else if (roll < 0.40) {
+        outcome = "showcase";
+        corrDrop = 6 + Math.floor(Math.random() * 5); eliteDelta = -3; approvalDelta = 3; stabilityDelta = 0;
+      } else {
+        outcome = "normal";
+        corrDrop = 6 + Math.floor(Math.random() * 5); eliteDelta = -3; approvalDelta = 0; stabilityDelta = 0;
+      }
+      newStats.corruption = Math.max(20, corrBefore - corrDrop); // ниже 20 коррупцию в РФ не свести — игровой пол
+      newStats.elite_satisfaction = Math.max(0, (newStats.elite_satisfaction ?? 62) + eliteDelta);
+      if (approvalDelta) newStats.approval = Math.min(100, (newStats.approval ?? 63) + approvalDelta);
+      if (stabilityDelta) newStats.stability = Math.max(0, (newStats.stability ?? 66) + stabilityDelta);
+
+      await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+
+      const newsText = outcome === "sabotaged"
+        ? `Антикоррупционная кампания забуксовала: ключевые фигуранты дел оказались хорошо защищены. Коррупция снизилась незначительно (${corrBefore}→${newStats.corruption}), элиты насторожены, стабильность пошатнулась.`
+        : outcome === "showcase"
+        ? `Громкие аресты в рамках антикоррупционной кампании попали на федеральные каналы — общество одобряет жёсткость. Коррупция: ${corrBefore}→${newStats.corruption}. Часть элит затаила обиду.`
+        : `Антикоррупционная кампания: проведены проверки и аресты в нескольких ведомствах. Коррупция снижена с ${corrBefore} до ${newStats.corruption}. Часть элитных кругов недовольна вмешательством.`;
+
+      await client.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        [gameId, game.current_turn + 1, "Генпрокуратура", newsText]
+      );
+
+      await client.query("COMMIT");
+      return reply.send({ stats: newStats, outcome, corrBefore, corrAfter: newStats.corruption });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Ошибка антикоррупционной кампании" });
     } finally {
       client.release();
     }
