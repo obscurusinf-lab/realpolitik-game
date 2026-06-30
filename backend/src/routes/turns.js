@@ -1239,11 +1239,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             );
           }
           // Добавляем реакции стран в ленту
-          const isNuclearUpdate = (worldUpdate.world_reactions || []).some(r => r.escalation);
+          const rawReactions = (worldUpdate.world_reactions || []).slice(0, 3);
+          const isNuclearUpdate = rawReactions.some(r => r.escalation);
           const reactionItemType = isNuclearUpdate ? "nuclear_reaction" : "reaction";
           const sortedReactions = isNuclearUpdate
-            ? [...(worldUpdate.world_reactions || [])].sort((a, b) => (a.escalation || 1) - (b.escalation || 1))
-            : (worldUpdate.world_reactions || []);
+            ? [...rawReactions].sort((a, b) => (a.escalation || 1) - (b.escalation || 1))
+            : rawReactions;
           for (const reaction of sortedReactions) {
             await db.query(
               `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)

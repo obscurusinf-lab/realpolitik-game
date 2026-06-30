@@ -72,6 +72,7 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
     {"source": "страна/блок", "text": "1 предложение", "tone": "neutral"},
     {"source": "страна/блок", "text": "1 предложение", "tone": "pos"}
   ],
+ВАЖНО: world_reactions — ровно 3 записи, не больше и не меньше. Выбери 3 наиболее важных актора.
   "world_moves": [
     {"country": "страна", "action": "1 предложение — конкретное действие (удар, санкции, переброска войск, сделка и т.д.)", "impact": "1 предложение — последствие для игрока", "direction": "hostile|neutral|cooperative", "stat_delta": {"economy": -2}},
     {"country": "страна", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile|neutral|cooperative", "stat_delta": {"stability": -1}}

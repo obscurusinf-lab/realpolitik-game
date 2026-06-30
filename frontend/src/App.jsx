@@ -394,6 +394,55 @@ function NuclearConfirmScreen({ onConfirm, onCancel, confirming, error }) {
 const ALLY_SOURCES = ["Беларусь","Казахстан","Северная Корея","КНДР","Кыргызстан","Таджикистан","Куба","Никарагуа","Сирия","Иран","Венесуэла"];
 const NEUTRAL_SOURCES = ["Индия","Китай","ОАЭ","Турция","ЮАР","Бразилия","Венгрия","Пакистан","Египет","Саудовская Аравия"];
 
+// Детерминированный советник для экранов выбора
+function getEventAdvisor({ stance, theme, stats, options }) {
+  const mil = stats?.military ?? 50;
+  const peace = stats?.peace_progress ?? 0;
+  const dip = stats?.diplomacy ?? 50;
+  const eco = stats?.economy ?? 50;
+  const stab = stats?.stability ?? 50;
+
+  const goingMilitary = mil > 60;
+  const goingPeace = peace > 20;
+  const dipWeak = dip < 40;
+
+  let rec, reasoning;
+
+  if (stance === "ally") {
+    rec = options.find(o => o.type === "cooperate") ? "cooperate" : options[0]?.type;
+    reasoning = "Союзник — взаимодействие укрепит дипломатию и откроет новые возможности для манёвра.";
+  } else if (stance === "hostile") {
+    if (goingPeace) {
+      rec = "deescalate";
+      reasoning = `Мирный трек (${peace}%) — деэскалация снизит давление. Конфронтация сейчас затруднит переговоры.`;
+    } else if (goingMilitary) {
+      rec = stab < 45 ? "ignore" : "confront";
+      reasoning = stab < 45
+        ? `Стабильность низкая (${stab}). Игнорирование — лучший выбор: не тратим капитал, не провоцируем внутри.`
+        : `Военный курс. Жёсткий ответ покажет решимость — но следите за дипломатией (${dip}).`;
+    } else {
+      rec = eco < 40 ? "deescalate" : "ignore";
+      reasoning = eco < 40
+        ? `Экономика под давлением (${eco}). Деэскалация может открыть торговые возможности.`
+        : "Без чёткой стратегии — игнорирование не тратит ресурсы и не даёт противнику повода для эскалации.";
+    }
+  } else { // neutral
+    if (dipWeak) {
+      rec = "cooperate";
+      reasoning = `Дипломатия слабая (${dip}). Нейтральный актор может стать точкой опоры — взаимодействие выгодно.`;
+    } else if (goingPeace) {
+      rec = "cooperate";
+      reasoning = `Нейтральный актор может стать посредником в мирном процессе (трек: ${peace}%).`;
+    } else {
+      rec = "deescalate";
+      reasoning = "Нейтральный — поддержите отношения без обязательств. Деэскалация сохраняет опции на будущее.";
+    }
+  }
+
+  const recOption = options.find(o => o.type === rec) || options[0];
+  return { rec, recOption, reasoning };
+}
+
 function classifySource(source) {
   if (!source) return "hostile";
   if (ALLY_SOURCES.some(a => source.includes(a))) return "ally";
@@ -439,7 +488,7 @@ const OUTCOME_LABELS = {
   neutral:  { text: "Без изменений", color: "#5a6070" },
 };
 
-function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId }) {
+function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId, gameStats }) {
   const [idx, setIdx] = useState(0);
   const [choosing, setChoosing] = useState(false);
   const [effectResult, setEffectResult] = useState(null); // { delta, outcome, label }
@@ -450,6 +499,7 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId }) {
   const stance = classifySource(reaction?.source);
   const theme = detectReactionTheme(reaction?.text);
   const optionSet = RESPONSE_OPTIONS[stance]?.[theme] || RESPONSE_OPTIONS[stance]?.generic || RESPONSE_OPTIONS.hostile.generic;
+  const advisor = getEventAdvisor({ stance, theme, stats: gameStats, options: optionSet });
 
   async function handleChoice(responseType) {
     if (choosing) return;
@@ -525,23 +575,41 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId }) {
           );
         })()}
 
+        {/* Советник */}
+        {!effectResult && (
+          <div style={{ background: "#141c14", border: "1px solid #2a4020", borderLeft: "3px solid #4a7a3a", borderRadius: 6, padding: "10px 14px", marginBottom: 14 }}>
+            <div className="mono-font" style={{ fontSize: 8, color: "#4a7a3a", marginBottom: 5, letterSpacing: "0.12em" }}>👤 СОВЕТНИК</div>
+            <div className="doc-font" style={{ fontSize: 12.5, color: "#a8c8a0", lineHeight: 1.5, marginBottom: 8 }}>{advisor.reasoning}</div>
+            {advisor.recOption && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="mono-font" style={{ fontSize: 8, color: "#4a7a3a" }}>РЕКОМЕНДУЮ:</span>
+                <span className="doc-font" style={{ fontSize: 11.5, color: "#7fae93", fontStyle: "italic" }}>«{advisor.recOption.label}»</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Варианты ответа */}
         {!effectResult && (
           <>
             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.08em" }}>ВЫБЕРИТЕ ОТВЕТНУЮ ПОЗИЦИЮ:</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-              {optionSet.map((opt, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleChoice(opt.type)}
-                  disabled={choosing}
-                  style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13.5, color: choosing ? "#4a5060" : "#ece7d8", cursor: choosing ? "default" : "pointer", textAlign: "left", lineHeight: 1.45 }}
-                  onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#9c8347")}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a3040")}
-                >
-                  <span style={{ color: "#9c8347", marginRight: 8 }}>{i + 1}.</span>{opt.label}
-                </button>
-              ))}
+              {optionSet.map((opt, i) => {
+                const isRec = opt.type === advisor.rec;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => handleChoice(opt.type)}
+                    disabled={choosing}
+                    style={{ background: isRec ? "#1a2a16" : "#1f2733", border: `1px solid ${isRec ? "#3a6a2a" : "#2a3040"}`, borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13.5, color: choosing ? "#4a5060" : "#ece7d8", cursor: choosing ? "default" : "pointer", textAlign: "left", lineHeight: 1.45, position: "relative" }}
+                    onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#9c8347")}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = isRec ? "#3a6a2a" : "#2a3040")}
+                  >
+                    <span style={{ color: "#9c8347", marginRight: 8 }}>{i + 1}.</span>{opt.label}
+                    {isRec && <span className="mono-font" style={{ position: "absolute", top: 6, right: 8, fontSize: 7, color: "#4a7a3a", background: "#0d1a08", borderRadius: 2, padding: "1px 4px" }}>★ советник</span>}
+                  </button>
+                );
+              })}
               {/* Всегда доступно: принять к сведению */}
               <button
                 onClick={() => handleChoice("ignore")}
@@ -574,7 +642,7 @@ const UA_OUTCOME_LABELS = {
 
 const STAT_RU = { diplomacy: "Дипломатия", approval: "Рейтинг", economy: "Экономика", stability: "Стабильность", military: "Армия", army_morale: "Мораль армии", peace_progress: "Мирный трек" };
 
-function UkraineResponseScreen({ items, onDone, gameId }) {
+function UkraineResponseScreen({ items, onDone, gameId, gameStats }) {
   const [idx, setIdx] = useState(0);
   const [choosing, setChoosing] = useState(false);
   const [effectResult, setEffectResult] = useState(null);
@@ -589,6 +657,40 @@ function UkraineResponseScreen({ items, onDone, gameId }) {
     { label: "Нанести ответный удар", type: "retaliate" },
     { label: "Принять потери и продолжить курс", type: "accept" },
   ];
+
+  // Детерминированный совет на основе ситуации
+  const uaAdvisor = (() => {
+    const mil = gameStats?.military ?? 50;
+    const stab = gameStats?.stability ?? 50;
+    const eco = gameStats?.economy ?? 50;
+    const peace = gameStats?.peace_progress ?? 0;
+    const text = item.text?.toLowerCase() || "";
+    const isDrone = text.includes("дрон") || text.includes("удар") || text.includes("инфраструктур");
+    const isMillitary = text.includes("наступлени") || text.includes("атак") || text.includes("прорыв");
+    const isDipl = text.includes("перегово") || text.includes("мирн") || text.includes("диалог");
+
+    let rec, reasoning;
+    if (isDipl) {
+      rec = responses.find(r => r.type === "accept" || r.type === "defend")?.type || responses[0]?.type;
+      reasoning = peace > 20
+        ? "Украина делает шаг к диалогу — поддержите, это ускорит мирный трек."
+        : "Дипломатическое зондирование. Сохраните нейтралитет — не давайте поводов для эскалации.";
+    } else if (isDrone && mil < 50) {
+      rec = responses.find(r => r.type === "defend")?.type || responses[0]?.type;
+      reasoning = `Армия ослаблена (${mil}). Защитные меры снизят потери без риска встречной эскалации.`;
+    } else if (isMillitary && mil > 65) {
+      rec = responses.find(r => r.type === "retaliate")?.type || responses[0]?.type;
+      reasoning = `Военный потенциал высокий (${mil}). Ответный удар укрепит позиции на фронте.`;
+    } else if (stab < 40 || eco < 40) {
+      rec = "accept";
+      reasoning = `Стабильность (${stab}) и экономика (${eco}) под давлением. Принятие ситуации сохранит ресурсы для важных ходов.`;
+    } else {
+      rec = responses.find(r => r.type === "defend")?.type || responses[0]?.type;
+      reasoning = "Оборонительный ответ — минимальные потери, сохраняем инициативу для наступления.";
+    }
+    const recOption = responses.find(r => r.type === rec) || responses[0];
+    return { rec, recOption, reasoning };
+  })();
 
   async function handleChoice(responseType, actionType) {
     if (choosing) return;
@@ -661,23 +763,41 @@ function UkraineResponseScreen({ items, onDone, gameId }) {
           );
         })()}
 
+        {/* Советник — для экрана Украины */}
+        {!effectResult && (
+          <div style={{ background: "#141c14", border: "1px solid #2a4020", borderLeft: "3px solid #4a7a3a", borderRadius: 6, padding: "10px 14px", marginBottom: 14 }}>
+            <div className="mono-font" style={{ fontSize: 8, color: "#4a7a3a", marginBottom: 5, letterSpacing: "0.12em" }}>👤 СОВЕТНИК</div>
+            <div className="doc-font" style={{ fontSize: 12.5, color: "#a8c8a0", lineHeight: 1.5, marginBottom: 8 }}>{uaAdvisor.reasoning}</div>
+            {uaAdvisor.recOption && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="mono-font" style={{ fontSize: 8, color: "#4a7a3a" }}>РЕКОМЕНДУЮ:</span>
+                <span className="doc-font" style={{ fontSize: 11.5, color: "#7fae93", fontStyle: "italic" }}>«{uaAdvisor.recOption.label}»</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Варианты ответа */}
         {!effectResult && (
           <>
             <div className="mono-font" style={{ fontSize: 9, color: "#7a4040", marginBottom: 10, letterSpacing: "0.08em" }}>ВЫБЕРИТЕ ОТВЕТНЫЕ МЕРЫ:</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-              {responses.map((r, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleChoice(r.type, meta?.type)}
-                  disabled={choosing}
-                  style={{ background: "#1a0e0e", border: "1px solid #3a1a1a", borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13.5, color: choosing ? "#4a3030" : "#e8d8d8", cursor: choosing ? "default" : "pointer", textAlign: "left", lineHeight: 1.45 }}
-                  onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#a8313a")}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#3a1a1a")}
-                >
-                  <span style={{ color: "#a8313a", marginRight: 8 }}>{i + 1}.</span>{r.label}
-                </button>
-              ))}
+              {responses.map((r, i) => {
+                const isRec = r.type === uaAdvisor.rec;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => handleChoice(r.type, meta?.type)}
+                    disabled={choosing}
+                    style={{ background: isRec ? "#1a2010" : "#1a0e0e", border: `1px solid ${isRec ? "#3a6a2a" : "#3a1a1a"}`, borderRadius: 5, padding: "10px 14px", fontFamily: "'PT Serif',serif", fontSize: 13.5, color: choosing ? "#4a3030" : "#e8d8d8", cursor: choosing ? "default" : "pointer", textAlign: "left", lineHeight: 1.45, position: "relative" }}
+                    onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#a8313a")}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = isRec ? "#3a6a2a" : "#3a1a1a")}
+                  >
+                    <span style={{ color: "#a8313a", marginRight: 8 }}>{i + 1}.</span>{r.label}
+                    {isRec && <span className="mono-font" style={{ position: "absolute", top: 6, right: 8, fontSize: 7, color: "#4a7a3a", background: "#0d1a08", borderRadius: 2, padding: "1px 4px" }}>★ советник</span>}
+                  </button>
+                );
+              })}
               <button
                 onClick={() => handleChoice("accept", meta?.type)}
                 disabled={choosing}
@@ -2122,8 +2242,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       return;
     }
 
-    // Потом: дипломатические реакции мира
-    const notable = (worldReactions || []).filter(r => r.text && r.source);
+    // Потом: дипломатические реакции мира (максимум 3 — остальные уже в ленте)
+    const notable = (worldReactions || []).filter(r => r.text && r.source).slice(0, 3);
     if (notable.length > 0) {
       setPendingNextState(newState);
       setDiplomaticReactions(notable);
@@ -2305,11 +2425,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }
 
   if (ukraineReactions) {
-    return <UkraineResponseScreen items={ukraineReactions.items} onDone={handleUkraineDone} gameId={gameId} />;
+    return <UkraineResponseScreen items={ukraineReactions.items} onDone={handleUkraineDone} gameId={gameId} gameStats={state?.stats} />;
   }
 
   if (diplomaticReactions) {
-    return <DiplomaticResponseScreen reactions={diplomaticReactions} onRespond={handleDiplomaticRespond} onSkip={handleDiplomaticDone} gameId={gameId} />;
+    return <DiplomaticResponseScreen reactions={diplomaticReactions} onRespond={handleDiplomaticRespond} onSkip={handleDiplomaticDone} gameId={gameId} gameStats={state?.stats} />;
   }
 
   const tabs = [
