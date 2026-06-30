@@ -1950,6 +1950,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [suggestions, setSuggestions] = useState(null);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showDecreeLegend, setShowDecreeLegend] = useState(false);
+  const [showTreasuryTip, setShowTreasuryTip] = useState(false);
 
   const loadState = useCallback(async () => {
     try {
@@ -2615,8 +2616,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             const T = 0.8; // ₽ трлн за пункт
             const treasury = state?.stats?.treasury ?? 52;
             const economy = state?.stats?.economy ?? 50;
-            const [showTreasuryTip, setShowTreasuryTip] = useState(false);
-            const MONEY = { military: 20, decree_program: 15, decree_reform: 8, decree: 8, decree_fast: 3, diplomacy_op: 5, intel: 5, crisis: 4 };
+            const MONEY ={ military: 20, decree_program: 15, decree_reform: 8, decree: 8, decree_fast: 3, diplomacy_op: 5, intel: 5, crisis: 4 };
             const cost = MONEY[actionMode] ?? 0;
             const after = treasury - cost;
             const deficit = treasury < 0;
