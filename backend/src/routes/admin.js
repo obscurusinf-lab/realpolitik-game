@@ -278,6 +278,104 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     const events = await adminEventStore.list(gameId);
     return reply.send({ events });
   });
+
+  // GET /admin/users — все пользователи с агрегатами по партиям
+  fastify.get("/admin/users", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const res = await db.query(`
+      SELECT
+        u.id, u.username, u.display_name, u.is_anonymous, u.created_at,
+        COUNT(g.id)::int                                        AS games_total,
+        COUNT(CASE WHEN g.status = 'active' THEN 1 END)::int   AS games_active,
+        MAX(g.updated_at)                                       AS last_active,
+        MAX(g.current_turn)                                     AS max_turn
+      FROM users u
+      LEFT JOIN games g ON g.owner_user_id = u.id
+      GROUP BY u.id
+      ORDER BY last_active DESC NULLS LAST
+    `);
+    return reply.send({ users: res.rows });
+  });
+
+  // GET /admin/users/:userId — полное досье: все партии + ходы каждой
+  fastify.get("/admin/users/:userId", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const { userId } = request.params;
+
+    const userRes = await db.query(
+      `SELECT id, username, display_name, is_anonymous, created_at FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (userRes.rowCount === 0) return reply.code(404).send({ error: "User not found" });
+
+    const gamesRes = await db.query(`
+      SELECT g.id, g.country_id, g.status, g.current_turn, g.assist_mode,
+             g.president_name, g.created_at, g.updated_at,
+             c.name AS country_name,
+             gs.stats, gs.policies,
+             ls.score
+      FROM games g
+      JOIN countries c ON c.id = g.country_id
+      JOIN game_state gs ON gs.game_id = g.id
+      LEFT JOIN leaderboard_snap ls ON ls.game_id = g.id AND ls.turn_n = g.current_turn
+      WHERE g.owner_user_id = $1
+      ORDER BY g.updated_at DESC NULLS LAST
+    `, [userId]);
+
+    // Для каждой партии тянем ходы
+    const gameIds = gamesRes.rows.map(g => g.id);
+    let turnsMap = {};
+    if (gameIds.length > 0) {
+      const turnsRes = await db.query(`
+        SELECT game_id, turn_n, player_input, action_mode,
+               gm_classification->>'action_type' AS action_type,
+               narrative_text, advisor_objection, stat_deltas, created_at
+        FROM turns
+        WHERE game_id = ANY($1::uuid[])
+        ORDER BY game_id, turn_n ASC
+      `, [gameIds]);
+      for (const t of turnsRes.rows) {
+        (turnsMap[t.game_id] = turnsMap[t.game_id] || []).push(t);
+      }
+    }
+
+    const games = gamesRes.rows.map(g => ({ ...g, turns: turnsMap[g.id] || [] }));
+    return reply.send({ user: userRes.rows[0], games });
+  });
+
+  // GET /admin/feedback — все репорты
+  fastify.get("/admin/feedback", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const { status } = request.query;
+    let q = `
+      SELECT f.id, f.message, f.contact, f.page, f.status, f.created_at,
+             u.display_name AS user_name, u.username,
+             g.country_id, g.current_turn
+      FROM feedback_items f
+      LEFT JOIN users u ON u.id = f.user_id
+      LEFT JOIN games g ON g.id = f.game_id
+    `;
+    const params = [];
+    if (status) { q += ` WHERE f.status = $1`; params.push(status); }
+    q += ` ORDER BY f.created_at DESC`;
+    const res = await db.query(q, params);
+    return reply.send({ items: res.rows });
+  });
+
+  // PATCH /admin/feedback/:id — изменить статус репорта
+  fastify.patch("/admin/feedback/:id", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const { id } = request.params;
+    const { status } = request.body || {};
+    const VALID_STATUS = ["new", "in_review", "resolved", "wontfix"];
+    if (!VALID_STATUS.includes(status)) return reply.code(400).send({ error: "Invalid status" });
+    const res = await db.query(
+      `UPDATE feedback_items SET status = $1 WHERE id = $2 RETURNING id, status`,
+      [status, id]
+    );
+    if (res.rowCount === 0) return reply.code(404).send({ error: "Not found" });
+    return reply.send({ ok: true, id: res.rows[0].id, status: res.rows[0].status });
+  });
 }
 
 module.exports = { registerAdminRoutes };

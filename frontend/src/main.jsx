@@ -1,71 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { createGame, createUser, deleteGame, fetchAdminStats, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
+import { createGame, createUser, deleteGame, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://realpolitik-game-production.up.railway.app";
 
-async function fetchAdminGames(password) {
-  const res = await fetch(`${API_BASE}/admin/games`, { headers: { "x-admin-password": password } });
-  if (!res.ok) throw new Error("Ошибка загрузки партий");
-  return res.json();
-}
-
-async function sendAdminEvent(password, gameId, body) {
-  const res = await fetch(`${API_BASE}/admin/games/${gameId}/event`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-admin-password": password },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error("Ошибка отправки события");
-  return res.json();
-}
-
-async function fetchAdminPlayerDetail(password, gameId) {
-  const res = await fetch(`${API_BASE}/admin/games/${gameId}/detail`, { headers: { "x-admin-password": password } });
-  if (!res.ok) throw new Error("Ошибка загрузки деталей игрока");
-  return res.json();
-}
-
-async function sendForeignAction(password, gameId, body) {
-  const res = await fetch(`${API_BASE}/admin/games/${gameId}/foreign-action`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-admin-password": password },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Ошибка отправки действия"); }
-  return res.json();
-}
-
-async function adminSetStats(password, gameId, stats) {
-  const res = await fetch(`${API_BASE}/admin/games/${gameId}/set-stats`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-admin-password": password },
-    body: JSON.stringify({ stats }),
-  });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Ошибка"); }
-  return res.json();
-}
-
-async function adminSetInitiative(password, gameId, initiative) {
-  const res = await fetch(`${API_BASE}/admin/games/${gameId}/set-initiative`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-admin-password": password },
-    body: JSON.stringify({ initiative: Number(initiative) }),
-  });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Ошибка"); }
-  return res.json();
-}
-
-async function adminDeactivateGame(password, gameId) {
-  const res = await fetch(`${API_BASE}/admin/games/${gameId}`, {
-    method: "DELETE",
-    headers: { "x-admin-password": password },
-  });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Ошибка"); }
-  return res.json();
-}
 
 const COUNTRIES = [
   {
@@ -669,321 +609,538 @@ const COUNTRY_FLAG_MAP = { RU: "🇷🇺", US: "🇺🇸", CN: "🇨🇳", UA: "
 const STAT_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
 const STAT_NAMES_RU = { economy: "Экономика", military: "Армия", stability: "Стабильность", diplomacy: "Дипломатия", approval: "Рейтинг" };
 
-function InterventionForm({ password, game, onDone, onRefresh }) {
-  const [mode, setMode] = useState("event"); // "event" | "foreign" | "stats" | "initiative"
-  const [text, setText] = useState("");
-  const [source, setSource] = useState("");
-  const [country, setCountry] = useState("");
-  const [action, setAction] = useState("");
-  const [secret, setSecret] = useState(false);
-  const [immediate, setImmediate] = useState(true);
-  const [statDeltas, setStatDeltas] = useState({ economy: 0, military: 0, stability: 0, diplomacy: 0, approval: 0 });
-  const [statsAbsolute, setStatsAbsolute] = useState(() => {
-    const s = game.stats || {};
-    return { economy: s.economy ?? 50, military: s.military ?? 50, stability: s.stability ?? 50, diplomacy: s.diplomacy ?? 50, approval: s.approval ?? 50 };
-  });
-  const [initiative, setInitiative] = useState(game.initiative ?? 100);
-  const [sending, setSending] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+// ─── ADMIN PANEL ────────────────────────────────────────────────────────────
 
-  const inp = { width: "100%", background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 10px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 13, outline: "none", marginBottom: 8, boxSizing: "border-box" };
-  const btnStyle = (active) => ({ background: active ? "#9c8347" : "#1f2733", color: active ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "5px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", marginRight: 4, marginBottom: 4 });
-  const numInp = { width: 60, background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "4px 6px", color: "#ece7d8", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, outline: "none", textAlign: "center" };
+const ADMIN_BASE = `${API_BASE}/admin`;
+const adm = (pwd, path, opts = {}) =>
+  fetch(`${ADMIN_BASE}${path}`, { ...opts, headers: { "x-admin-password": pwd, "Content-Type": "application/json", ...(opts.headers || {}) } });
 
-  async function send() {
-    setSending(true); setError(null); setResult(null);
-    try {
-      if (mode === "event") {
-        const nonZeroDeltas = Object.fromEntries(Object.entries(statDeltas).filter(([, v]) => v !== 0));
-        const res = await sendAdminEvent(password, game.game_id, { text, source: source || "Внешний источник", statDeltas: nonZeroDeltas, secret, immediate });
-        setResult(immediate ? `Применено немедленно.` : "Поставлено в очередь — сработает при следующем ходе.");
-        setText(""); setSource("");
-      } else if (mode === "foreign") {
-        const res = await sendForeignAction(password, game.game_id, { country, action, secret, immediate });
-        setResult(`ИИ: "${res.preview?.narrative?.slice(0, 100)}…"`);
-        setCountry(""); setAction("");
-      } else if (mode === "stats") {
-        await adminSetStats(password, game.game_id, statsAbsolute);
-        setResult("Показатели обновлены.");
-      } else if (mode === "initiative") {
-        await adminSetInitiative(password, game.game_id, initiative);
-        setResult(`Инициатива установлена: ${initiative}`);
-      }
-      onRefresh?.();
-    } catch (e) { setError(e.message); }
-    finally { setSending(false); }
-  }
+const STATUS_LABEL = { new: "Новый", in_review: "В работе", resolved: "Решён", wontfix: "Не баг" };
+const STATUS_COLOR = { new: "#e09090", in_review: "#9c8347", resolved: "#7fae93", wontfix: "#3a4156" };
+const ACTION_MODE_ICON = { intel: "🕵️", military: "⚔️", diplomacy_op: "🤝", decree_fast: "📜", decree_reform: "📜", decree_program: "📜", decree: "📜", crisis: "⚡", regroup: "🔄" };
 
-  const canSend = mode === "event" ? !!text
-    : mode === "foreign" ? (!!country && !!action)
-    : mode === "stats" ? true
-    : true;
-
+function StatBar({ label, value }) {
+  const color = value > 60 ? "#7fae93" : value > 35 ? "#9c8347" : "#e09090";
   return (
-    <div style={{ background: "#0d1118", border: "1px solid #2a3040", borderRadius: 6, padding: "14px", marginTop: 8 }}>
-      <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 10 }}>
-        ВМЕШАТЕЛЬСТВО: {game.player_name} ({game.country_id}) · ХОД {game.current_turn}
+    <div style={{ marginBottom: 5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+        <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{label}</span>
+        <span className="mono-font" style={{ fontSize: 9, color }}>{value}</span>
       </div>
-      <div style={{ marginBottom: 12, flexWrap: "wrap", display: "flex" }}>
-        <button style={btnStyle(mode === "event")} onClick={() => setMode("event")}>Событие</button>
-        <button style={btnStyle(mode === "foreign")} onClick={() => setMode("foreign")}>Ход страны</button>
-        <button style={btnStyle(mode === "stats")} onClick={() => setMode("stats")}>Статы</button>
-        <button style={btnStyle(mode === "initiative")} onClick={() => setMode("initiative")}>Инициатива</button>
-      </div>
-
-      {mode === "event" && (
-        <>
-          <input style={inp} placeholder="Источник (напр. «Reuters», «ЦРУ»)…" value={source} onChange={e => setSource(e.target.value)} />
-          <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Текст события…" value={text} onChange={e => setText(e.target.value)} />
-          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 6 }}>ДЕЛЬТЫ СТАТОВ (0 = без изменений):</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginBottom: 10 }}>
-            {STAT_KEYS.map(k => (
-              <label key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="mono-font" style={{ fontSize: 9, color: "#8a8070", width: 80 }}>{STAT_NAMES_RU[k]}</span>
-                <input type="number" style={numInp} min={-20} max={20} value={statDeltas[k]} onChange={e => setStatDeltas(p => ({ ...p, [k]: Number(e.target.value) }))} />
-              </label>
-            ))}
-          </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-            <input type="checkbox" checked={immediate} onChange={e => setImmediate(e.target.checked)} />
-            <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Немедленно (иначе — при следующем ходе)</span>
-          </label>
-        </>
-      )}
-
-      {mode === "foreign" && (
-        <>
-          <input style={inp} placeholder="Страна-агент (напр. «США», «Китай»)…" value={country} onChange={e => setCountry(e.target.value)} />
-          <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Что делает эта страна (ИИ сгенерирует последствия)…" value={action} onChange={e => setAction(e.target.value)} />
-          <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-            <input type="checkbox" checked={immediate} onChange={e => setImmediate(e.target.checked)} />
-            <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Применить немедленно</span>
-          </label>
-        </>
-      )}
-
-      {mode === "stats" && (
-        <>
-          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8 }}>УСТАНОВИТЬ АБСОЛЮТНЫЕ ЗНАЧЕНИЯ (0–100):</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 12px", marginBottom: 10 }}>
-            {STAT_KEYS.map(k => (
-              <label key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span className="mono-font" style={{ fontSize: 9, color: "#8a8070", width: 80 }}>{STAT_NAMES_RU[k]}</span>
-                <input type="number" style={numInp} min={0} max={100} value={statsAbsolute[k]} onChange={e => setStatsAbsolute(p => ({ ...p, [k]: Number(e.target.value) }))} />
-              </label>
-            ))}
-          </div>
-        </>
-      )}
-
-      {mode === "initiative" && (
-        <div style={{ marginBottom: 12 }}>
-          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8 }}>УСТАНОВИТЬ ИНИЦИАТИВУ (0–200):</div>
-          <input type="number" style={{ ...numInp, width: 80 }} min={0} max={200} value={initiative} onChange={e => setInitiative(Number(e.target.value))} />
-        </div>
-      )}
-
-      {(mode === "event" || mode === "foreign") && (
-        <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-          <input type="checkbox" checked={secret} onChange={e => setSecret(e.target.checked)} />
-          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Скрытое (не в ленту)</span>
-        </label>
-      )}
-
-      {error && <div style={{ color: "#e09090", fontSize: 12, marginBottom: 8 }}>{error}</div>}
-      {result && <div style={{ color: "#7fae93", fontSize: 12, marginBottom: 8 }}>{result}</div>}
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={send} disabled={sending || !canSend}
-          style={{ background: "#a8313a", color: "#ece7d8", border: "none", borderRadius: 4, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: (!canSend || sending) ? 0.5 : 1 }}>
-          {sending ? "Отправка…" : "Применить →"}
-        </button>
-        <button onClick={onDone} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 12px", color: "#5a6070", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>
-          Закрыть
-        </button>
+      <div style={{ height: 3, background: "#2a3040", borderRadius: 2 }}>
+        <div style={{ height: 3, borderRadius: 2, background: color, width: `${Math.min(100, value)}%` }} />
       </div>
     </div>
   );
 }
 
-function AdminPanel({ onClose }) {
-  const [step, setStep] = useState("auth");
-  const [tab, setTab] = useState("stats");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState(null);
-  const [games, setGames] = useState([]);
-  const [gamesLoading, setGamesLoading] = useState(false);
-  const [expandedGame, setExpandedGame] = useState(null); // "intervene" | "detail"
-  const [expandedGameMode, setExpandedGameMode] = useState("intervene");
-  const [playerDetail, setPlayerDetail] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stats, initiative, onRefresh }) {
+  const [mode, setMode] = useState("event");
+  const [text, setText] = useState(""); const [source, setSource] = useState("");
+  const [country, setCountry] = useState(""); const [action, setAction] = useState("");
+  const [secret, setSecret] = useState(false); const [immediate, setImmediate] = useState(true);
+  const [statDeltas, setStatDeltas] = useState({ economy: 0, military: 0, stability: 0, diplomacy: 0, approval: 0 });
+  const [statsAbs, setStatsAbs] = useState({ economy: stats?.economy ?? 50, military: stats?.military ?? 50, stability: stats?.stability ?? 50, diplomacy: stats?.diplomacy ?? 50, approval: stats?.approval ?? 50 });
+  const [initVal, setInitVal] = useState(initiative ?? 100);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null); const [error, setError] = useState(null);
 
-  async function handleAuth() {
-    setLoading(true); setError(null);
+  const inp = { width: "100%", background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "7px 10px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 13, outline: "none", marginBottom: 7, boxSizing: "border-box" };
+  const numInp = { width: 56, background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "4px 6px", color: "#ece7d8", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, outline: "none", textAlign: "center" };
+  const mBtn = (m, lbl) => (
+    <button key={m} onClick={() => setMode(m)}
+      style={{ background: mode === m ? "#9c8347" : "none", color: mode === m ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "4px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer" }}>
+      {lbl}
+    </button>
+  );
+
+  async function send() {
+    setSending(true); setError(null); setResult(null);
     try {
-      const data = await fetchAdminStats(password);
-      setStats(data);
-      setStep("main");
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
+      if (mode === "event") {
+        const deltas = Object.fromEntries(Object.entries(statDeltas).filter(([, v]) => v !== 0));
+        await adm(pwd, `/games/${gameId}/event`, { method: "POST", body: JSON.stringify({ text, source: source || "Внешний источник", statDeltas: deltas, secret, immediate }) });
+        setResult(immediate ? "Применено немедленно." : "В очереди — сработает при следующем ходе."); setText(""); setSource("");
+      } else if (mode === "foreign") {
+        const r = await adm(pwd, `/games/${gameId}/foreign-action`, { method: "POST", body: JSON.stringify({ country, action, secret, immediate }) });
+        const d = await r.json();
+        setResult(`ИИ: "${(d.preview?.narrative || "").slice(0, 120)}…"`); setCountry(""); setAction("");
+      } else if (mode === "stats") {
+        await adm(pwd, `/games/${gameId}/set-stats`, { method: "POST", body: JSON.stringify({ stats: statsAbs }) });
+        setResult("Показатели обновлены.");
+      } else if (mode === "initiative") {
+        await adm(pwd, `/games/${gameId}/set-initiative`, { method: "POST", body: JSON.stringify({ initiative: initVal }) });
+        setResult(`Инициатива: ${initVal}`);
+      }
+      onRefresh?.();
+    } catch (e) { setError(e.message); } finally { setSending(false); }
   }
 
-  async function loadGames() {
-    setGamesLoading(true);
-    try {
-      const data = await fetchAdminGames(password);
-      setGames(data.games || []);
-    } catch (e) { setError(e.message); }
-    finally { setGamesLoading(false); }
-  }
-
-  useEffect(() => {
-    if (step === "main" && tab === "games") loadGames();
-  }, [step, tab]);
-
-  const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',Georgia,serif" };
-  const panel = { background: "#14181f", border: "1px solid #9c8347", borderRadius: 8, padding: "24px 24px 20px", width: "min(95vw, 700px)", maxHeight: "88vh", overflowY: "auto", color: "#ece7d8", position: "relative" };
-  const tabBtn = (t) => ({ background: tab === t ? "#9c8347" : "none", color: tab === t ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "5px 14px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", marginRight: 6 });
+  const canSend = mode === "event" ? !!text : mode === "foreign" ? (!!country && !!action) : true;
 
   return (
-    <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={panel}>
-        <button onClick={onClose} style={{ position: "absolute", top: 12, right: 14, background: "none", border: "none", color: "#5a6070", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+    <div style={{ background: "#0d1118", border: "1px solid #3a4156", borderRadius: 6, padding: 14, marginTop: 8 }}>
+      <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 10 }}>⚡ ВМЕШАТЕЛЬСТВО · {gameName} ({countryId}) · ХОД {currentTurn}</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {[["event","Событие"],["foreign","Ход страны"],["stats","Статы"],["initiative","Инициатива"]].map(([m,l]) => mBtn(m,l))}
+      </div>
+      {mode === "event" && <>
+        <input style={inp} placeholder="Источник…" value={source} onChange={e => setSource(e.target.value)} />
+        <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Текст события…" value={text} onChange={e => setText(e.target.value)} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px 12px", marginBottom: 8 }}>
+          {STAT_KEYS.map(k => (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", width: 78 }}>{STAT_NAMES_RU[k]}</span>
+              <input type="number" style={numInp} min={-20} max={20} value={statDeltas[k]} onChange={e => setStatDeltas(p => ({ ...p, [k]: Number(e.target.value) }))} />
+            </label>
+          ))}
+        </div>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+          <input type="checkbox" checked={immediate} onChange={e => setImmediate(e.target.checked)} />
+          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Немедленно</span>
+        </label>
+      </>}
+      {mode === "foreign" && <>
+        <input style={inp} placeholder="Страна-агент…" value={country} onChange={e => setCountry(e.target.value)} />
+        <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Действие страны (ИИ сгенерирует последствия)…" value={action} onChange={e => setAction(e.target.value)} />
+        <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+          <input type="checkbox" checked={immediate} onChange={e => setImmediate(e.target.checked)} />
+          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Немедленно</span>
+        </label>
+      </>}
+      {mode === "stats" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 12px", marginBottom: 10 }}>
+          {STAT_KEYS.map(k => (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", width: 78 }}>{STAT_NAMES_RU[k]}</span>
+              <input type="number" style={numInp} min={0} max={100} value={statsAbs[k]} onChange={e => setStatsAbs(p => ({ ...p, [k]: Number(e.target.value) }))} />
+            </label>
+          ))}
+        </div>
+      )}
+      {mode === "initiative" && (
+        <div style={{ marginBottom: 10 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 6 }}>Инициатива (0–200):</div>
+          <input type="number" style={{ ...numInp, width: 80 }} min={0} max={200} value={initVal} onChange={e => setInitVal(Number(e.target.value))} />
+        </div>
+      )}
+      {(mode === "event" || mode === "foreign") && (
+        <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
+          <input type="checkbox" checked={secret} onChange={e => setSecret(e.target.checked)} />
+          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Скрытое (не в ленту)</span>
+        </label>
+      )}
+      {error && <div style={{ color: "#e09090", fontSize: 12, marginBottom: 8 }}>{error}</div>}
+      {result && <div style={{ color: "#7fae93", fontSize: 12, marginBottom: 8 }}>{result}</div>}
+      <button onClick={send} disabled={sending || !canSend}
+        style={{ background: "#a8313a", color: "#ece7d8", border: "none", borderRadius: 4, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: (!canSend || sending) ? 0.5 : 1 }}>
+        {sending ? "Отправка…" : "Применить →"}
+      </button>
+    </div>
+  );
+}
 
-        {step === "auth" && (
-          <>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 16 }}>КОМАНДНЫЙ ЦЕНТР · ДОСТУП ОГРАНИЧЕН</div>
-            <div className="doc-font" style={{ fontSize: 15, marginBottom: 16 }}>Введите пароль геймастера</div>
-            <input autoFocus type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAuth()}
-              placeholder="Пароль…" style={{ width: "100%", background: "#1f2733", border: "1px solid #3a4156", borderRadius: 4, padding: "10px 12px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 14, outline: "none", marginBottom: 12 }} />
-            {error && <div style={{ color: "#e09090", fontSize: 13, marginBottom: 10 }}>{error}</div>}
-            <button onClick={handleAuth} disabled={loading || !password}
-              style={{ background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "10px 20px", fontFamily: "'PT Serif',serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-              {loading ? "Проверка…" : "Войти →"}
-            </button>
-          </>
+// ── Вкладка «Игроки» ────────────────────────────────────────────────────────
+function AdminTabPlayers({ pwd }) {
+  const [users, setUsers] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState(null); // userId
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [expandedGame, setExpandedGame] = useState(null); // gameId
+  const [interveneGame, setInterveneGame] = useState(null); // gameId
+
+  useEffect(() => {
+    adm(pwd, "/users").then(r => r.json()).then(d => setUsers(d.users || [])).catch(e => setError(e.message)).finally(() => setLoading(false));
+  }, []);
+
+  function openUser(userId) {
+    setSelected(userId); setDetail(null); setDetailLoading(true); setExpandedGame(null); setInterveneGame(null);
+    adm(pwd, `/users/${userId}`).then(r => r.json()).then(d => setDetail(d)).catch(e => setError(e.message)).finally(() => setDetailLoading(false));
+  }
+
+  if (loading) return <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", padding: 20 }}>Загрузка…</div>;
+  if (error) return <div style={{ color: "#e09090", fontSize: 13, padding: 20 }}>{error}</div>;
+
+  return (
+    <div style={{ display: "flex", gap: 0, height: "100%" }}>
+      {/* Список игроков */}
+      <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid #2a3040", overflowY: "auto", height: "100%" }}>
+        <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", padding: "10px 14px 6px", letterSpacing: "0.1em" }}>
+          ВСЕГО: {users.length}
+        </div>
+        {users.map(u => (
+          <div key={u.id} onClick={() => openUser(u.id)}
+            style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #1a1f2c", background: selected === u.id ? "#1f2a1a" : "transparent",
+              borderLeft: selected === u.id ? "3px solid #9c8347" : "3px solid transparent" }}
+            onMouseEnter={e => { if (selected !== u.id) e.currentTarget.style.background = "#1f2733"; }}
+            onMouseLeave={e => { if (selected !== u.id) e.currentTarget.style.background = "transparent"; }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#ece7d8" }}>{u.display_name}</div>
+              {u.games_active > 0 && <div style={{ fontSize: 9, background: "#2a3a1a", color: "#7fae93", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>active</div>}
+            </div>
+            <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
+              @{u.username || "anon"} · {u.games_total} парт. · {u.max_turn || 0} ходов макс
+            </div>
+            {u.last_active && <div className="mono-font" style={{ fontSize: 8, color: "#3a4156", marginTop: 1 }}>
+              {new Date(u.last_active).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+            </div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Детальный вид */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 0 20px", height: "100%" }}>
+        {!selected && (
+          <div className="mono-font" style={{ fontSize: 11, color: "#3a4156", padding: 30, textAlign: "center" }}>← Выберите игрока</div>
         )}
-
-        {step === "main" && (
+        {detailLoading && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", padding: 20 }}>Загрузка досье…</div>}
+        {detail && (
           <>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 16 }}>КОМАНДНЫЙ ЦЕНТР ГЕЙМАСТЕРА</div>
-            <div style={{ marginBottom: 18 }}>
-              <button style={tabBtn("stats")} onClick={() => setTab("stats")}>Статистика</button>
-              <button style={tabBtn("games")} onClick={() => setTab("games")}>Вмешательство</button>
+            {/* Шапка игрока */}
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid #2a3040", background: "#0d1118" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div className="doc-font" style={{ fontSize: 18, fontWeight: 700, color: "#ece7d8" }}>{detail.user.display_name}</div>
+                  <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginTop: 2 }}>
+                    @{detail.user.username || "anon"} · {new Date(detail.user.created_at).toLocaleDateString("ru-RU")}
+                  </div>
+                </div>
+                <div className="mono-font" style={{ fontSize: 22, fontWeight: 700, color: "#9c8347" }}>{detail.games.length} парт.</div>
+              </div>
             </div>
 
-            {tab === "stats" && stats && (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 20 }}>
-                  {[
-                    { label: "Игроков", value: stats.users.total, sub: `+${stats.users.today} сегодня` },
-                    { label: "Партий", value: stats.games.total, sub: `${stats.games.active} активных` },
-                    { label: "Ходов", value: stats.turns.total, sub: "всего" },
-                  ].map(({ label, value, sub }) => (
-                    <div key={label} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 12px", textAlign: "center" }}>
-                      <div className="mono-font" style={{ fontSize: 24, fontWeight: 700, color: "#9c8347" }}>{value}</div>
-                      <div className="mono-font" style={{ fontSize: 9, color: "#ece7d8", marginTop: 4 }}>{label}</div>
-                      <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>{sub}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8 }}>ВСЕ ИГРОКИ</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {stats.players.map((p, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 12px" }}>
-                      <div style={{ fontSize: 16, flexShrink: 0 }}>{COUNTRY_FLAG_MAP[p.country_id] || "🌐"}</div>
+            {/* Партии */}
+            <div style={{ padding: "12px 20px" }}>
+              {detail.games.length === 0 && <div className="mono-font" style={{ fontSize: 11, color: "#3a4156" }}>Нет партий</div>}
+              {detail.games.map(g => {
+                const isOpen = expandedGame === g.id;
+                const isIntervene = interveneGame === g.id;
+                const stats = g.stats || {};
+                const CORE = ["economy","military","stability","diplomacy","approval"];
+                return (
+                  <div key={g.id} style={{ background: "#1a1f2c", border: `1px solid ${isOpen ? "#9c8347" : "#2a3040"}`, borderRadius: 6, marginBottom: 10 }}>
+                    {/* Строка партии */}
+                    <div style={{ padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}
+                      onClick={() => { setExpandedGame(isOpen ? null : g.id); setInterveneGame(null); }}>
+                      <div style={{ fontSize: 20 }}>{COUNTRY_FLAG_MAP[g.country_id] || "🌐"}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{p.display_name}</div>
-                        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{new Date(p.created_at).toLocaleString("ru-RU")} · ход {p.current_turn}</div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                          <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#ece7d8" }}>
+                            {g.president_name || detail.user.display_name}
+                          </div>
+                          <div className="mono-font" style={{ fontSize: 8, color: g.status === "active" ? "#7fae93" : "#3a4156", background: "#0d1118", borderRadius: 3, padding: "1px 5px" }}>
+                            {g.status}
+                          </div>
+                          {g.score != null && <div className="mono-font" style={{ fontSize: 9, color: "#9c8347" }}>★ {g.score}</div>}
+                        </div>
+                        <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginTop: 2 }}>
+                          ход {g.current_turn} · {g.country_name} · {g.assist_mode} · {new Date(g.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </div>
                       </div>
-                      {p.score != null && <div className="mono-font" style={{ fontSize: 13, fontWeight: 700, color: "#9c8347" }}>{p.score}</div>}
+                      <div style={{ display: "flex", gap: 5 }}>
+                        {g.status === "active" && (
+                          <button onClick={e => { e.stopPropagation(); setInterveneGame(isIntervene ? null : g.id); setExpandedGame(isIntervene ? expandedGame : g.id); }}
+                            style={{ background: isIntervene ? "#a8313a" : "none", color: isIntervene ? "#ece7d8" : "#a8313a", border: "1px solid #a8313a", borderRadius: 4, padding: "3px 8px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer" }}>
+                            ⚡
+                          </button>
+                        )}
+                        <span style={{ color: "#5a6070", fontSize: 12 }}>{isOpen ? "▲" : "▼"}</span>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
 
-            {tab === "games" && (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>АКТИВНЫЕ ПАРТИИ</div>
-                  <button onClick={loadGames} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "4px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer" }}>↻ Обновить</button>
-                </div>
-                {gamesLoading && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Загрузка…</div>}
-                {!gamesLoading && games.length === 0 && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Нет активных партий</div>}
-                {games.map(g => {
-                  const isOpen = expandedGame === g.game_id;
-                  const modeBtn = (m, label) => (
-                    <button onClick={e => { e.stopPropagation(); setExpandedGame(g.game_id); setExpandedGameMode(m);
-                      if (m === "detail" && expandedGame !== g.game_id) {
-                        setDetailLoading(true); setPlayerDetail(null);
-                        fetchAdminPlayerDetail(password, g.game_id).then(d => setPlayerDetail(d)).finally(() => setDetailLoading(false));
-                      }
-                    }}
-                    style={{ background: isOpen && expandedGameMode === m ? "#9c8347" : "none", color: isOpen && expandedGameMode === m ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "3px 8px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer" }}>
-                      {label}
-                    </button>
-                  );
-                  return (
-                    <div key={g.game_id}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: `1px solid ${isOpen ? "#9c8347" : "#2a3040"}`, borderRadius: 6, padding: "10px 14px", marginBottom: 6 }}>
-                        <div style={{ fontSize: 18 }}>{COUNTRY_FLAG_MAP[g.country_id] || "🌐"}</div>
-                        <div style={{ flex: 1 }}>
-                          <div className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{g.player_name}</div>
-                          <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>ход {g.current_turn} · {new Date(g.created_at).toLocaleString("ru-RU")}</div>
+                    {isOpen && (
+                      <div style={{ borderTop: "1px solid #2a3040", padding: "12px 14px" }}>
+                        {/* Интервенция */}
+                        {isIntervene && (
+                          <InterventionPanel pwd={pwd} gameId={g.id} gameName={detail.user.display_name} countryId={g.country_id}
+                            currentTurn={g.current_turn} stats={g.stats} initiative={g.stats?.initiative}
+                            onRefresh={() => adm(pwd, `/users/${detail.user.id}`).then(r => r.json()).then(d => setDetail(d))} />
+                        )}
+
+                        {/* Мини-статы */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px", marginTop: 10, marginBottom: 12 }}>
+                          {CORE.map(k => <StatBar key={k} label={STAT_NAMES_RU[k] || k} value={stats[k] ?? 0} />)}
                         </div>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          {modeBtn("detail", "📋 Досье")}
-                          {modeBtn("intervene", "⚡ Вмешаться")}
-                          {isOpen && <button onClick={() => setExpandedGame(null)} style={{ background: "none", border: "none", color: "#5a6070", fontSize: 16, cursor: "pointer" }}>×</button>}
-                        </div>
+                        {stats.peace_progress != null && (
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                              <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>Мирный трек</span>
+                              <span className="mono-font" style={{ fontSize: 9, color: "#5b6b8c" }}>{stats.peace_progress}%</span>
+                            </div>
+                            <div style={{ height: 3, background: "#2a3040", borderRadius: 2 }}>
+                              <div style={{ height: 3, borderRadius: 2, background: "#5b6b8c", width: `${Math.min(100, stats.peace_progress)}%` }} />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Ходы */}
+                        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8 }}>ИСТОРИЯ ХОДОВ ({g.turns.length})</div>
+                        {g.turns.length === 0 && <div className="mono-font" style={{ fontSize: 10, color: "#3a4156" }}>Ходов ещё нет</div>}
+                        {g.turns.map(t => (
+                          <div key={t.turn_n} style={{ background: "#0d1118", border: "1px solid #1a1f2c", borderRadius: 4, padding: "8px 10px", marginBottom: 5 }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4, flexWrap: "wrap" }}>
+                              <span className="mono-font" style={{ fontSize: 9, color: "#9c8347", minWidth: 44 }}>ХОД {t.turn_n}</span>
+                              <span className="mono-font" style={{ fontSize: 8, color: "#5a6070", background: "#1a1f2c", padding: "1px 5px", borderRadius: 2 }}>
+                                {ACTION_MODE_ICON[t.action_mode] || "📜"} {t.action_mode} · {t.action_type || "—"}
+                              </span>
+                              {t.advisor_objection && <span className="mono-font" style={{ fontSize: 8, color: "#e09090" }}>⚠ возражение</span>}
+                            </div>
+                            <div className="doc-font" style={{ fontSize: 12, color: "#c8c0a8", marginBottom: 3 }}>«{t.player_input}»</div>
+                            <div className="doc-font" style={{ fontSize: 11, color: "#6a6258", fontStyle: "italic", lineHeight: 1.4 }}>{t.narrative_text}</div>
+                            {t.advisor_objection && <div className="doc-font" style={{ fontSize: 10, color: "#a84040", marginTop: 3 }}>Советник: {t.advisor_objection}</div>}
+                          </div>
+                        ))}
                       </div>
-                      {isOpen && expandedGameMode === "intervene" && (
-                        <InterventionForm password={password} game={g} onDone={() => setExpandedGame(null)} onRefresh={loadGames} />
-                      )}
-                      {isOpen && expandedGameMode === "detail" && (
-                        <div style={{ background: "#0d1118", border: "1px solid #2a3040", borderRadius: 6, padding: "14px", marginBottom: 8 }}>
-                          {detailLoading && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Загрузка досье…</div>}
-                          {playerDetail && (
-                            <>
-                              <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 10 }}>ДОСЬЕ: {playerDetail.game?.player_name}</div>
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
-                                {Object.entries(playerDetail.game?.stats || {}).filter(([k]) => k !== "initiative").map(([k, v]) => (
-                                  <div key={k} style={{ display: "flex", justifyContent: "space-between", background: "#1f2733", padding: "4px 8px", borderRadius: 3 }}>
-                                    <span className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{k}</span>
-                                    <span className="mono-font" style={{ fontSize: 9, color: v > 60 ? "#7fae93" : v > 30 ? "#9c8347" : "#e09090" }}>{v}</span>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 6 }}>ИСТОРИЯ ХОДОВ ({playerDetail.turns?.length})</div>
-                              {playerDetail.turns?.map(t => (
-                                <div key={t.turn_n} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 10px", marginBottom: 5 }}>
-                                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4 }}>
-                                    <span className="mono-font" style={{ fontSize: 9, color: "#9c8347" }}>ХОД {t.turn_n}</span>
-                                    <span className="mono-font" style={{ fontSize: 8, color: "#5a6070", background: "#0d1118", padding: "1px 5px", borderRadius: 2 }}>
-                                      {t.action_mode === "intel" ? "🕵️ Разведка" : t.action_mode === "military" ? "⚔️ Военная" : "📜 Указ"} · {t.action_type}
-                                    </span>
-                                    {t.advisor_objection && <span className="mono-font" style={{ fontSize: 8, color: "#e09090" }}>⚠ возражение</span>}
-                                  </div>
-                                  <div className="doc-font" style={{ fontSize: 12, color: "#ece7d8", marginBottom: 4 }}>"{t.player_input}"</div>
-                                  <div className="doc-font" style={{ fontSize: 11, color: "#8a8270", fontStyle: "italic" }}>{t.narrative_text}</div>
-                                  {t.advisor_objection && <div className="doc-font" style={{ fontSize: 11, color: "#e09090", marginTop: 4 }}>Советник: {t.advisor_objection}</div>}
-                                </div>
-                              ))}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </>
-            )}
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Вкладка «Партии» ─────────────────────────────────────────────────────────
+function AdminTabGames({ pwd }) {
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [expanded, setExpanded] = useState(null);
+  const [intervene, setIntervene] = useState(null);
+
+  function load() {
+    setLoading(true);
+    adm(pwd, "/games").then(r => r.json()).then(d => setGames(d.games || [])).catch(e => setError(e.message)).finally(() => setLoading(false));
+  }
+  useEffect(load, []);
+
+  if (loading) return <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", padding: 20 }}>Загрузка…</div>;
+  if (error) return <div style={{ color: "#e09090", padding: 20 }}>{error}</div>;
+
+  return (
+    <div style={{ padding: "12px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>АКТИВНЫЕ ПАРТИИ · {games.length}</div>
+        <button onClick={load} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "4px 10px", fontFamily: "monospace", fontSize: 9, cursor: "pointer" }}>↻</button>
+      </div>
+      {games.length === 0 && <div className="mono-font" style={{ fontSize: 11, color: "#3a4156" }}>Нет активных партий</div>}
+      {games.map(g => {
+        const isOpen = expanded === g.game_id;
+        const stats = g.stats || {};
+        const CORE = ["economy","military","stability","diplomacy","approval"];
+        return (
+          <div key={g.game_id} style={{ background: "#1a1f2c", border: `1px solid ${isOpen ? "#9c8347" : "#2a3040"}`, borderRadius: 6, marginBottom: 8 }}>
+            <div style={{ padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}
+              onClick={() => { setExpanded(isOpen ? null : g.game_id); setIntervene(null); }}>
+              <div style={{ fontSize: 18 }}>{COUNTRY_FLAG_MAP[g.country_id] || "🌐"}</div>
+              <div style={{ flex: 1 }}>
+                <div className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{g.player_name}</div>
+                <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginTop: 2 }}>ход {g.current_turn} · {new Date(g.created_at).toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</div>
+              </div>
+              <div style={{ display: "flex", gap: 5 }}>
+                <button onClick={e => { e.stopPropagation(); setIntervene(intervene === g.game_id ? null : g.game_id); setExpanded(g.game_id); }}
+                  style={{ background: intervene === g.game_id ? "#a8313a" : "none", color: intervene === g.game_id ? "#ece7d8" : "#a8313a", border: "1px solid #a8313a", borderRadius: 4, padding: "3px 8px", fontFamily: "monospace", fontSize: 9, cursor: "pointer" }}>⚡</button>
+                <span style={{ color: "#5a6070", fontSize: 12 }}>{isOpen ? "▲" : "▼"}</span>
+              </div>
+            </div>
+            {isOpen && (
+              <div style={{ borderTop: "1px solid #2a3040", padding: "12px 14px" }}>
+                {intervene === g.game_id && (
+                  <InterventionPanel pwd={pwd} gameId={g.game_id} gameName={g.player_name} countryId={g.country_id}
+                    currentTurn={g.current_turn} stats={stats} initiative={g.initiative} onRefresh={load} />
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px", marginTop: 10 }}>
+                  {CORE.map(k => <StatBar key={k} label={STAT_NAMES_RU[k] || k} value={stats[k] ?? 0} />)}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Вкладка «Репорты» ────────────────────────────────────────────────────────
+function AdminTabFeedback({ pwd }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+  const [updating, setUpdating] = useState(null); // id
+
+  function load() {
+    setLoading(true);
+    const qs = filter !== "all" ? `?status=${filter}` : "";
+    adm(pwd, `/feedback${qs}`).then(r => r.json()).then(d => setItems(d.items || [])).finally(() => setLoading(false));
+  }
+  useEffect(load, [filter]);
+
+  async function setStatus(id, status) {
+    setUpdating(id);
+    await adm(pwd, `/feedback/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    setItems(prev => prev.map(i => i.id === id ? { ...i, status } : i));
+    setUpdating(null);
+  }
+
+  const FILTERS = [["all","Все"],["new","Новые"],["in_review","В работе"],["resolved","Решённые"],["wontfix","Не баг"]];
+
+  return (
+    <div style={{ padding: "12px 20px" }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+        {FILTERS.map(([v, l]) => (
+          <button key={v} onClick={() => setFilter(v)}
+            style={{ background: filter === v ? "#9c8347" : "none", color: filter === v ? "#14181f" : "#9c8347", border: "1px solid #9c8347", borderRadius: 4, padding: "4px 10px", fontFamily: "monospace", fontSize: 9, cursor: "pointer" }}>
+            {l}
+          </button>
+        ))}
+        <button onClick={load} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "4px 10px", fontFamily: "monospace", fontSize: 9, cursor: "pointer", marginLeft: "auto" }}>↻</button>
+      </div>
+      {loading && <div className="mono-font" style={{ fontSize: 11, color: "#5a6070" }}>Загрузка…</div>}
+      {!loading && items.length === 0 && <div className="mono-font" style={{ fontSize: 11, color: "#3a4156" }}>Нет репортов</div>}
+      {items.map(item => (
+        <div key={item.id} style={{ background: "#1a1f2c", border: `1px solid ${STATUS_COLOR[item.status] || "#2a3040"}40`, borderLeft: `3px solid ${STATUS_COLOR[item.status] || "#2a3040"}`, borderRadius: 6, padding: "12px 14px", marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 12 }}>
+            <div>
+              <span className="mono-font" style={{ fontSize: 9, color: STATUS_COLOR[item.status], background: "#0d1118", borderRadius: 3, padding: "2px 6px" }}>
+                {STATUS_LABEL[item.status] || item.status}
+              </span>
+              {item.user_name && <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginLeft: 8 }}>{item.user_name} (@{item.username})</span>}
+              {item.page && <span className="mono-font" style={{ fontSize: 9, color: "#3a4156", marginLeft: 8 }}>{item.page}</span>}
+            </div>
+            <div className="mono-font" style={{ fontSize: 8, color: "#3a4156", whiteSpace: "nowrap" }}>
+              {new Date(item.created_at).toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}
+            </div>
+          </div>
+          <div className="doc-font" style={{ fontSize: 13, color: "#ece7d8", lineHeight: 1.5, marginBottom: 8, whiteSpace: "pre-wrap" }}>{item.message}</div>
+          {item.contact && (
+            <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginBottom: 8 }}>Контакт: {item.contact}</div>
+          )}
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {Object.entries(STATUS_LABEL).map(([s, l]) => s !== item.status && (
+              <button key={s} onClick={() => setStatus(item.id, s)} disabled={updating === item.id}
+                style={{ background: "none", border: `1px solid ${STATUS_COLOR[s]}`, borderRadius: 4, color: STATUS_COLOR[s], padding: "3px 8px", fontFamily: "monospace", fontSize: 8, cursor: "pointer", opacity: updating === item.id ? 0.5 : 1 }}>
+                → {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Вкладка «Статистика» ─────────────────────────────────────────────────────
+function AdminTabStats({ pwd }) {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adm(pwd, "/stats").then(r => r.json()).then(d => setStats(d)).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", padding: 20 }}>Загрузка…</div>;
+  if (!stats) return null;
+
+  return (
+    <div style={{ padding: "16px 20px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>
+        {[
+          { label: "Игроков", value: stats.users?.total, sub: `+${stats.users?.today} сегодня` },
+          { label: "Партий", value: stats.games?.total, sub: `${stats.games?.active} активных` },
+          { label: "Ходов", value: stats.turns?.total, sub: "всего" },
+        ].map(({ label, value, sub }) => (
+          <div key={label} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "16px 12px", textAlign: "center" }}>
+            <div className="mono-font" style={{ fontSize: 28, fontWeight: 700, color: "#9c8347" }}>{value}</div>
+            <div className="mono-font" style={{ fontSize: 9, color: "#ece7d8", marginTop: 4 }}>{label}</div>
+            <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginTop: 2 }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10 }}>ПОСЛЕДНИЕ ПАРТИИ</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {(stats.players || []).map((p, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 12px" }}>
+            <div style={{ fontSize: 16 }}>{COUNTRY_FLAG_MAP[p.country_id] || "🌐"}</div>
+            <div style={{ flex: 1 }}>
+              <div className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{p.display_name}</div>
+              <div className="mono-font" style={{ fontSize: 8, color: "#5a6070" }}>{new Date(p.created_at).toLocaleString("ru-RU")} · ход {p.current_turn} · {p.status}</div>
+            </div>
+            {p.score != null && <div className="mono-font" style={{ fontSize: 13, color: "#9c8347", fontWeight: 700 }}>★ {p.score}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Главная админ-панель (полноэкранная страница) ────────────────────────────
+function AdminPanel({ onClose }) {
+  const [step, setStep] = useState("auth");
+  const [tab, setTab] = useState("players");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  async function handleAuth() {
+    setAuthLoading(true); setAuthError(null);
+    try {
+      const r = await adm(password, "/stats");
+      if (!r.ok) throw new Error("Неверный пароль");
+      setStep("main");
+    } catch (e) { setAuthError(e.message); } finally { setAuthLoading(false); }
+  }
+
+  const TABS = [["players","👥 Игроки"],["games","🎮 Партии"],["feedback","🐞 Репорты"],["stats","📊 Статистика"]];
+
+  if (step === "auth") return (
+    <div style={{ position: "fixed", inset: 0, background: "#1a1f2c", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',Georgia,serif" }}>
+      <div style={{ background: "#14181f", border: "1px solid #9c8347", borderRadius: 8, padding: "32px 28px", width: "min(95vw,400px)", color: "#ece7d8" }}>
+        <button onClick={onClose} style={{ position: "absolute", top: 8, right: 12, background: "none", border: "none", color: "#5a6070", fontSize: 22, cursor: "pointer" }}>×</button>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 16 }}>КОМАНДНЫЙ ЦЕНТР · ДОСТУП ОГРАНИЧЕН</div>
+        <div className="doc-font" style={{ fontSize: 15, marginBottom: 16 }}>Пароль геймастера</div>
+        <input autoFocus type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAuth()}
+          placeholder="Пароль…" style={{ width: "100%", background: "#1f2733", border: "1px solid #3a4156", borderRadius: 4, padding: "10px 12px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 14, outline: "none", marginBottom: 12, boxSizing: "border-box" }} />
+        {authError && <div style={{ color: "#e09090", fontSize: 13, marginBottom: 10 }}>{authError}</div>}
+        <button onClick={handleAuth} disabled={authLoading || !password}
+          style={{ background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "10px 20px", fontFamily: "'PT Serif',serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+          {authLoading ? "Проверка…" : "Войти →"}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#0d1118", zIndex: 9999, display: "flex", flexDirection: "column", fontFamily: "'PT Serif',Georgia,serif" }}>
+      {/* Шапка */}
+      <div style={{ display: "flex", alignItems: "center", gap: 0, borderBottom: "1px solid #2a3040", background: "#14181f", flexShrink: 0 }}>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.15em", color: "#9c8347", padding: "0 20px", borderRight: "1px solid #2a3040", height: 42, display: "flex", alignItems: "center" }}>
+          ⚙ КОМАНДНЫЙ ЦЕНТР
+        </div>
+        <div style={{ display: "flex", flex: 1 }}>
+          {TABS.map(([t, l]) => (
+            <button key={t} onClick={() => setTab(t)}
+              style={{ background: tab === t ? "#1a1f2c" : "none", color: tab === t ? "#9c8347" : "#5a6070", border: "none", borderBottom: tab === t ? "2px solid #9c8347" : "2px solid transparent", padding: "0 18px", height: 42, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", letterSpacing: "0.05em" }}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <button onClick={onClose}
+          style={{ background: "none", border: "none", color: "#5a6070", fontSize: 22, cursor: "pointer", padding: "0 16px", height: 42, lineHeight: 1 }}>
+          ×
+        </button>
+      </div>
+
+      {/* Контент */}
+      <div style={{ flex: 1, overflowY: "auto", color: "#ece7d8" }}>
+        {tab === "players"  && <AdminTabPlayers  pwd={password} />}
+        {tab === "games"    && <AdminTabGames    pwd={password} />}
+        {tab === "feedback" && <AdminTabFeedback pwd={password} />}
+        {tab === "stats"    && <AdminTabStats    pwd={password} />}
       </div>
     </div>
   );
