@@ -3727,12 +3727,21 @@ const LIVE_HEADLINES = [
   { src: "ANSA", text: "Рим предложил нейтральную площадку для переговоров — приглашения разосланы сторонам" },
 ];
 
+// Заголовки ленты должны быть короткими и примерно одной длины — иначе блок
+// «прыгает» по высоте при каждой смене (особенно заметно на мобильных, где
+// игровые новости — это целые абзацы, а не короткие тэглайны).
+const HEADLINE_MAX_LEN = 130;
+function truncateHeadline(text) {
+  if (!text) return "";
+  return text.length > HEADLINE_MAX_LEN ? text.slice(0, HEADLINE_MAX_LEN).trim() + "…" : text;
+}
+
 function NewsLiveFeed({ state }) {
   // Берём реальные новости из state.newsfeed, дополняем статичными если мало
   const headlines = useMemo(() => {
     const fromGame = (state?.newsfeed || [])
       .filter(n => n.text && n.source)
-      .map(n => ({ src: n.source, text: n.text }))
+      .map(n => ({ src: n.source, text: truncateHeadline(n.text) }))
       .reverse(); // последние первыми
     const combined = [...fromGame, ...LIVE_HEADLINES];
     return combined.slice(0, 20);
@@ -3753,7 +3762,7 @@ function NewsLiveFeed({ state }) {
         setVisibleIdx(i => (i + 1) % headlines.length);
         setFade(true);
       }, 400);
-    }, 4500);
+    }, 8000);
     return () => clearInterval(interval);
   }, [headlines]);
 
@@ -3771,10 +3780,13 @@ function NewsLiveFeed({ state }) {
         <style>{`@keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
       </div>
 
-      {/* Главная новость */}
-      <div style={{ padding: "10px 12px 8px", minHeight: 64, transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
+      {/* Главная новость — фиксированная высота (3 строки), чтобы блок не «прыгал» при смене */}
+      <div style={{ padding: "10px 12px 8px", height: 80, transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
         <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 4 }}>{item.src.toUpperCase()}</div>
-        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700 }}>{item.text}</div>
+        <div className="doc-font" style={{
+          fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700,
+          display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden",
+        }}>{item.text}</div>
       </div>
 
       {/* Бегущая строка */}
