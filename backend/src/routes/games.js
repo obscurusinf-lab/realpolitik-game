@@ -47,10 +47,12 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const payload = verifyToken(request, reply);
     if (!payload) return;
 
-    const { countryId, assistMode } = request.body || {};
+    const { countryId, assistMode, presidentName } = request.body || {};
     const userId = payload.userId;
     // Режим закрепляется на старте: 'advisor' (по умолчанию) | 'hardcore'
     const mode = assistMode === "hardcore" ? "hardcore" : "advisor";
+    // Имя президента — своё на каждую партию, не путать с логином/аккаунтом.
+    const president = (typeof presidentName === "string" ? presidentName.trim() : "").slice(0, 40) || null;
 
     const countRes = await db.query(
       `SELECT COUNT(*) AS cnt FROM games WHERE owner_user_id = $1 AND status = 'active'`,
@@ -90,9 +92,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       await client.query("BEGIN");
 
       const gameRes = await client.query(
-        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode)
-         VALUES ($1, $2, 'active', 0, $3) RETURNING id`,
-        [userId, countryId, mode]
+        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode, president_name)
+         VALUES ($1, $2, 'active', 0, $3, $4) RETURNING id`,
+        [userId, countryId, mode, president]
       );
       const gameId = gameRes.rows[0].id;
 
@@ -140,7 +142,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const payload = verifyToken(request, reply);
     if (!payload) return;
     const res = await db.query(
-      `SELECT g.id, g.current_turn, g.status, g.created_at, g.assist_mode, c.name AS country_name, c.id AS country_id
+      `SELECT g.id, g.current_turn, g.status, g.created_at, g.assist_mode, g.president_name, c.name AS country_name, c.id AS country_id
        FROM games g JOIN countries c ON c.id = g.country_id
        WHERE g.owner_user_id = $1 ORDER BY g.updated_at DESC LIMIT 20`,
       [payload.userId]
@@ -324,7 +326,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const { outcome } = request.body || {};
 
     const gameRes = await db.query(
-      `SELECT g.current_turn, g.status, gs.stats, gs.relations, c.name AS country_name, u.display_name AS player_name
+      `SELECT g.current_turn, g.status, gs.stats, gs.relations, c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
        FROM games g JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id
        LEFT JOIN users u ON u.id = g.owner_user_id
@@ -527,7 +529,7 @@ ${historyLines || "(история пуста)"}
     let queryText = `
       SELECT ls.game_id, ls.turn_n, ls.score, ls.score_breakdown, ls.created_at,
              c.name AS country_name, c.id AS country_id,
-             u.display_name AS player_name
+             COALESCE(g.president_name, u.display_name) AS player_name
       FROM leaderboard_snap ls
       JOIN games g ON g.id = ls.game_id
       JOIN countries c ON c.id = g.country_id

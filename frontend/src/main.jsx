@@ -228,6 +228,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
   // game start state (shown after auth)
   const [selectedCountry, setSelectedCountry] = useState("RU");
   const [selectedMode, setSelectedMode] = useState("advisor"); // "advisor" | "hardcore"
+  const [presidentName, setPresidentName] = useState("");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(null);
 
@@ -289,8 +290,8 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
     setStarting(true);
     setStartError(null);
     try {
-      const { gameId } = await createGame(selectedCountry, selectedMode);
-      onStart(gameId, authUser.displayName, selectedCountry);
+      const { gameId } = await createGame(selectedCountry, selectedMode, presidentName.trim() || authUser.displayName);
+      onStart(gameId, presidentName.trim() || authUser.displayName, selectedCountry);
     } catch (err) {
       setStartError(err.message);
     } finally {
@@ -356,10 +357,10 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
               {authMode === "register" && (
                 <>
-                  <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ПОЗЫВНОЙ (отображаемое имя)</div>
+                  <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ПОЗЫВНОЙ АККАУНТА (общий для всех партий)</div>
                   <input value={displayName} onChange={e => setDisplayName(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleAuth()}
-                    placeholder="Имя президента…" style={inputStyle} />
+                    placeholder="Как вас называть в личном кабинете…" style={inputStyle} />
                 </>
               )}
 
@@ -427,6 +428,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                           <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => onResume(g)}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <span className="doc-font" style={{ fontSize: 14, color: "#ece7d8", fontWeight: 700 }}>{g.country_name}</span>
+                              {g.president_name && <span className="mono-font" style={{ fontSize: 9, color: "#9c8347" }}>· {g.president_name}</span>}
                               {g.assist_mode === "hardcore" ? (
                                 <span className="mono-font" title="Режим «Сам по себе» — без игровых подсказок" style={{ fontSize: 8, color: "#b06a6a", border: "1px solid #4a2020", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>🎖 САМ ПО СЕБЕ</span>
                               ) : (
@@ -457,7 +459,16 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
               )}
 
               <div style={{ marginBottom: 28 }}>
-                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>ВЫБЕРИТЕ СТРАНУ</div>
+                <div style={{ marginBottom: 28 }}>
+                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ИМЯ ПРЕЗИДЕНТА (для этой партии)</div>
+                <input value={presidentName} onChange={e => setPresidentName(e.target.value)}
+                  placeholder={authUser.displayName} maxLength={40} style={{ ...inputStyle, marginBottom: 4 }} />
+                <div className="mono-font" style={{ fontSize: 9, color: "#3a4050" }}>
+                  Своё на каждую партию — отдельно от логина @{authUser.username}. Если несколько партий, в Зале славы они не перепутаются.
+                </div>
+              </div>
+
+              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>ВЫБЕРИТЕ СТРАНУ</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {COUNTRIES.map(c => (
                     <div key={c.id}

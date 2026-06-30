@@ -30,7 +30,7 @@ async function registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore
     }
 
     const gameRes = await db.query(
-      `SELECT c.name AS country_name, u.display_name AS player_name
+      `SELECT c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
        FROM games g JOIN countries c ON c.id = g.country_id JOIN users u ON u.id = g.owner_user_id WHERE g.id = $1`,
       [gameId]
     );

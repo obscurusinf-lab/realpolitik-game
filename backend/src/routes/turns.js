@@ -375,7 +375,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // Только чтение — без FOR UPDATE, не открываем долгую транзакцию на время вызова ИИ
     const gameRes = await db.query(
       `SELECT g.current_turn, gs.stats, gs.relations, gs.policies, gs.delayed_effects, gs.overview,
-              c.name AS country_name, u.display_name AS player_name
+              c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id

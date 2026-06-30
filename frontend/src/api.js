@@ -135,11 +135,11 @@ export async function createUser(displayName) {
   return res.json();
 }
 
-export async function createGame(countryId, assistMode = "advisor") {
+export async function createGame(countryId, assistMode = "advisor", presidentName = "") {
   const res = await fetchWithTimeout(`${API_BASE}/games`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ countryId, assistMode }),
+    body: JSON.stringify({ countryId, assistMode, presidentName }),
   }, 30000);
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || `createGame failed: ${res.status}`);

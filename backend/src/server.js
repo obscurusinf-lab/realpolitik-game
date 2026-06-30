@@ -66,6 +66,9 @@ async function buildServer() {
   await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username) WHERE username IS NOT NULL`);
   // Профиль страны для брифинга: общее описание + сильные/слабые стороны (статично, не "текущие события").
   await db.query(`ALTER TABLE countries ADD COLUMN IF NOT EXISTS country_profile JSONB`);
+  // Имя президента — закреплено за конкретной партией, отдельно от логина/аккаунта,
+  // чтобы в Зале славы партии одного игрока не сливались под одним именем.
+  await db.query(`ALTER TABLE games ADD COLUMN IF NOT EXISTS president_name TEXT`);
   // Заполнить country_profile для существующих стран (идемпотентно — только если NULL).
   const russiaProfile = require("./db/seed/countries/russia-2026-06.json");
   await db.query(
