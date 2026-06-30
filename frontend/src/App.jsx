@@ -2431,7 +2431,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         {tab === "treasury" && <TreasuryTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "newsfeed" && <NewsfeedTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "log" && <LogTab state={state} />}
-        {tab === "wiki" && <WikiTab />}
+        {tab === "wiki" && <WikiTab dark={isNuclearWorld} />}
       </div>
 
       {/* Mission panel — always visible above action area */}
@@ -5159,12 +5159,14 @@ function LogTab({ state }) {
   );
 }
 
-function WikiTab() {
-  const S = { h: { fontFamily: "'JetBrains Mono',monospace", fontSize: 11.5, color: "#c8a857", letterSpacing: "0.1em", marginBottom: 10, marginTop: 26, fontWeight: 700 }, p: { fontFamily: "'PT Serif',serif", fontSize: 15.5, color: "#cdd3e0", lineHeight: 1.75, marginBottom: 12 }, b: { color: "#e0c878", fontWeight: 700 } };
+function WikiTab({ dark = false }) {
+  const S = dark
+    ? { h: { fontFamily: "'JetBrains Mono',monospace", fontSize: 11.5, color: "#c8a857", letterSpacing: "0.1em", marginBottom: 10, marginTop: 26, fontWeight: 700 }, p: { fontFamily: "'PT Serif',serif", fontSize: 15.5, color: "#cdd3e0", lineHeight: 1.75, marginBottom: 12 }, b: { color: "#e0c878", fontWeight: 700 } }
+    : { h: { fontFamily: "'JetBrains Mono',monospace", fontSize: 11.5, color: "#8a6f30", letterSpacing: "0.1em", marginBottom: 10, marginTop: 26, fontWeight: 700 }, p: { fontFamily: "'PT Serif',serif", fontSize: 15.5, color: "#3a3f4c", lineHeight: 1.75, marginBottom: 12 }, b: { color: "#6a5520", fontWeight: 700 } };
   return (
     <div style={{ maxWidth: 680 }}>
-      <div className="mono-font" style={{ fontSize: 15, color: "#c8a857", fontWeight: 700, marginBottom: 6 }}>📖 ЛИКБЕЗ — КАК РАБОТАЕТ ИГРА</div>
-      <div className="doc-font" style={{ fontSize: 13.5, color: "#7a8294", marginBottom: 22 }}>Прочтите один раз — потом всё встанет на место.</div>
+      <div className="mono-font" style={{ fontSize: 15, color: dark ? "#c8a857" : "#8a6f30", fontWeight: 700, marginBottom: 6 }}>📖 ЛИКБЕЗ — КАК РАБОТАЕТ ИГРА</div>
+      <div className="doc-font" style={{ fontSize: 13.5, color: dark ? "#7a8294" : "#6a6458", marginBottom: 22 }}>Прочтите один раз — потом всё встанет на место.</div>
 
       <div style={S.h}>РЕСУРСЫ</div>
       <div style={S.p}><span style={S.b}>Инициатива</span> — политическая воля президента. Восстанавливается полностью в начале каждого месяца. Каждое действие тратит её: военная операция — 55, реформа — 35, быстрый указ — 20. Если инициативы не хватает — действие недоступно.</div>
