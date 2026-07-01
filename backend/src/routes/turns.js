@@ -566,6 +566,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         regenInitiative: !multiAction, // в мульти-режиме инициатива = бюджет месяца (регенерация в конце месяца)
       });
 
+      // Снапшот после декрета — для расчёта changelog в конце хода
+      const CHANGELOG_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
+      const statsAfterDecree = Object.fromEntries(CHANGELOG_KEYS.map(k => [k, newStats[k] ?? 50]));
+
       // --- ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ---
       // military_offensive продвигает фронт, peace/diplomacy могут фиксировать или уступать территории
       {
@@ -805,8 +809,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ВНУТРЕННИЕ КРИЗИСЫ ---
-      // С вероятностью 12% каждый ход происходит внутренний кризис
-      if (Math.random() < 0.12) {
+      // С вероятностью 7% каждый ход происходит внутренний кризис (снижено с 12%)
+      if (Math.random() < 0.07) {
         const DOMESTIC_CRISES = [
           { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
             text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
@@ -839,9 +843,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ ---
-      // Если военные расходы высокие (military > 70) — экономика страдает
-      if ((newStats.military ?? 50) > 70) {
-        const warTax = Math.floor(((newStats.military ?? 50) - 70) / 10) + 1; // 1-4 pts
+      // Военные расходы давят на экономику при military > 75 (порог повышен с 70)
+      if ((newStats.military ?? 50) > 75) {
+        const warTax = Math.floor(((newStats.military ?? 50) - 75) / 10) + 1; // 1-3 pts
         newStats.economy = Math.max(0, (newStats.economy ?? 50) - warTax);
         newStats.approval = Math.max(0, (newStats.approval ?? 50) - 1);
       }
@@ -1341,6 +1345,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
       }
 
+      // --- CHANGELOG: разбивка изменений по источникам ---
+      const statChangelog = {};
+      for (const k of CHANGELOG_KEYS) {
+        const decreeD = statDeltas[k] ?? 0;
+        const totalD = (newStats[k] ?? 50) - (statsAfterDelayed[k] ?? 50);
+        const eventsD = totalD - decreeD;
+        if (decreeD !== 0 || eventsD !== 0) {
+          statChangelog[k] = { decree: decreeD, events: eventsD, total: totalD };
+        }
+      }
+
       return reply.send({
         turnNumber,
         narrative: gmClassification.narrative,
@@ -1354,6 +1369,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         turnContinues: multiAction && !gameOutcome,
         initiative: newStats.initiative,
         month: turnNumber,
+        statChangelog,
+        prevStats: Object.fromEntries(CHANGELOG_KEYS.map(k => [k, statsAfterDelayed[k] ?? 50])),
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -1495,9 +1512,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const inflationNow = newStats.inflation ?? 64;
       let inflationEconomyPenalty = 0;
       let inflationApprovalPenalty = 0;
-      if (inflationNow > 70) {
-        inflationEconomyPenalty = Math.min(3, Math.floor((inflationNow - 70) / 10) + 1);
-        inflationApprovalPenalty = Math.min(2, Math.floor((inflationNow - 70) / 15) + 1);
+      if (inflationNow > 73) {
+        inflationEconomyPenalty = Math.min(3, Math.floor((inflationNow - 73) / 10) + 1);
+        inflationApprovalPenalty = Math.min(2, Math.floor((inflationNow - 73) / 15) + 1);
         newStats.economy = Math.max(0, (newStats.economy ?? 50) - inflationEconomyPenalty);
         newStats.approval = Math.max(0, (newStats.approval ?? 50) - inflationApprovalPenalty);
       }

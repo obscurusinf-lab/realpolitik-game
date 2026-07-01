@@ -22,7 +22,7 @@ const ADVISORS = [
     id: "finance",
     name: "Силин А.Г.",
     role: "Министр финансов",
-    persona: `Бухгалтер при дворе. Мысль всегда начинается с денег и ими заканчивается. Говорит негромко, будто зачитывает протокол. Оперирует триллионами рублей, процентами ключевой ставки, дефицитом бюджета. Его фирменный приём — согласиться с целью и тут же перечислить три конкретных финансовых риска. Никогда не возражает прямо: «Это можно рассмотреть, однако необходимо учитывать, что…» Изредка позволяет себе мрачный юмор: «Денег нет, но держитесь».`,
+    persona: `Бухгалтер при дворе. Мысль всегда начинается с денег и ими заканчивается. Говорит негромко, будто зачитывает протокол. Оперирует триллионами рублей, процентами ключевой ставки, дефицитом бюджета. Его фирменный приём — согласиться с целью и тут же перечислить три конкретных финансовых риска. Никогда не возражает прямо: «Это можно рассмотреть, однако необходимо учитывать, что…» Изредка позволяет себе мрачный юмор: «Денег нет, но держитесь». ВАЖНО: Силин ВСЕГДА упоминает конкретные цифры — цену нефти, курс рубля, инфляцию, состояние казны. Он объясняет как эти показатели влияют на бюджет: нефть выше базовых $68 даёт профицит, слабый рубль разгоняет инфляцию через импорт, высокая инфляция давит на экономику и одобрение. Он единственный кто понимает эти рычаги — и говорит о них прямо.`,
   },
   {
     id: "security",
@@ -124,6 +124,9 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
 Отношения: {{relations_json}}
 Активные политики: {{policies_json}}
 
+ЭКОНОМИЧЕСКИЕ ИНДИКАТОРЫ (Силин должен их прокомментировать):
+{{econ_indicators}}
+
 ИСТОРИЯ ({{history_count}} ходов, от старых к новым):
 {{history_json}}
 
@@ -156,6 +159,24 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
   ]
 }`;
 
+function buildEconIndicators(stats) {
+  const OIL_BASE = 68, FX_BASE = 80, INFLATION_OFFSET = 58;
+  const oil = stats.oil_price ?? OIL_BASE;
+  const fx = stats.usd_rub ?? FX_BASE;
+  const inflScore = stats.inflation ?? 64;
+  const inflPct = Math.max(0, inflScore - INFLATION_OFFSET);
+  const treasury = stats.treasury ?? 52;
+  const oilEffect = oil > OIL_BASE ? `+${Math.round((oil - OIL_BASE) * 0.7)} к казне` : `${Math.round((oil - OIL_BASE) * 0.7)} к казне`;
+  const fxEffect = fx > FX_BASE + 10 ? "инфляционное давление через импорт" : fx < FX_BASE - 10 ? "укрепление рубля снижает инфляцию" : "нейтральный эффект на инфляцию";
+  const inflWarning = inflScore > 73 ? `⚠️ ВЫШЕ ПОРОГА — давит на экономику −${Math.min(3, Math.floor((inflScore - 73) / 10) + 1)} и одобрение` : inflScore > 68 ? "близко к опасной зоне (>73)" : "норма";
+  const treasuryNote = treasury < 0 ? "⚠️ ДЕФИЦИТ — займы разгоняют инфляцию" : treasury < 15 ? "низкая — экономика проседает" : treasury > 65 ? "профицит — экономика восстанавливается" : "стабильная";
+  return `• Нефть Brent: $${oil}/барр. (база $${OIL_BASE}) → ${oilEffect}/мес
+• Курс USD/RUB: ₽${fx} (база ₽${FX_BASE}) → ${fxEffect}
+• Инфляция: ${inflPct.toFixed(1)}% г/г (индекс ${inflScore}) — ${inflWarning}
+• Казна: ${(treasury * 0.8).toFixed(1)} трлн ₽ — ${treasuryNote}
+Рычаги: указ об экономическом стимулировании поднимает экономику +1..+3, но при дефиците казны или инфляции >73 этот рост гасится. Нефть дороже базы — профицит бюджета. Слабый рубль (>${FX_BASE + 10}₽/$) разгоняет инфляцию.`;
+}
+
 function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode }) {
   const draftSection = playerDraft
     ? `ЧЕРНОВИК РЕШЕНИЯ ПРЕЗИДЕНТА (советники реагируют на него):\n"${playerDraft}"`
@@ -173,6 +194,7 @@ function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, st
     .replace("{{stats_json}}", JSON.stringify(stats))
     .replace("{{relations_json}}", JSON.stringify(relations.slice(0, 8)))
     .replace("{{policies_json}}", JSON.stringify(policies))
+    .replace("{{econ_indicators}}", buildEconIndicators(stats))
     .replace("{{history_count}}", recentHistory.length)
     .replace("{{history_json}}", recentHistory.length
       ? recentHistory.map(h => `Ход ${h.turn_n}: "${h.player_input}" → ${h.narrative_text}`).join("\n")

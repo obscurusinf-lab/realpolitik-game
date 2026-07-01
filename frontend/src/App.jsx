@@ -54,7 +54,9 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   const statLabel = { stability: "Стабильность", economy: "Экономика", military: "Армия", diplomacy: "Дипломатия", approval: "Рейтинг" };
 
   const statDeltas = turnResult?.statDeltasPreview || {};
-  const prevStats = prevState?.stats || {};
+  // actualPrevStats из бэкенда (состояние до декрета) точнее чем prevState (может быть post-turn)
+  const prevStats = turnResult?.actualPrevStats || prevState?.stats || {};
+  const changelog = turnResult?.statChangelog || null; // { economy: { decree, events, total }, ... }
 
   const overlayStyle = {
     position: "fixed", inset: 0, background: "#0a0d12", zIndex: 8000,
@@ -89,16 +91,36 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.1em" }}>ИЗМЕНЕНИЯ ПОКАЗАТЕЛЕЙ</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               {Object.entries(statLabel).map(([k, label]) => {
-                const d = statDeltas[k] ?? 0;
+                const entry = changelog?.[k];
+                const totalD = entry?.total ?? (statDeltas[k] ?? 0);
+                const decreeD = entry?.decree ?? (statDeltas[k] ?? 0);
+                const eventsD = entry?.events ?? 0;
                 const prev = prevStats[k] ?? 50;
-                const next = Math.max(0, Math.min(100, prev + d));
-                const color = d > 0 ? "#7fae93" : d < 0 ? "#e09090" : "#5a6070";
+                const next = Math.max(0, Math.min(100, prev + totalD));
+                const color = totalD > 0 ? "#7fae93" : totalD < 0 ? "#e09090" : "#5a6070";
                 return (
-                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1f2733", padding: "6px 10px", borderRadius: 4 }}>
-                    <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
-                    <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>
-                      {prev} → {next} {d !== 0 && `(${d > 0 ? "+" : ""}${d})`}
-                    </span>
+                  <div key={k} style={{ background: "#1f2733", padding: "7px 10px", borderRadius: 4 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
+                      <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>
+                        {prev} → {next} {totalD !== 0 && `(${totalD > 0 ? "+" : ""}${totalD})`}
+                      </span>
+                    </div>
+                    {/* Разбивка: указ vs события */}
+                    {entry && (decreeD !== 0 || eventsD !== 0) && (
+                      <div className="mono-font" style={{ fontSize: 9, marginTop: 3, display: "flex", gap: 8 }}>
+                        {decreeD !== 0 && (
+                          <span style={{ color: decreeD > 0 ? "#5a8a6a" : "#8a5050" }}>
+                            указ {decreeD > 0 ? "+" : ""}{decreeD}
+                          </span>
+                        )}
+                        {eventsD !== 0 && (
+                          <span style={{ color: eventsD > 0 ? "#5a7a6a" : "#7a4040" }}>
+                            события {eventsD > 0 ? "+" : ""}{eventsD}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -2050,6 +2072,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     setConfirming(true);
     setTurnError(null);
     setNuclearConfirmError(null);
+    // Снапшот до подтверждения — нужен для отображения реального delta
+    const preConfirmStats = state?.stats ? { ...state.stats } : null;
     try {
       const confirmResult = await confirmTurn(gameId);
       nuclearConfirmRef.current = false;
@@ -2059,6 +2083,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         statDeltasPreview: preview?.statDeltasPreview,
         actionMode,
         gmActionType: preview?.gmActionType,
+        statChangelog: confirmResult?.statChangelog || null,
+        actualPrevStats: confirmResult?.prevStats || preConfirmStats,
       });
       if (confirmResult?.gameOutcome) {
         setGameOutcome(confirmResult.gameOutcome);
