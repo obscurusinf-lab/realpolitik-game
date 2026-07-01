@@ -5429,7 +5429,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const cbHead = stats.cb_head_type ?? "neutral";
         const cbReplaced = !!stats.cb_replaced;
         const cbPressureUsed = !!stats.cb_pressure_used;
-        const initiative = stats.initiative ?? 0;
+        const initiative = stats.initiative ?? 100;
 
         const rateColor = keyRate > 17 ? "#4a7a5a" : keyRate > 13 ? "#9c8347" : "#c05030";
         const headLabel = cbHead === "soft" ? "«голубь» (мягкая политика)" : cbHead === "hawkish" ? "«ястреб» (жёсткая политика)" : "нейтральный";
@@ -5581,7 +5581,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
       {(() => {
         const corrLevel = stats.corruption ?? 55;
         const corrColor = corrLevel > 75 ? "#c03030" : corrLevel > 50 ? "#9c8347" : "#4a7a5a";
-        const initiative = stats.initiative ?? 0;
+        const initiative = stats.initiative ?? 100;
         const canAfford = !anticorruptionUsed && initiative >= 35 && treasury >= 8;
         return (
           <div style={sectionStyle}>
