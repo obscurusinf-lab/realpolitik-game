@@ -376,6 +376,11 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   // Пишем текущий стрик в statDeltas чтобы preview мог показать предупреждение
   statDeltas.military_streak = newStats.military_streak ?? 0;
 
+  // Флаг: действие снизило коррупцию → пассивный рост в end-month отменяется.
+  if ((statDeltas.corruption ?? 0) < 0) {
+    newStats.anti_corruption_this_month = true;
+  }
+
   // Учёт разведбонуса: успешная разведка ставит бонус на следующий ход; обычный ход — расходует.
   if (action_type === "intel_success" || action_type === "intel_critical_success") {
     newStats.next_action_boost = action_type === "intel_critical_success" ? 2 : 1;

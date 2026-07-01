@@ -1537,6 +1537,67 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Казна ограничена 100 сверху: профицит выше 100 не накапливается
       newStats.treasury = Math.min(100, treasuryAfter);
 
+      // --- УСТАЛОСТЬ ОТ ВОЙНЫ (помесячная) ---
+      // Если игрок провёл 4+ военных хода подряд — общество устаёт.
+      // Штраф: approval −2, stability −1 раз в месяц при стрике ≥ 4.
+      const warStreak = newStats.military_streak ?? 0;
+      if (warStreak >= 4) {
+        const wearinessHit = Math.min(5, Math.floor((warStreak - 3) * 1.5)); // 1-5 pts
+        newStats.approval = Math.max(0, (newStats.approval ?? 50) - wearinessHit);
+        newStats.stability = Math.max(0, (newStats.stability ?? 50) - Math.ceil(wearinessHit / 2));
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+          [gameId, completedMonth,
+           "ВЦИОМ",
+           `Усталость от войны. ${warStreak}-й месяц непрерывных боевых действий — общество устало. Рейтинг президента упал на ${wearinessHit} пункт${wearinessHit > 1 ? "а" : ""}. Требования прекратить огонь звучат всё громче.`]
+        );
+      }
+
+      // --- ИСТЕЧЕНИЕ СРОКА ПОЛИТИК ---
+      // Политики с target_turn <= completedMonth удаляются (реформа отработала срок).
+      const activePoliciesRaw = game.policies || [];
+      const expiredPolicies = activePoliciesRaw.filter(p => p.status !== "cancelled" && p.target_turn != null && p.target_turn <= completedMonth);
+      const survivingPolicies = activePoliciesRaw.filter(p => p.status === "cancelled" || p.target_turn == null || p.target_turn > completedMonth);
+      if (expiredPolicies.length > 0) {
+        await client.query(
+          `UPDATE game_state SET policies = $1 WHERE game_id = $2`,
+          [JSON.stringify(survivingPolicies), gameId]
+        );
+        for (const p of expiredPolicies) {
+          await client.query(
+            `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+            [gameId, completedMonth, "Правительство", `Завершён срок действия программы «${p.title || p.type}». Эффекты политики исчерпаны.`]
+          );
+        }
+      }
+
+      // --- ПАССИВНЫЙ РОСТ КОРРУПЦИИ ---
+      // Без антикоррупционных мер коррупция растёт на 1-2 пт/мес.
+      // Антикоррупционные действия (anti_corruption, institutional_reform) сбрасывают
+      // флаг newStats.anti_corruption_this_month, который выставляется в rules-engine.
+      {
+        const hadAntiCorruption = !!newStats.anti_corruption_this_month;
+        delete newStats.anti_corruption_this_month; // сбрасываем флаг для следующего месяца
+        if (!hadAntiCorruption) {
+          const corr = newStats.corruption ?? 55;
+          if (corr < 90) {
+            const growth = corr < 40 ? 2 : 1; // быстрее растёт пока низкая
+            newStats.corruption = Math.min(100, corr + growth);
+          }
+        }
+      }
+
+      // --- ДИПЛОМАТИЧЕСКИЙ РАСПАД ПРИ ИЗОЛЯЦИИ ---
+      // Если дипломатия ниже 25 и нет дипломатических ходов этот месяц — ещё −2.
+      {
+        const hadDiplomacyMove = turnsThisMonth.rows.some(r => r.action_mode === "diplomacy_op");
+        const dip = newStats.diplomacy ?? 50;
+        if (!hadDiplomacyMove && dip < 25) {
+          newStats.diplomacy = Math.max(0, dip - 2);
+          newStats.economy = Math.max(0, (newStats.economy ?? 50) - 1);
+        }
+      }
+
       // Сдвиг даты + продвижение месяца
       const currentGameDate = game.overview?.date;
       const newGameDate = currentGameDate ? advanceGameDate(currentGameDate, crisisMode) : null;
