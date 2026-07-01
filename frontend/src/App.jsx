@@ -1372,6 +1372,14 @@ const ALL_STAT_LABELS = {
   donetsk_control: "Контроль Донецка", luhansk_control: "Контроль Луганска",
   zaporizhzhia_control: "Контроль Запорожья", kherson_control: "Контроль Херсона", kharkiv_control: "Контроль Харькова",
   military_streak: "Воен. стрик",
+  ua_army: "Армия ВСУ", ua_west_support: "Поддержка Запада", ua_morale: "Боевой дух ВСУ",
+};
+
+// Разведданные по Украине — отдельная панель в StatsTab (не влияет на условия победы игрока)
+const UA_STAT_META = {
+  ua_army:         { label: "Армия ВСУ",          icon: Swords,   color: "#7a8fae", desc: "Боевая мощь ВСУ — растёт от западных поставок, падает от ударов" },
+  ua_west_support: { label: "Поддержка Запада",   icon: Globe2,   color: "#8c6b3a", desc: "Готовность Запада поставлять оружие и деньги Киеву" },
+  ua_morale:       { label: "Боевой дух ВСУ",     icon: Shield,   color: "#6b8c6b", desc: "Моральное состояние — зависит от военного баланса на фронте" },
 };
 // Метрики где рост = плохо (инвертированные: красный при росте, зелёный при снижении)
 const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "isolation", "war_escalation_counter"]);
@@ -4593,6 +4601,35 @@ function StatsTab({ state, gameId }) {
           );
         })}
       </div>
+
+      {/* Разведданные по противнику — Украина */}
+      {Object.keys(UA_STAT_META).some(k => state.stats[k] != null) && (
+        <div style={{ marginTop: 16, borderRadius: 6, background: "#f5f1e6", border: "1px solid #d8d2bf", padding: "12px 12px 14px" }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 10 }}>
+            🇺🇦 РАЗВЕДДАННЫЕ · УКРАИНА
+          </div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {Object.entries(UA_STAT_META).map(([key, meta]) => {
+              const value = state.stats[key] ?? 50;
+              const Icon = meta.icon;
+              return (
+                <div key={key}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Icon size={13} color={meta.color} />
+                      <span className="doc-font" style={{ fontSize: 12.5, color: "#5c5648" }}>{meta.label}</span>
+                    </div>
+                    <span className="mono-font" style={{ fontSize: 12.5, fontWeight: 700, color: meta.color }}>{value}</span>
+                  </div>
+                  <Bar value={value} color={meta.color} />
+                  <div className="mono-font" style={{ fontSize: 8.5, color: "#a8a294", marginTop: 2, lineHeight: 1.3 }}>{meta.desc}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {openStat && <StatDetailModal statKey={openStat} state={state} gameId={gameId} onClose={() => setOpenStat(null)} />}
     </>
   );

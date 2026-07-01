@@ -741,6 +741,16 @@ function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stat
 }
 
 // ── Вкладка «Игроки» ────────────────────────────────────────────────────────
+function useAdminMobile() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 700);
+  useEffect(() => {
+    const fn = () => setMobile(window.innerWidth < 700);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  return mobile;
+}
+
 function AdminTabPlayers({ pwd }) {
   const [users, setUsers] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -750,6 +760,7 @@ function AdminTabPlayers({ pwd }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [expandedGame, setExpandedGame] = useState(null); // gameId
   const [interveneGame, setInterveneGame] = useState(null); // gameId
+  const isMobile = useAdminMobile();
 
   useEffect(() => {
     adm(pwd, "/users").then(r => r.json()).then(d => setUsers(d.users || [])).catch(e => setError(e.message)).finally(() => setLoading(false));
@@ -765,8 +776,9 @@ function AdminTabPlayers({ pwd }) {
 
   return (
     <div style={{ display: "flex", gap: 0, height: "100%" }}>
-      {/* Список игроков */}
-      <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid #2a3040", overflowY: "auto", height: "100%" }}>
+      {/* Список игроков — на мобильном скрыт, когда выбран игрок */}
+      {(!isMobile || !selected) && (
+      <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, borderRight: isMobile ? "none" : "1px solid #2a3040", overflowY: "auto", height: "100%" }}>
         <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", padding: "10px 14px 6px", letterSpacing: "0.1em" }}>
           ВСЕГО: {users.length}
         </div>
@@ -789,9 +801,17 @@ function AdminTabPlayers({ pwd }) {
           </div>
         ))}
       </div>
+      )}
 
-      {/* Детальный вид */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 0 20px", height: "100%" }}>
+      {/* Детальный вид — на мобильном показан только когда выбран игрок */}
+      {(!isMobile || selected) && (
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 0 20px", height: "100%", width: isMobile ? "100%" : undefined }}>
+        {isMobile && selected && (
+          <button onClick={() => setSelected(null)}
+            style={{ background: "none", border: "none", color: "#9c8347", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, padding: "12px 14px", cursor: "pointer" }}>
+            ← Все игроки
+          </button>
+        )}
         {!selected && (
           <div className="mono-font" style={{ fontSize: 11, color: "#3a4156", padding: 30, textAlign: "center" }}>← Выберите игрока</div>
         )}
@@ -901,6 +921,7 @@ function AdminTabPlayers({ pwd }) {
           </>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -1085,6 +1106,7 @@ function AdminPanel({ onClose }) {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const isMobile = useAdminMobile();
 
   async function handleAuth() {
     setAuthLoading(true); setAuthError(null);
@@ -1096,6 +1118,7 @@ function AdminPanel({ onClose }) {
   }
 
   const TABS = [["players","👥 Игроки"],["games","🎮 Партии"],["feedback","🐞 Репорты"],["stats","📊 Статистика"]];
+  const TABS_MOBILE = [["players","👥"],["games","🎮"],["feedback","🐞"],["stats","📊"]];
 
   if (step === "auth") return (
     <div style={{ position: "fixed", inset: 0, background: "#1a1f2c", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',Georgia,serif" }}>
@@ -1118,19 +1141,21 @@ function AdminPanel({ onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "#0d1118", zIndex: 9999, display: "flex", flexDirection: "column", fontFamily: "'PT Serif',Georgia,serif" }}>
       {/* Шапка */}
       <div style={{ display: "flex", alignItems: "center", gap: 0, borderBottom: "1px solid #2a3040", background: "#14181f", flexShrink: 0 }}>
-        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.15em", color: "#9c8347", padding: "0 20px", borderRight: "1px solid #2a3040", height: 42, display: "flex", alignItems: "center" }}>
-          ⚙ КОМАНДНЫЙ ЦЕНТР
-        </div>
-        <div style={{ display: "flex", flex: 1 }}>
-          {TABS.map(([t, l]) => (
+        {!isMobile && (
+          <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.15em", color: "#9c8347", padding: "0 20px", borderRight: "1px solid #2a3040", height: 42, display: "flex", alignItems: "center", whiteSpace: "nowrap" }}>
+            ⚙ КОМАНДНЫЙ ЦЕНТР
+          </div>
+        )}
+        <div style={{ display: "flex", flex: 1, overflowX: isMobile ? "auto" : "visible" }}>
+          {(isMobile ? TABS_MOBILE : TABS).map(([t, l]) => (
             <button key={t} onClick={() => setTab(t)}
-              style={{ background: tab === t ? "#1a1f2c" : "none", color: tab === t ? "#9c8347" : "#5a6070", border: "none", borderBottom: tab === t ? "2px solid #9c8347" : "2px solid transparent", padding: "0 18px", height: 42, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", letterSpacing: "0.05em" }}>
+              style={{ background: tab === t ? "#1a1f2c" : "none", color: tab === t ? "#9c8347" : "#5a6070", border: "none", borderBottom: tab === t ? "2px solid #9c8347" : "2px solid transparent", padding: isMobile ? "0 14px" : "0 18px", height: 42, flexShrink: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: isMobile ? 13 : 10, cursor: "pointer", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
               {l}
             </button>
           ))}
         </div>
         <button onClick={onClose}
-          style={{ background: "none", border: "none", color: "#5a6070", fontSize: 22, cursor: "pointer", padding: "0 16px", height: 42, lineHeight: 1 }}>
+          style={{ background: "none", border: "none", color: "#5a6070", fontSize: 22, cursor: "pointer", padding: "0 16px", height: 42, lineHeight: 1, flexShrink: 0 }}>
           ×
         </button>
       </div>
