@@ -3800,43 +3800,24 @@ function NewsLiveFeed({ state }) {
   return (
     <div style={{ marginBottom: 14, background: "#f0ebe0", border: "1px solid #c8c2af", borderRadius: 4, overflow: "hidden" }}>
       {/* Шапка ленты */}
-      <div style={{ background: "#a8313a", padding: "4px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ background: "#a8313a", padding: "5px 10px", display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ff6060", display: "inline-block", animation: "pulse-red 1s infinite" }} />
         <span className="mono-font" style={{ fontSize: 9, color: "#fff", letterSpacing: "0.14em", fontWeight: 700 }}>LIVE · МИРОВЫЕ НОВОСТИ</span>
         <style>{`@keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
       </div>
 
-      {/* Главная новость — фиксированная высота (3 строки), чтобы блок не «прыгал» при смене */}
-      <div style={{ padding: "10px 12px 8px", height: 80, transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
-        <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 4 }}>{item.src.toUpperCase()}</div>
-        <div className="doc-font" style={{
-          fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700,
-          display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden",
-        }}>{item.text}</div>
-      </div>
-
-      {/* Бегущая строка */}
-      <div style={{ background: "#1e1c18", padding: "5px 0", overflow: "hidden", position: "relative" }}>
-        <div style={{
-          display: "flex", gap: 0,
-          animation: "ticker 18s linear infinite",
-          whiteSpace: "nowrap",
-        }}>
-          {[...headlines, ...headlines].map((h, i) => (
-            <span key={i} className="mono-font" style={{ fontSize: 9, color: "#9c8347", paddingRight: 40 }}>
-              <span style={{ color: "#a8313a", marginRight: 6 }}>{h.src}</span>{h.text}
-            </span>
-          ))}
-        </div>
-        <style>{`@keyframes ticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }`}</style>
+      {/* Главная новость — свободная высота, полный текст */}
+      <div style={{ padding: "10px 12px 10px", transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
+        <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 5 }}>{item.src.toUpperCase()}</div>
+        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700 }}>{item.text}</div>
       </div>
 
       {/* Следующие заголовки */}
       <div style={{ borderTop: "1px solid #d8d2bf" }}>
         {[next, prev].map((h, i) => (
-          <div key={i} style={{ padding: "5px 12px", borderBottom: i === 0 ? "1px solid #e8e2cf" : "none", display: "flex", gap: 8, alignItems: "baseline" }}>
+          <div key={i} style={{ padding: "6px 12px", borderBottom: i === 0 ? "1px solid #e8e2cf" : "none", display: "flex", gap: 8, alignItems: "baseline" }}>
             <span className="mono-font" style={{ fontSize: 8, color: "#8c6b3a", flexShrink: 0 }}>{h.src}</span>
-            <span className="doc-font" style={{ fontSize: 11.5, color: "#3a362e", lineHeight: 1.4 }}>{h.text.length > 90 ? h.text.slice(0, 90) + "…" : h.text}</span>
+            <span className="doc-font" style={{ fontSize: 11.5, color: "#3a362e", lineHeight: 1.4 }}>{h.text.length > 100 ? h.text.slice(0, 100) + "…" : h.text}</span>
           </div>
         ))}
       </div>
