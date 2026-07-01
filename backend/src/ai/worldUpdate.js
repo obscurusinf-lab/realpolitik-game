@@ -44,43 +44,41 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
     .map(([k, v]) => `${k}:${v > 0 ? "+" : ""}${v}`)
     .join(", ") || "—";
 
-  const relLines = (relationDeltas || []).slice(0, 5)
+  const relLines = (relationDeltas || []).slice(0, 4)
     .map(r => `${r.country}:${r.delta > 0 ? "+" : ""}${r.delta}`)
     .join(", ") || "—";
 
-  const topRelations = (currentRelations || []).slice(0, 8)
-    .map(r => `${r.name || r.country}:${r.value}`)
-    .join(", ");
-
-  return `Геополитическая стратегия. Игрок: ${countryName}, ход ${turnNumber}.
+  return `Геополитическая стратегия. ${countryName}, ход ${turnNumber}.
 Решение: "${playerInput}"
-Итог: ${deltaLines} | Отношения: ${relLines}
-Топ-отношения: ${topRelations}
+Изменения статов: ${deltaLines} | Отношения: ${relLines}
 Контекст: ${prevOverview?.headline || "—"}
+
+КАТЕГОРИИ СТРАН (строго соблюдай tone и direction):
+• ВРАГИ → tone:"neg", direction:"hostile": США, НАТО, Великобритания, ЕС, Германия, Франция, Польша
+• СОЮЗНИКИ → tone:"pos", direction:"cooperative": Китай, Беларусь, Иран, Северная Корея
+• НЕЙТРАЛЫ → tone:"neutral", direction:"neutral": Индия, Турция, ОАЭ, Саудовская Аравия, Казахстан
 
 Верни ТОЛЬКО валидный JSON (без markdown):
 {
   "overview": {
-    "headline": "1 предложение — что изменилось в мире",
+    "headline": "1 предложение — главное изменение",
     "hotspots": [
-      {"region": "название", "text": "1-2 предложения", "lat": 51.5, "lon": 30.5},
-      {"region": "название", "text": "1-2 предложения", "lat": 38.9, "lon": -77.0}
+      {"region": "конкретный город/регион", "text": "1-2 предложения", "lat": 51.5, "lon": 30.5},
+      {"region": "конкретный город/регион", "text": "1-2 предложения", "lat": 38.9, "lon": -77.0}
     ]
   },
   "world_reactions": [
-    {"source": "страна/блок", "text": "1 предложение", "tone": "neg"},
-    {"source": "страна/блок", "text": "1 предложение", "tone": "neutral"},
-    {"source": "страна/блок", "text": "1 предложение", "tone": "pos"}
+    {"source": "ВЫБЕРИ 1 страну из ВРАГИ", "text": "критика или угроза — 1 предложение", "tone": "neg"},
+    {"source": "ВЫБЕРИ 1 страну из СОЮЗНИКИ", "text": "поддержка или понимание — 1 предложение", "tone": "pos"},
+    {"source": "ВЫБЕРИ 1 страну из НЕЙТРАЛЫ", "text": "прагматичная позиция — 1 предложение", "tone": "neutral"}
   ],
 ВАЖНО: world_reactions — ровно 3 записи, не больше и не меньше. Выбери 3 наиболее важных актора.
   "world_moves": [
-    {"country": "страна", "action": "1 предложение — конкретное действие (удар, санкции, переброска войск, сделка и т.д.)", "impact": "1 предложение — последствие для игрока", "direction": "hostile|neutral|cooperative", "stat_delta": {"economy": -2}},
-    {"country": "страна", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile|neutral|cooperative", "stat_delta": {"stability": -1}}
+    {"country": "1 страна из ВРАГИ", "action": "конкретное действие (санкции/нота/переброска)", "impact": "1 предложение — последствие", "direction": "hostile", "stat_delta": {"economy": -1}},
+    {"country": "1 страна из СОЮЗНИКИ или НЕЙТРАЛЫ", "action": "конкретное действие (торговля/поддержка/сделка)", "impact": "1 предложение", "direction": "cooperative", "stat_delta": {"economy": 1}}
   ]
 }
-ВАЖНО: lat/lon в каждом hotspot — реальные координаты конкретного города/региона (не 0.0, не одинаковые). Каждый hotspot в разном месте.
-stat_delta: изменения статов игрока от хода противника/союзника (economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. hostile=отрицательные, cooperative=положительные. Заполни реальными текстами.
-КОНТЕКСТ stat_delta: изменяй ТОЛЬКО логически связанные с решением статы. Пример: дипломатический шаг влияет на diplomacy/economy, но НЕ на military напрямую. Военная операция влияет на military/stability, но НЕ на правопорядок или единство если в тексте нет явной связи. НЕ добавляй изменения "по привычке" — только если это реально вытекает из конкретного события.`;
+ПРАВИЛА: lat/lon — реальные координаты, разные регионы. stat_delta только если действие реально влияет (economy/military/stability/diplomacy/approval), значения -3..+2. Текст каждой страны уникален и конкретен.`;
 }
 
 async function generateWorldUpdate({ params, callClaudeApi }) {

@@ -55,7 +55,9 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   const statLabel = { stability: "Стабильность", economy: "Экономика", military: "Армия", diplomacy: "Дипломатия", approval: "Рейтинг" };
 
   const statDeltas = turnResult?.statDeltasPreview || {};
-  const prevStats = prevState?.stats || {};
+  // actualPrevStats из бэкенда (состояние до декрета) точнее чем prevState (может быть post-turn)
+  const prevStats = turnResult?.actualPrevStats || prevState?.stats || {};
+  const changelog = turnResult?.statChangelog || null; // { economy: { decree, events, total }, ... }
 
   const overlayStyle = {
     position: "fixed", inset: 0, background: "#0a0d12", zIndex: 8000,
@@ -90,16 +92,36 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.1em" }}>ИЗМЕНЕНИЯ ПОКАЗАТЕЛЕЙ</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               {Object.entries(statLabel).map(([k, label]) => {
-                const d = statDeltas[k] ?? 0;
+                const entry = changelog?.[k];
+                const totalD = entry?.total ?? (statDeltas[k] ?? 0);
+                const decreeD = entry?.decree ?? (statDeltas[k] ?? 0);
+                const eventsD = entry?.events ?? 0;
                 const prev = prevStats[k] ?? 50;
-                const next = Math.max(0, Math.min(100, prev + d));
-                const color = d > 0 ? "#7fae93" : d < 0 ? "#e09090" : "#5a6070";
+                const next = Math.max(0, Math.min(100, prev + totalD));
+                const color = totalD > 0 ? "#7fae93" : totalD < 0 ? "#e09090" : "#5a6070";
                 return (
-                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1f2733", padding: "6px 10px", borderRadius: 4 }}>
-                    <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
-                    <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>
-                      {prev} → {next} {d !== 0 && `(${d > 0 ? "+" : ""}${d})`}
-                    </span>
+                  <div key={k} style={{ background: "#1f2733", padding: "7px 10px", borderRadius: 4 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
+                      <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>
+                        {prev} → {next} {totalD !== 0 && `(${totalD > 0 ? "+" : ""}${totalD})`}
+                      </span>
+                    </div>
+                    {/* Разбивка: указ vs события */}
+                    {entry && (decreeD !== 0 || eventsD !== 0) && (
+                      <div className="mono-font" style={{ fontSize: 9, marginTop: 3, display: "flex", gap: 8 }}>
+                        {decreeD !== 0 && (
+                          <span style={{ color: decreeD > 0 ? "#5a8a6a" : "#8a5050" }}>
+                            указ {decreeD > 0 ? "+" : ""}{decreeD}
+                          </span>
+                        )}
+                        {eventsD !== 0 && (
+                          <span style={{ color: eventsD > 0 ? "#5a7a6a" : "#7a4040" }}>
+                            события {eventsD > 0 ? "+" : ""}{eventsD}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -2175,6 +2197,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     setConfirming(true);
     setTurnError(null);
     setNuclearConfirmError(null);
+    // Снапшот до подтверждения — нужен для отображения реального delta
+    const preConfirmStats = state?.stats ? { ...state.stats } : null;
     try {
       const confirmResult = await confirmTurn(gameId);
       nuclearConfirmRef.current = false;
@@ -2184,6 +2208,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         statDeltasPreview: preview?.statDeltasPreview,
         actionMode,
         gmActionType: preview?.gmActionType,
+        statChangelog: confirmResult?.statChangelog || null,
+        actualPrevStats: confirmResult?.prevStats || preConfirmStats,
       });
       if (confirmResult?.gameOutcome) {
         setGameOutcome(confirmResult.gameOutcome);
@@ -3932,43 +3958,24 @@ function NewsLiveFeed({ state }) {
   return (
     <div style={{ marginBottom: 14, background: "#f0ebe0", border: "1px solid #c8c2af", borderRadius: 4, overflow: "hidden" }}>
       {/* Шапка ленты */}
-      <div style={{ background: "#a8313a", padding: "4px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ background: "#a8313a", padding: "5px 10px", display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ff6060", display: "inline-block", animation: "pulse-red 1s infinite" }} />
         <span className="mono-font" style={{ fontSize: 9, color: "#fff", letterSpacing: "0.14em", fontWeight: 700 }}>LIVE · МИРОВЫЕ НОВОСТИ</span>
         <style>{`@keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
       </div>
 
-      {/* Главная новость — фиксированная высота (3 строки), чтобы блок не «прыгал» при смене */}
-      <div style={{ padding: "10px 12px 8px", height: 80, transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
-        <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 4 }}>{item.src.toUpperCase()}</div>
-        <div className="doc-font" style={{
-          fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700,
-          display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden",
-        }}>{item.text}</div>
-      </div>
-
-      {/* Бегущая строка */}
-      <div style={{ background: "#1e1c18", padding: "5px 0", overflow: "hidden", position: "relative" }}>
-        <div style={{
-          display: "flex", gap: 0,
-          animation: "ticker 18s linear infinite",
-          whiteSpace: "nowrap",
-        }}>
-          {[...headlines, ...headlines].map((h, i) => (
-            <span key={i} className="mono-font" style={{ fontSize: 9, color: "#9c8347", paddingRight: 40 }}>
-              <span style={{ color: "#a8313a", marginRight: 6 }}>{h.src}</span>{h.text}
-            </span>
-          ))}
-        </div>
-        <style>{`@keyframes ticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }`}</style>
+      {/* Главная новость — свободная высота, полный текст */}
+      <div style={{ padding: "10px 12px 10px", transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
+        <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 5 }}>{item.src.toUpperCase()}</div>
+        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700 }}>{item.text}</div>
       </div>
 
       {/* Следующие заголовки */}
       <div style={{ borderTop: "1px solid #d8d2bf" }}>
         {[next, prev].map((h, i) => (
-          <div key={i} style={{ padding: "5px 12px", borderBottom: i === 0 ? "1px solid #e8e2cf" : "none", display: "flex", gap: 8, alignItems: "baseline" }}>
+          <div key={i} style={{ padding: "6px 12px", borderBottom: i === 0 ? "1px solid #e8e2cf" : "none", display: "flex", gap: 8, alignItems: "baseline" }}>
             <span className="mono-font" style={{ fontSize: 8, color: "#8c6b3a", flexShrink: 0 }}>{h.src}</span>
-            <span className="doc-font" style={{ fontSize: 11.5, color: "#3a362e", lineHeight: 1.4 }}>{h.text.length > 90 ? h.text.slice(0, 90) + "…" : h.text}</span>
+            <span className="doc-font" style={{ fontSize: 11.5, color: "#3a362e", lineHeight: 1.4 }}>{h.text.length > 100 ? h.text.slice(0, 100) + "…" : h.text}</span>
           </div>
         ))}
       </div>
@@ -5924,8 +5931,23 @@ function WikiTab({ dark = false }) {
       <div style={S.p}><span style={S.b}>🕵️ Разведка</span> (20, 5) — тайные операции. Случайный исход: от компромата на противника до дипломатического скандала.</div>
 
       <div style={S.h}>СПЕЦИАЛЬНЫЕ ДЕЙСТВИЯ</div>
-      <div style={S.p}><span style={S.b}>🏠 Передышка</span> — восстанавливает экономику, рейтинг и стабильность. Доступна 1 раз за месяц. Не восстанавливает инициативу — только тыл.</div>
-      <div style={S.p}><span style={S.b}>⚙ Перегруппировка</span> — армия отходит для переформирования, инициатива восстанавливается. Внимание: Украина видит паузу и усиливает давление.</div>
+      <div style={S.p}><span style={S.b}>⚙ Перегруппировка</span> — подтягивает снабжение и резервы, восстанавливает инициативу. Главный эффект: открывает <span style={S.b}>второй военный удар в этом же месяце</span>. Цена: следующий месяц армия восстанавливается — военные операции заблокированы. Украина видит паузу и может атаковать.</div>
+      <div style={S.p}><span style={S.b}>🏠 Передышка</span> — президент занимается тылом: экономика, рейтинг и стабильность восстанавливаются. Доступна 1 раз за месяц. Цена: пока Россия отдыхает, ВСУ восстанавливают боевой дух и личный состав — фронт не двигается в вашу пользу.</div>
+
+      <div style={S.h}>ВОЕННЫЕ ОПЕРАЦИИ</div>
+      <div style={S.p}>В каждом месяце доступна <span style={S.b}>одна</span> военная операция. Хотите нанести два удара подряд — сначала используйте перегруппировку: она открывает второй слот в текущем месяце, но блокирует военные в следующем.</div>
+
+      <div style={S.h}>УКРАИНА</div>
+      <div style={S.p}>У ВСУ три ключевых показателя: <span style={S.b}>армия</span> (боеспособность), <span style={S.b}>боевой дух</span> и <span style={S.b}>поддержка Запада</span>. Украина выбирает стратегию каждый ход — военную, дипломатическую, экономическую, информационную или гибридную. При перегруппировке или передышке с вашей стороны противник использует паузу.</div>
+
+      <div style={S.h}>ЭКОНОМИЧЕСКИЕ ИНДИКАТОРЫ</div>
+      <div style={S.p}><span style={S.b}>Нефть Brent</span> — при цене выше базы ($68/барр.) казна получает бонус каждый месяц. Геополитика и ОПЕК+ двигают цену.</div>
+      <div style={S.p}><span style={S.b}>Курс USD/RUB</span> — слабый рубль (выше ₽80) увеличивает рублёвые доходы от экспорта, но разгоняет инфляцию через импорт.</div>
+      <div style={S.p}><span style={S.b}>Инфляция</span> — когда индекс выше 73, каждый месяц давит на экономику. Снижается от ключевой ставки и стабилизации курса. Растёт от дефицита, военных трат, слабого рубля.</div>
+      <div style={S.p}><span style={S.b}>Советник Силин</span> всегда называет конкретные цифры и объясняет, какие инструменты доступны прямо сейчас.</div>
+
+      <div style={S.h}>ПРОЗРАЧНОСТЬ ПОКАЗАТЕЛЕЙ</div>
+      <div style={S.p}>На экране результата хода каждый показатель разбит по источникам: <span style={S.b}>указ</span> (ваше решение) и <span style={S.b}>события</span> (мировые реакции, кризисы, бюджет). Если экономика упала на 5 при вашем указе на +2 — события дали −7. Это намеренно: мир давит независимо от ваших решений.</div>
 
       <div style={S.h}>ПУТИ К ПОБЕДЕ</div>
       <div style={S.p}><span style={S.b}>🏆 Военная победа</span> — взять Донецк и Луганск (100%), ещё 2 из 3 регионов, армия ≥85, все показатели выше 52.</div>

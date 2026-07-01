@@ -284,16 +284,6 @@ function generateFinalChapterEvent(stats, month) {
 }
 
 // --- НЕФТЬ/ВАЛЮТА: реакция на текст новости ---
-// Свободный нарратив (от ИИ или захардкоженных событий) может упоминать вещи, двигающие
-// рынок нефти/рубля (Ормузский пролив, ОПЕК, SWIFT, отток капитала и т.п.), но не быть
-// привязан к stats.oil_price напрямую. Эта функция парсит такой текст по ключевым словам
-// и сразу подвигает цену/курс, чтобы заголовок и цифры в "Казне" не противоречили друг другу.
-// Не используется для MARKET_EVENTS (там дельта уже задаётся явно — иначе будет двойной счёт).
-// --- РЕЗЕРВЫ: демпфер валютных шоков ---
-// ЗВР (stats.reserves, 0-100) — не просто фоновая цифра: при ослаблении рубля ЦБ может
-// интервенциями сгладить часть удара, расходуя резервы. Чем их больше — тем сильнее демпфер
-// (и тем больше резервов уходит), при низких резервах (<20) интервенции невозможны — курс
-// летит без тормозов. Усиление рубля резервы не трогает (валюту для покупки не нужно искать).
 function dampenFxShock(fxDeltaRaw, newStats) {
   if (!fxDeltaRaw || fxDeltaRaw <= 0) return fxDeltaRaw || 0;
   const reservesNow = newStats.reserves ?? 48;
@@ -325,6 +315,68 @@ function applyOilFxTextImpact(text, newStats) {
   if (fxDelta) {
     const dampened = dampenFxShock(fxDelta, newStats);
     newStats.usd_rub = Math.round(Math.max(FX_MIN, Math.min(FX_MAX, (newStats.usd_rub ?? 80) + dampened)) * 10) / 10;
+  }
+}
+
+// --- УКРАИНА: стратегия (Claude Haiku) ---
+const UA_STRATEGY_MULTIPLIERS = {
+  military:    { drone_strike: 2.5, rail_sabotage: 2, counterattack: 2.5, dnipro_push: 2, weapons_delivery: 2,
+                 diplomatic_offensive: 0.4, war_crimes_tribunal: 0.4, info_warfare: 0.5, soldier_leaks: 0.5, sanctions_push: 0.4 },
+  diplomatic:  { diplomatic_offensive: 3, war_crimes_tribunal: 3, sanctions_push: 1.5, info_warfare: 1.2,
+                 drone_strike: 0.4, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.5, weapons_delivery: 0.7, soldier_leaks: 0.8 },
+  economic:    { sanctions_push: 3.5, diplomatic_offensive: 2, war_crimes_tribunal: 1.5, soldier_leaks: 1.5,
+                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.7, info_warfare: 1 },
+  information: { info_warfare: 3.5, soldier_leaks: 3, diplomatic_offensive: 1.5, war_crimes_tribunal: 1.2,
+                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.6, sanctions_push: 0.8 },
+  hybrid:      {},
+};
+
+async function selectUkraineStrategy(stats, recentMoves, callClaudeApi) {
+  const uaArmy = stats.ua_army ?? 65;
+  const uaWest = stats.ua_west_support ?? 75;
+  const uaMorale = stats.ua_morale ?? 65;
+  const ruArmy = stats.military ?? 50;
+  const peace = stats.peace_progress ?? 0;
+  const ruDiplomacy = stats.diplomacy ?? 50;
+
+  const movesText = recentMoves.length > 0
+    ? recentMoves.map(m => `- [${m.mode}] ${m.input}`).join("\n")
+    : "- нет данных";
+
+  const prompt = `Ты — стратег украинского командования. Выбери стратегию следующего хода Украины.
+
+СОСТОЯНИЕ УКРАИНЫ:
+- Армия ВСУ: ${uaArmy}/100
+- Поддержка Запада: ${uaWest}/100
+- Боевой дух: ${uaMorale}/100
+
+СОСТОЯНИЕ ПРОТИВНИКА (Россия):
+- Армия: ${ruArmy}/100
+- Дипломатия: ${ruDiplomacy}/100
+- Мирный трек: ${peace}/100
+
+ПОСЛЕДНИЕ ДЕЙСТВИЯ ПРОТИВНИКА:
+${movesText}
+
+Выбери стратегию. Ответь ОДНИМ словом (только одно из пяти):
+military — военная эскалация (атаки, контрнаступление)
+diplomatic — дипломатическое давление (Запад, переговоры, суды)
+economic — санкционное давление
+information — информационная война
+hybrid — смешанная стратегия`;
+
+  try {
+    const resp = await callClaudeApi({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 15,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const raw = resp.content.filter(b => b.type === "text").map(b => b.text).join("").trim().toLowerCase();
+    const valid = ["military", "diplomatic", "economic", "information", "hybrid"];
+    for (const v of valid) { if (raw.includes(v)) return v; }
+    return "hybrid";
+  } catch {
+    return "hybrid";
   }
 }
 
@@ -369,6 +421,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const cost = INITIATIVE_COST[actionMode];
       if (availableInit < cost) {
         return reply.code(400).send({ error: `Недостаточно инициативы. Нужно ${cost}, доступно ${availableInit}. Завершите месяц чтобы восстановить.` });
+      }
+      // Военный лимит: 1 операция в месяц без перегруппировки
+      if (actionMode === "military") {
+        const stats = initiativeCheck.rows[0]?.stats || {};
+        if (stats.military_blocked_this_month) {
+          return reply.code(400).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
+        }
+        if (stats.military_used_this_month && !stats.regroup_bonus_attack) {
+          return reply.code(400).send({ error: "В этом месяце уже проводилась военная операция. Используйте перегруппировку для второго удара." });
+        }
       }
     }
 
@@ -533,6 +595,20 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, actionMode: pendingActionMode = "decree" } = pending;
 
+      // Военный лимит: повторная проверка (защита от race condition)
+      const confirmAt = gmClassification.action_type;
+      const isConfirmMilitary = confirmAt === "military_offensive" || confirmAt === "military_defensive";
+      if (isConfirmMilitary) {
+        if (game.stats?.military_blocked_this_month) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
+        }
+        if (game.stats?.military_used_this_month && !game.stats?.regroup_bonus_attack) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "В этом месяце уже проводилась военная операция. Используйте перегруппировку для второго удара." });
+        }
+      }
+
       const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
       const { MULTI_ACTION_TURNS } = require("../rules/rules-engine");
       const multiAction = MULTI_ACTION_TURNS;
@@ -546,6 +622,20 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         crisisMode,
         regenInitiative: !multiAction, // в мульти-режиме инициатива = бюджет месяца (регенерация в конце месяца)
       });
+
+      // Снапшот после декрета — для расчёта changelog в конце хода
+      const CHANGELOG_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
+      const statsAfterDecree = Object.fromEntries(CHANGELOG_KEYS.map(k => [k, newStats[k] ?? 50]));
+
+      // Отслеживаем военные операции (лимит 1/мес, 2-я требует перегруппировки)
+      if (isConfirmMilitary) {
+        if (newStats.regroup_bonus_attack && newStats.military_used_this_month) {
+          // Второй удар благодаря перегруппировке — блок следующего месяца
+          delete newStats.regroup_bonus_attack;
+          newStats.military_locked_next_month = true;
+        }
+        newStats.military_used_this_month = true;
+      }
 
       // --- ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ---
       // military_offensive продвигает фронт, peace/diplomacy могут фиксировать или уступать территории
@@ -788,8 +878,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ВНУТРЕННИЕ КРИЗИСЫ ---
-      // С вероятностью 12% каждый ход происходит внутренний кризис
-      if (Math.random() < 0.12) {
+      // С вероятностью 7% каждый ход происходит внутренний кризис (снижено с 12%)
+      if (Math.random() < 0.07) {
         const DOMESTIC_CRISES = [
           { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
             text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
@@ -823,9 +913,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ ---
-      // Если военные расходы высокие (military > 70) — экономика страдает
-      if ((newStats.military ?? 50) > 70) {
-        const warTax = Math.floor(((newStats.military ?? 50) - 70) / 10) + 1; // 1-4 pts
+      // Военные расходы давят на экономику при military > 75 (порог повышен с 70)
+      if ((newStats.military ?? 50) > 75) {
+        const warTax = Math.floor(((newStats.military ?? 50) - 75) / 10) + 1; // 1-3 pts
         newStats.economy = Math.max(0, (newStats.economy ?? 50) - warTax);
         newStats.approval = Math.max(0, (newStats.approval ?? 50) - 1);
       }
@@ -1104,11 +1194,24 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           newStats.betrayal_count = betrayalCount + 1;
           fastify.log.info({ gameId, turnNumber, betrayalNumber: betrayalCount + 1 }, "Ukraine CEASEFIRE BETRAYAL fired");
         } else {
-          // Взвешенный случайный выбор
-          const totalWeight = UA_ACTIONS.reduce((s, a) => s + a.weight, 0);
+          // Стратегически управляемый выбор: Claude Haiku выбирает стратегию,
+          // мультипликаторы весов усиливают нужные действия в этом направлении
+          const recentTurnsRes = await client.query(
+            `SELECT action_mode, player_input FROM turns WHERE game_id = $1 ORDER BY id DESC LIMIT 4`,
+            [gameId]
+          );
+          const recentMoves = recentTurnsRes.rows.map(r => ({
+            mode: r.action_mode || "decree",
+            input: (r.player_input || "").slice(0, 80),
+          }));
+          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi);
+          fastify.log.info({ gameId, uaStrategy }, "Ukraine strategy selected");
+          const mults = UA_STRATEGY_MULTIPLIERS[uaStrategy] || {};
+          const weightedActions = UA_ACTIONS.map(a => ({ ...a, weight: a.weight * (mults[a.type] ?? 1) }));
+          const totalWeight = weightedActions.reduce((s, a) => s + a.weight, 0);
           let rnd = Math.random() * totalWeight;
-          uaAction = UA_ACTIONS[0];
-          for (const a of UA_ACTIONS) {
+          uaAction = weightedActions[0];
+          for (const a of weightedActions) {
             rnd -= a.weight;
             if (rnd <= 0) { uaAction = a; break; }
           }
@@ -1126,6 +1229,21 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           if (typeof uaAction[deltaKey] === "number") {
             newStats[statKey] = Math.max(0, Math.min(100, (newStats[statKey] ?? 50) + uaAction[deltaKey]));
           }
+        }
+
+        // Обновляем собственное состояние Украины
+        {
+          const ruArmy = newStats.military ?? 50;
+          const ruDip = newStats.diplomacy ?? 50;
+          // Западная поддержка: растёт если Россия дипломатически слабее, падает если сильнее
+          const westDelta = ruDip > 65 ? -2 : ruDip < 35 ? 2 : 1;
+          newStats.ua_west_support = Math.max(10, Math.min(95, (newStats.ua_west_support ?? 75) + westDelta));
+          // Армия ВСУ: давление от военной мощи России
+          const armyDelta = ruArmy > 70 ? -2 : ruArmy < 40 ? 1 : 0;
+          newStats.ua_army = Math.max(10, Math.min(90, (newStats.ua_army ?? 65) + armyDelta));
+          // Боевой дух: зависит от соотношения сил
+          const moraleDelta = (newStats.ua_army ?? 65) > ruArmy ? 1 : -1;
+          newStats.ua_morale = Math.max(10, Math.min(95, (newStats.ua_morale ?? 65) + moraleDelta));
         }
 
         // Сохраняем в ленту как ukraine_action с вариантами ответа
@@ -1299,6 +1417,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
       }
 
+      // --- CHANGELOG: разбивка изменений по источникам ---
+      const statChangelog = {};
+      for (const k of CHANGELOG_KEYS) {
+        const decreeD = statDeltas[k] ?? 0;
+        const totalD = (newStats[k] ?? 50) - (statsAfterDelayed[k] ?? 50);
+        const eventsD = totalD - decreeD;
+        if (decreeD !== 0 || eventsD !== 0) {
+          statChangelog[k] = { decree: decreeD, events: eventsD, total: totalD };
+        }
+      }
+
       return reply.send({
         turnNumber,
         narrative: gmClassification.narrative,
@@ -1312,6 +1441,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         turnContinues: multiAction && !gameOutcome,
         initiative: newStats.initiative,
         month: turnNumber,
+        statChangelog,
+        prevStats: Object.fromEntries(CHANGELOG_KEYS.map(k => [k, statsAfterDelayed[k] ?? 50])),
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -1358,6 +1489,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       newStats.initiative = Math.min(130, INITIATIVE_MAX + carryover);
       // Сброс флага передышки — новый месяц, можно снова
       delete newStats.skip_used_this_month;
+      // Военные флаги: сброс месячных, конвертация cooldown в блок
+      delete newStats.military_used_this_month;
+      delete newStats.regroup_bonus_attack;
+      if (newStats.military_locked_next_month) {
+        newStats.military_blocked_this_month = true;
+        delete newStats.military_locked_next_month;
+      } else {
+        delete newStats.military_blocked_this_month;
+      }
 
       // Пассивный распад мирного трека (раз в месяц), если в этом месяце не было дипломатии
       const turnsThisMonth = await client.query(
@@ -1511,9 +1651,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const inflationNow = newStats.inflation ?? 64;
       let inflationEconomyPenalty = 0;
       let inflationApprovalPenalty = 0;
-      if (inflationNow > 70) {
-        inflationEconomyPenalty = Math.min(3, Math.floor((inflationNow - 70) / 10) + 1);
-        inflationApprovalPenalty = Math.min(2, Math.floor((inflationNow - 70) / 15) + 1);
+      if (inflationNow > 73) {
+        inflationEconomyPenalty = Math.min(3, Math.floor((inflationNow - 73) / 10) + 1);
+        inflationApprovalPenalty = Math.min(2, Math.floor((inflationNow - 73) / 15) + 1);
         newStats.economy = Math.max(0, (newStats.economy ?? 50) - inflationEconomyPenalty);
         newStats.approval = Math.max(0, (newStats.approval ?? 50) - inflationApprovalPenalty);
       }
@@ -1740,6 +1880,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       newStats.initiative = Math.min(130, currentInit + 40);
       statDeltas.initiative = newStats.initiative - currentInit;
 
+      // Пока Россия отдыхает — Украина тоже восстанавливается (реальный трейдофф)
+      const uaRecovery = { ua_morale: 4, ua_army: 3, ua_west_support: 1 };
+      for (const [k, d] of Object.entries(uaRecovery)) {
+        newStats[k] = Math.min(100, (newStats[k] ?? 50) + d);
+      }
+
       // Фронт без внимания — лёгкий откат (мягче прежнего пропуска)
       for (const key of ["kharkiv_control", "kherson_control"]) {
         const cur = newStats[key] ?? 0;
@@ -1753,7 +1899,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Помечаем что передышка использована в этом месяце
       newStats.skip_used_this_month = true;
 
-      const narrative = "Гражданская передышка. Президент сосредоточился на внутренних делах — экономика, доходы населения и общественные настроения восстанавливаются. Фронт остаётся без активного внимания.";
+      const narrative = "Гражданская передышка. Президент сосредоточился на внутренних делах — экономика, доходы населения и общественные настроения восстанавливаются. Фронт без активного давления: ВСУ используют паузу для восстановления боевого духа и пополнения личного состава.";
 
       await client.query(
         `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
@@ -1814,7 +1960,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       newStats.initiative = Math.min(130, currentInit + passiveRegen + INITIATIVE_REGROUP_REGEN);
       statDeltas.initiative = newStats.initiative - currentInit;
 
-      const narrative = "Войска отведены на переформирование. Армия восстанавливает боеспособность — фронт стабилизирован, подтягивается снабжение и резервы.";
+      // Перегруппировка открывает второй военный удар в этом месяце (ценой блока следующего)
+      newStats.regroup_bonus_attack = true;
+
+      const narrative = "Войска перегруппированы и готовы к броску. Снабжение подтянуто, резервы переброшены на ключевые участки. В этом месяце доступен второй военный удар — но следующий месяц армия будет восстанавливаться без активных операций.";
 
       await client.query(
         `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
