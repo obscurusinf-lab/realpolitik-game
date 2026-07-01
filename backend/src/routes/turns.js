@@ -283,6 +283,70 @@ function generateFinalChapterEvent(stats, month) {
   return [];
 }
 
+// Мультипликаторы весов UA_ACTIONS по стратегии, выбранной Claude
+const UA_STRATEGY_MULTIPLIERS = {
+  military:    { drone_strike: 2.5, rail_sabotage: 2, counterattack: 2.5, dnipro_push: 2, weapons_delivery: 2,
+                 diplomatic_offensive: 0.4, war_crimes_tribunal: 0.4, info_warfare: 0.5, soldier_leaks: 0.5, sanctions_push: 0.4 },
+  diplomatic:  { diplomatic_offensive: 3, war_crimes_tribunal: 3, sanctions_push: 1.5, info_warfare: 1.2,
+                 drone_strike: 0.4, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.5, weapons_delivery: 0.7, soldier_leaks: 0.8 },
+  economic:    { sanctions_push: 3.5, diplomatic_offensive: 2, war_crimes_tribunal: 1.5, soldier_leaks: 1.5,
+                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.7, info_warfare: 1 },
+  information: { info_warfare: 3.5, soldier_leaks: 3, diplomatic_offensive: 1.5, war_crimes_tribunal: 1.2,
+                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.6, sanctions_push: 0.8 },
+  hybrid:      {}, // базовые веса без изменений
+};
+
+// Выбирает стратегию Украины через Claude Haiku на основе контекста игры.
+// Возвращает строку: "military" | "diplomatic" | "economic" | "information" | "hybrid"
+async function selectUkraineStrategy(stats, recentMoves, callClaudeApi) {
+  const uaArmy = stats.ua_army ?? 65;
+  const uaWest = stats.ua_west_support ?? 75;
+  const uaMorale = stats.ua_morale ?? 65;
+  const ruArmy = stats.military ?? 50;
+  const peace = stats.peace_progress ?? 0;
+  const ruDiplomacy = stats.diplomacy ?? 50;
+
+  const movesText = recentMoves.length > 0
+    ? recentMoves.map(m => `- [${m.mode}] ${m.input}`).join("\n")
+    : "- нет данных";
+
+  const prompt = `Ты — стратег украинского командования. Выбери стратегию следующего хода Украины.
+
+СОСТОЯНИЕ УКРАИНЫ:
+- Армия ВСУ: ${uaArmy}/100
+- Поддержка Запада: ${uaWest}/100
+- Боевой дух: ${uaMorale}/100
+
+СОСТОЯНИЕ ПРОТИВНИКА (Россия):
+- Армия: ${ruArmy}/100
+- Дипломатия: ${ruDiplomacy}/100
+- Мирный трек: ${peace}/100
+
+ПОСЛЕДНИЕ ДЕЙСТВИЯ ПРОТИВНИКА:
+${movesText}
+
+Выбери стратегию. Ответь ОДНИМ словом (только одно из пяти):
+military — военная эскалация (атаки, контрнаступление)
+diplomatic — дипломатическое давление (Запад, переговоры, суды)
+economic — санкционное давление
+information — информационная война
+hybrid — смешанная стратегия`;
+
+  try {
+    const resp = await callClaudeApi({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 15,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const raw = resp.content.filter(b => b.type === "text").map(b => b.text).join("").trim().toLowerCase();
+    const valid = ["military", "diplomatic", "economic", "information", "hybrid"];
+    for (const v of valid) { if (raw.includes(v)) return v; }
+    return "hybrid";
+  } catch {
+    return "hybrid";
+  }
+}
+
 async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore, adminEventStore, verifyToken }) {
   async function loadGameForUpdate(client, gameId) {
     const res = await client.query(
@@ -1055,11 +1119,24 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           newStats.betrayal_count = betrayalCount + 1;
           fastify.log.info({ gameId, turnNumber, betrayalNumber: betrayalCount + 1 }, "Ukraine CEASEFIRE BETRAYAL fired");
         } else {
-          // Взвешенный случайный выбор
-          const totalWeight = UA_ACTIONS.reduce((s, a) => s + a.weight, 0);
+          // Стратегически управляемый выбор: Claude Haiku выбирает стратегию,
+          // мультипликаторы весов усиливают нужные действия в этом направлении
+          const recentTurnsRes = await client.query(
+            `SELECT action_mode, player_input FROM turns WHERE game_id = $1 ORDER BY id DESC LIMIT 4`,
+            [gameId]
+          );
+          const recentMoves = recentTurnsRes.rows.map(r => ({
+            mode: r.action_mode || "decree",
+            input: (r.player_input || "").slice(0, 80),
+          }));
+          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi);
+          fastify.log.info({ gameId, uaStrategy }, "Ukraine strategy selected");
+          const mults = UA_STRATEGY_MULTIPLIERS[uaStrategy] || {};
+          const weightedActions = UA_ACTIONS.map(a => ({ ...a, weight: a.weight * (mults[a.type] ?? 1) }));
+          const totalWeight = weightedActions.reduce((s, a) => s + a.weight, 0);
           let rnd = Math.random() * totalWeight;
-          uaAction = UA_ACTIONS[0];
-          for (const a of UA_ACTIONS) {
+          uaAction = weightedActions[0];
+          for (const a of weightedActions) {
             rnd -= a.weight;
             if (rnd <= 0) { uaAction = a; break; }
           }
@@ -1077,6 +1154,21 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           if (typeof uaAction[deltaKey] === "number") {
             newStats[statKey] = Math.max(0, Math.min(100, (newStats[statKey] ?? 50) + uaAction[deltaKey]));
           }
+        }
+
+        // Обновляем собственное состояние Украины
+        {
+          const ruArmy = newStats.military ?? 50;
+          const ruDip = newStats.diplomacy ?? 50;
+          // Западная поддержка: растёт если Россия дипломатически слабее, падает если сильнее
+          const westDelta = ruDip > 65 ? -2 : ruDip < 35 ? 2 : 1;
+          newStats.ua_west_support = Math.max(10, Math.min(95, (newStats.ua_west_support ?? 75) + westDelta));
+          // Армия ВСУ: давление от военной мощи России
+          const armyDelta = ruArmy > 70 ? -2 : ruArmy < 40 ? 1 : 0;
+          newStats.ua_army = Math.max(10, Math.min(90, (newStats.ua_army ?? 65) + armyDelta));
+          // Боевой дух: зависит от соотношения сил
+          const moraleDelta = (newStats.ua_army ?? 65) > ruArmy ? 1 : -1;
+          newStats.ua_morale = Math.max(10, Math.min(95, (newStats.ua_morale ?? 65) + moraleDelta));
         }
 
         // Сохраняем в ленту как ukraine_action с вариантами ответа
