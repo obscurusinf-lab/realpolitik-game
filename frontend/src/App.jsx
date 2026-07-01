@@ -3159,6 +3159,25 @@ function WelcomeModal({ state, playerName, onClose }) {
   const profile = state?.countryProfile || null;
   const [expandedStat, setExpandedStat] = useState(null);
   const [showSituation, setShowSituation] = useState(false);
+  const [openSections, setOpenSections] = useState(new Set());
+  const toggleSection = (id) => setOpenSections(prev => {
+    const n = new Set(prev);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+  const BriefSection = ({ id, label, color = "#5b6b8c", children }) => {
+    const open = openSections.has(id);
+    return (
+      <div style={{ marginBottom: 10 }}>
+        <button onClick={() => toggleSection(id)}
+          style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: open ? "#1a2030" : "transparent", border: `1px solid ${open ? color + "66" : "#2a3040"}`, borderRadius: 4, padding: "8px 12px", cursor: "pointer", textAlign: "left" }}>
+          <span className="mono-font" style={{ fontSize: 9, color: open ? color : "#5a6070", letterSpacing: "0.1em" }}>{label}</span>
+          <span style={{ color: open ? color : "#3a4156", fontSize: 13, lineHeight: 1 }}>{open ? "▲" : "▼"}</span>
+        </button>
+        {open && <div style={{ border: `1px solid ${color}22`, borderTop: "none", borderRadius: "0 0 4px 4px", padding: "12px 12px 14px", background: "#141a24" }}>{children}</div>}
+      </div>
+    );
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
@@ -3243,8 +3262,7 @@ function WelcomeModal({ state, playerName, onClose }) {
           )}
 
           {/* Показатели */}
-          <div style={{ marginBottom: 24 }}>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 12 }}>ОПЕРАТИВНАЯ СВОДКА · нажмите для деталей</div>
+          <BriefSection id="stats" label="📊 ОПЕРАТИВНАЯ СВОДКА" color="#9c8347">
             <div style={{ display: "grid", gap: 8 }}>
               {Object.entries(stats).filter(([key]) => STAT_LABEL[key]).map(([key, value]) => {
                 const lvl = statLevel(value);
@@ -3296,16 +3314,18 @@ function WelcomeModal({ state, playerName, onClose }) {
                 );
               })}
             </div>
-          </div>
+          </BriefSection>
 
-          {/* Цель */}
-          <div style={{ border: "1px solid #9c8347", borderRadius: 4, padding: "14px 16px", marginBottom: 24 }}>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 10 }}>ЦЕЛЬ ОПЕРАЦИИ · 24 ХОДА (2 ГОДА)</div>
-            <div className="doc-font" style={{ fontSize: 13.5, color: "#ece7d8", lineHeight: 1.65, marginBottom: 16 }}>
+          {/* Цель — всегда видна, краткая */}
+          <div style={{ border: "1px solid #9c8347", borderRadius: 4, padding: "14px 16px", marginBottom: 14 }}>
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ЦЕЛЬ ОПЕРАЦИИ · 24 ХОДА (2 ГОДА)</div>
+            <div className="doc-font" style={{ fontSize: 13.5, color: "#ece7d8", lineHeight: 1.65 }}>
               Завершите мирный процесс по Украине и стабилизируйте страну к <strong style={{ color: "#9c8347" }}>концу 2027 года</strong>.
             </div>
+          </div>
 
-            {/* Условия победы */}
+          {/* Условия победы — всегда видны */}
+          <div style={{ marginBottom: 14 }}>
             <div className="mono-font" style={{ fontSize: 9, color: "#4a6b5c", letterSpacing: "0.1em", marginBottom: 8 }}>УСЛОВИЯ ПОБЕДЫ (все сразу)</div>
             <div style={{ display: "grid", gap: 6, marginBottom: 16 }}>
               {[
@@ -3320,10 +3340,11 @@ function WelcomeModal({ state, playerName, onClose }) {
                 </div>
               ))}
             </div>
+          </div>
 
-            {/* Три пути к победе */}
-            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ТРИ ПУТИ К ПОБЕДЕ</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 10 }}>
+          {/* Три пути к победе — аккордеон */}
+          <BriefSection id="paths" label="⚔️ ТРИ ПУТИ К ПОБЕДЕ" color="#5b6b8c">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
               {[
                 { label: "⚔️ Военный путь", desc: "Донецк 100%, Луганск 100% + 2 из 3 (Запорожье ≥85%, Херсон ≥65%, Харьков ≥50%). Армия ≥85, мораль/готовность ≥70, тыл ≥52, экономика ≥36. Срабатывает при мирном треке < 35.", color: "#9c6347" },
                 { label: "🕊 Принуждение к миру", desc: "Те же территории, НО мирный трек ≥40 — «дипломатия с позиции силы». Лучший исход: оба пути сошлись.", color: "#26a69a" },
@@ -3335,7 +3356,10 @@ function WelcomeModal({ state, playerName, onClose }) {
                 </div>
               ))}
             </div>
-            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ВАЖНО ПРО МИРНЫЙ ТРЕК</div>
+          </BriefSection>
+
+          {/* Важно про мирный трек — аккордеон */}
+          <BriefSection id="peace" label="☮ ВАЖНО ПРО МИРНЫЙ ТРЕК" color="#5b6b8c">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 16 }}>
               {[
                 { label: "⚔️ Военное наступление", desc: "Срывает переговоры — мирный трек откатывается. Установленный мир (≥40) держится крепче, чем низкий. Наступление двигает территории, но мир придётся строить дипломатией", color: "#9c6347" },
@@ -3347,10 +3371,10 @@ function WelcomeModal({ state, playerName, onClose }) {
                 </div>
               ))}
             </div>
+          </BriefSection>
 
-            {/* Ресурсы хода */}
-            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>РЕСУРСЫ: МЕСЯЦ, ИНИЦИАТИВА, КАЗНА</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+          <BriefSection id="resources" label="⚡ РЕСУРСЫ: МЕСЯЦ, ИНИЦИАТИВА, КАЗНА" color="#9c8347">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
               {[
                 { label: "🗓 Несколько действий в месяц", desc: "За один месяц можно принять несколько решений, пока хватает инициативы. Месяц продвигается только по кнопке «Завершить месяц».", color: "#9c8347" },
                 { label: "⚡ Инициатива", desc: "Политическая воля — бюджет действий на месяц. Тратится на каждое решение, восстанавливается в конце месяца.", color: "#7fae93" },
@@ -3364,10 +3388,10 @@ function WelcomeModal({ state, playerName, onClose }) {
                 </div>
               ))}
             </div>
+          </BriefSection>
 
-            {/* Типы решений */}
-            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ТИПЫ РЕШЕНИЙ (сила растёт с ценой)</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+          <BriefSection id="decisiontypes" label="📜 ТИПЫ РЕШЕНИЙ" color="#9c8347">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
               {[
                 { label: "📜 Быстрый указ", desc: "Дёшево, эффект слабее (~2 хода). ⚡20 💰3", color: "#5a9c6a" },
                 { label: "📋 Реформа", desc: "Средняя сила и длительность (~5 ходов). ⚡35 💰8", color: "#9c8347" },
@@ -3380,18 +3404,18 @@ function WelcomeModal({ state, playerName, onClose }) {
                 </div>
               ))}
             </div>
+          </BriefSection>
 
-            {/* Политики */}
-            <div className="mono-font" style={{ fontSize: 9, color: "#5b6b8c", letterSpacing: "0.1em", marginBottom: 8 }}>ДЕЙСТВУЮЩИЕ ПОЛИТИКИ</div>
-            <div style={{ background: "#1a2030", borderRadius: 3, padding: "8px 11px", marginBottom: 16 }}>
+          <BriefSection id="policies" label="⚙ ДЕЙСТВУЮЩИЕ ПОЛИТИКИ" color="#9c7ab0">
+            <div style={{ background: "#1a2030", borderRadius: 3, padding: "8px 11px" }}>
               <div className="doc-font" style={{ fontSize: 11, color: "#7a8090", lineHeight: 1.45 }}>
                 Вкладка «Политики» сгруппирована: <span style={{ color: "#9c7ab0" }}>программы</span>, <span style={{ color: "#3a8a7a" }}>реформы</span>, <span style={{ color: "#5b6b8c" }}>указы</span>. У каждой видно, что вырастет при успехе и последствия отмены. Налоговые (НДС, утильсбор) <b>пополняют казну</b>, но бьют по рейтингу; программы <b>стоят на содержание</b>. Отмена непопулярной политики может поднять рейтинг — но лишит дохода.
               </div>
             </div>
+          </BriefSection>
 
-            {/* Условия поражения */}
-            <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 8 }}>ПОРАЖЕНИЕ (любое из условий)</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+          <BriefSection id="defeat" label="💀 УСЛОВИЯ ПОРАЖЕНИЯ" color="#a8313a">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
               {[
                 { cond: "Рейтинг < 30", res: "Переворот", color: "#a8313a" },
                 { cond: "Экономика < 30", res: "Коллапс", color: "#a8313a" },
@@ -3405,11 +3429,9 @@ function WelcomeModal({ state, playerName, onClose }) {
                 </div>
               ))}
             </div>
-          </div>
+          </BriefSection>
 
-          {/* Инструкция */}
-          <div style={{ marginBottom: 26 }}>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 12 }}>КАК ИГРАТЬ</div>
+          <BriefSection id="howto" label="📖 КАК ИГРАТЬ" color="#5a6070">
             <div style={{ display: "grid", gap: 10 }}>
               {[
                 ["1", "Читайте «Обстановку»", "Очаги напряжённости кликабельны. Вкладка «Мир» — ходы других стран, «Политики» — что уже действует."],
@@ -3428,7 +3450,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                 </div>
               ))}
             </div>
-          </div>
+          </BriefSection>
 
           <button
             onClick={onClose}
