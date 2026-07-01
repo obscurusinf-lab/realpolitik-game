@@ -389,6 +389,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       if (availableInit < cost) {
         return reply.code(400).send({ error: `Недостаточно инициативы. Нужно ${cost}, доступно ${availableInit}. Завершите месяц чтобы восстановить.` });
       }
+      // Военный лимит: 1 операция в месяц без перегруппировки
+      if (actionMode === "military") {
+        const stats = initiativeCheck.rows[0]?.stats || {};
+        if (stats.military_blocked_this_month) {
+          return reply.code(400).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
+        }
+        if (stats.military_used_this_month && !stats.regroup_bonus_attack) {
+          return reply.code(400).send({ error: "В этом месяце уже проводилась военная операция. Используйте перегруппировку для второго удара." });
+        }
+      }
     }
 
     // Только чтение — без FOR UPDATE, не открываем долгую транзакцию на время вызова ИИ
@@ -552,6 +562,20 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, actionMode: pendingActionMode = "decree" } = pending;
 
+      // Военный лимит: повторная проверка (защита от race condition)
+      const confirmAt = gmClassification.action_type;
+      const isConfirmMilitary = confirmAt === "military_offensive" || confirmAt === "military_defensive";
+      if (isConfirmMilitary) {
+        if (game.stats?.military_blocked_this_month) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
+        }
+        if (game.stats?.military_used_this_month && !game.stats?.regroup_bonus_attack) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "В этом месяце уже проводилась военная операция. Используйте перегруппировку для второго удара." });
+        }
+      }
+
       const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
       const { MULTI_ACTION_TURNS } = require("../rules/rules-engine");
       const multiAction = MULTI_ACTION_TURNS;
@@ -569,6 +593,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Снапшот после декрета — для расчёта changelog в конце хода
       const CHANGELOG_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
       const statsAfterDecree = Object.fromEntries(CHANGELOG_KEYS.map(k => [k, newStats[k] ?? 50]));
+
+      // Отслеживаем военные операции (лимит 1/мес, 2-я требует перегруппировки)
+      if (isConfirmMilitary) {
+        if (newStats.regroup_bonus_attack && newStats.military_used_this_month) {
+          // Второй удар благодаря перегруппировке — блок следующего месяца
+          delete newStats.regroup_bonus_attack;
+          newStats.military_locked_next_month = true;
+        }
+        newStats.military_used_this_month = true;
+      }
 
       // --- ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ---
       // military_offensive продвигает фронт, peace/diplomacy могут фиксировать или уступать территории
@@ -1417,6 +1451,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       newStats.initiative = Math.min(130, INITIATIVE_MAX + carryover);
       // Сброс флага передышки — новый месяц, можно снова
       delete newStats.skip_used_this_month;
+      // Военные флаги: сброс месячных, конвертация cooldown в блок
+      delete newStats.military_used_this_month;
+      delete newStats.regroup_bonus_attack;
+      if (newStats.military_locked_next_month) {
+        newStats.military_blocked_this_month = true;
+        delete newStats.military_locked_next_month;
+      } else {
+        delete newStats.military_blocked_this_month;
+      }
 
       // Пассивный распад мирного трека (раз в месяц), если в этом месяце не было дипломатии
       const turnsThisMonth = await client.query(
@@ -1679,6 +1722,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       newStats.initiative = Math.min(130, currentInit + 40);
       statDeltas.initiative = newStats.initiative - currentInit;
 
+      // Пока Россия отдыхает — Украина тоже восстанавливается (реальный трейдофф)
+      const uaRecovery = { ua_morale: 4, ua_army: 3, ua_west_support: 1 };
+      for (const [k, d] of Object.entries(uaRecovery)) {
+        newStats[k] = Math.min(100, (newStats[k] ?? 50) + d);
+      }
+
       // Фронт без внимания — лёгкий откат (мягче прежнего пропуска)
       for (const key of ["kharkiv_control", "kherson_control"]) {
         const cur = newStats[key] ?? 0;
@@ -1692,7 +1741,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Помечаем что передышка использована в этом месяце
       newStats.skip_used_this_month = true;
 
-      const narrative = "Гражданская передышка. Президент сосредоточился на внутренних делах — экономика, доходы населения и общественные настроения восстанавливаются. Фронт остаётся без активного внимания.";
+      const narrative = "Гражданская передышка. Президент сосредоточился на внутренних делах — экономика, доходы населения и общественные настроения восстанавливаются. Фронт без активного давления: ВСУ используют паузу для восстановления боевого духа и пополнения личного состава.";
 
       await client.query(
         `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
@@ -1753,7 +1802,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       newStats.initiative = Math.min(130, currentInit + passiveRegen + INITIATIVE_REGROUP_REGEN);
       statDeltas.initiative = newStats.initiative - currentInit;
 
-      const narrative = "Войска отведены на переформирование. Армия восстанавливает боеспособность — фронт стабилизирован, подтягивается снабжение и резервы.";
+      // Перегруппировка открывает второй военный удар в этом месяце (ценой блока следующего)
+      newStats.regroup_bonus_attack = true;
+
+      const narrative = "Войска перегруппированы и готовы к броску. Снабжение подтянуто, резервы переброшены на ключевые участки. В этом месяце доступен второй военный удар — но следующий месяц армия будет восстанавливаться без активных операций.";
 
       await client.query(
         `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
