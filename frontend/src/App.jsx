@@ -4488,6 +4488,202 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
 }
 
 // Авто-эффекты каждый месяц: пороги из rules-engine + turns.js/end-month
+// Consolidated end-of-month forecast panel — all auto-mechanics in one place
+function EndMonthForecastPanel({ stats }) {
+  const [open, setOpen] = useState(false);
+  const mil = stats.military ?? 50;
+  const inf = stats.inflation ?? 64;
+  const trs = stats.treasury ?? 52;
+  const eco = stats.economy ?? 50;
+
+  // Build list of all mechanisms, active or not
+  const mechanisms = [];
+
+  // 1. War tax
+  if (mil > 75) {
+    const tax = Math.floor((mil - 75) / 10) + 1;
+    mechanisms.push({
+      active: true, severity: tax >= 3 ? "crit" : "bad",
+      name: "Военный налог",
+      trigger: `Армия ${mil} > 75`,
+      impacts: [{ label: "Экономика", delta: -tax }, { label: "Одобрение", delta: -1 }],
+      fix: `Снизьте Армию до <75. Сейчас порог превышен на ${mil - 75} пт → каждые 10 пт сверх = ещё −1/мес.`,
+    });
+  } else {
+    mechanisms.push({
+      active: false,
+      name: "Военный налог",
+      trigger: `Армия ${mil} ≤ 75 — не активен`,
+      impacts: [{ label: "Экономика", delta: -1 }, { label: "Одобрение", delta: -1 }],
+      fix: null,
+    });
+  }
+
+  // 2. Inflation shock
+  if (inf > 73) {
+    const ecoP = Math.min(3, Math.floor((inf - 73) / 10) + 1);
+    const appP = Math.min(2, Math.floor((inf - 73) / 15) + 1);
+    mechanisms.push({
+      active: true, severity: ecoP >= 3 ? "crit" : "bad",
+      name: "Инфляционный шок",
+      trigger: `Инфляция ${inflationPercent(inf).toFixed(0)}% г/г > 15% (балл ${inf} > 73)`,
+      impacts: [{ label: "Экономика", delta: -ecoP }, { label: "Одобрение", delta: -appP }],
+      fix: "Указы «Жёсткая экономия» снижают инфляцию. Не выпускайте ОФЗ (каждый выпуск +1 инфл/мес). Потолок штрафа −3/−2.",
+    });
+  } else {
+    mechanisms.push({
+      active: false,
+      name: "Инфляционный шок",
+      trigger: `Инфляция ${inflationPercent(inf).toFixed(0)}% г/г ≤ 15% — не активен`,
+      impacts: [{ label: "Экономика", delta: -1 }, { label: "Одобрение", delta: -1 }],
+      fix: null,
+    });
+  }
+
+  // 3. Treasury spiral
+  if (trs < 0) {
+    mechanisms.push({
+      active: true, severity: "crit",
+      name: "Дефицит казны",
+      trigger: `Казна ${trs} < 0 — критический дефицит`,
+      impacts: [{ label: "Экономика", delta: -2 }, { label: "Инфляция", delta: +2 }, { label: "Стабильность", delta: -1 }],
+      fix: "Срочно: откажитесь от части госпрограмм, погасите ОФЗ, проведите 2–3 указа «Жёсткой экономии». Дефицит разгоняет инфляцию → двойной удар.",
+    });
+  } else if (trs < 15) {
+    mechanisms.push({
+      active: true, severity: "bad",
+      name: "Низкая казна",
+      trigger: `Казна ${trs} < 15 — вынужденная аустерити`,
+      impacts: [{ label: "Экономика", delta: -1 }],
+      fix: "Экономика >50 даёт ~40 дохода в мес. Снизьте расходы (госпрограммы, ОФЗ) или проведите налоговые указы.",
+    });
+  } else if (trs > 65 && eco < 82) {
+    mechanisms.push({
+      active: true, severity: "good",
+      name: "Профицит казны",
+      trigger: `Казна ${trs} > 65 — есть ресурс для инвестиций`,
+      impacts: [{ label: "Экономика", delta: +1 }],
+      fix: null,
+    });
+  } else {
+    mechanisms.push({
+      active: false,
+      name: "Казна",
+      trigger: `Казна ${trs} — в норме, штрафов нет`,
+      impacts: [],
+      fix: null,
+    });
+  }
+
+  // 4. ОФЗ инфляционное давление
+  if (stats.ofz_bonds_outstanding > 0) {
+    const ofzCount = stats.ofz_bonds_outstanding;
+    mechanisms.push({
+      active: true, severity: "bad",
+      name: "Давление ОФЗ",
+      trigger: `${ofzCount} выпуск(а) ОФЗ в обращении`,
+      impacts: [{ label: "Инфляция", delta: +ofzCount }],
+      fix: "Каждый выпуск ОФЗ добавляет +1 инфляции в месяц. Погашайте долги при первой возможности через «Погасить ОФЗ».",
+    });
+  }
+
+  // 5. Domestic crisis (always probabilistic)
+  mechanisms.push({
+    active: "random", severity: "random",
+    name: "Внутренний кризис",
+    trigger: "7% шанс каждый месяц — случайное событие",
+    impacts: [{ label: "≈ −4…−7 к одной из стат", delta: null }],
+    fix: "Нельзя устранить. Высокая Стабильность и Одобрение создают «подушку» перед ударом.",
+  });
+
+  const activeCount = mechanisms.filter(m => m.active === true).length;
+  const totalDrain = mechanisms
+    .filter(m => m.active === true)
+    .flatMap(m => m.impacts)
+    .filter(i => i.delta !== null && i.delta < 0)
+    .reduce((s, i) => s + i.delta, 0);
+
+  const severityColor = { crit: "#a8313a", bad: "#9c5a1a", good: "#4a6b5c", random: "#5a4a8a" };
+  const severityBg = { crit: "#fde8e8", bad: "#fdf3e8", good: "#e8f5e8", random: "#f0eef8" };
+
+  return (
+    <div style={{ marginBottom: 14, borderRadius: 6, border: `1px solid ${activeCount > 0 ? "#c8a87a" : "#d8d2bf"}`, overflow: "hidden", background: "#f5f1e6" }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ cursor: "pointer", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.1em", color: "#8a8472" }}>КОНЕЦ МЕСЯЦА · МЕХАНИКИ</span>
+          {activeCount > 0 && (
+            <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
+              {activeCount} активно
+            </span>
+          )}
+          {totalDrain < 0 && (
+            <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
+              ≈{totalDrain}/мес авто
+            </span>
+          )}
+        </div>
+        <span style={{ color: "#9c8347", fontSize: 16, transition: "transform 0.2s", display: "inline-block", transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+      </div>
+
+      {open && (
+        <div style={{ borderTop: "1px solid #e8e2d0", padding: "12px 12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {mechanisms.map((m, i) => {
+            const color = m.active === false ? "#a8a294" : (severityColor[m.severity] || "#5c5648");
+            const bg = m.active === false ? "#f0ede4" : (severityBg[m.severity] || "#f5f1e6");
+            return (
+              <div key={i} style={{ background: bg, borderRadius: 5, border: `1px solid ${m.active === false ? "#d8d2bf" : color + "55"}`, padding: "8px 10px" }}>
+                {/* Header row */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span className="doc-font" style={{ fontSize: 12, fontWeight: 700, color: m.active === false ? "#a8a294" : "#2e2a22" }}>{m.name}</span>
+                  {m.active === false && (
+                    <span className="mono-font" style={{ fontSize: 8, color: "#a8a294", background: "#e8e2d0", borderRadius: 2, padding: "1px 5px" }}>НЕ АКТИВЕН</span>
+                  )}
+                  {m.active === "random" && (
+                    <span className="mono-font" style={{ fontSize: 8, color: "#5a4a8a", background: "#f0eef8", borderRadius: 2, padding: "1px 5px" }}>СЛУЧАЙНЫЙ</span>
+                  )}
+                </div>
+                {/* Trigger condition */}
+                <div className="mono-font" style={{ fontSize: 9.5, color: color, marginBottom: m.impacts.length > 0 || m.fix ? 6 : 0, lineHeight: 1.4 }}>
+                  {m.trigger}
+                </div>
+                {/* Impact chips */}
+                {m.impacts.length > 0 && m.active !== false && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: m.fix ? 6 : 0 }}>
+                    {m.impacts.map((imp, j) => {
+                      const isNeg = imp.delta !== null && imp.delta < 0;
+                      const isPos = imp.delta !== null && imp.delta > 0;
+                      const chipColor = isNeg ? "#a8313a" : isPos ? "#4a6b5c" : "#5a4a8a";
+                      const chipBg = isNeg ? "#fde8e8" : isPos ? "#e8f5e8" : "#f0eef8";
+                      return (
+                        <span key={j} className="mono-font" style={{ fontSize: 10, background: chipBg, color: chipColor, borderRadius: 3, padding: "2px 7px", fontWeight: 700 }}>
+                          {imp.label}{imp.delta !== null ? ` ${imp.delta > 0 ? "+" : ""}${imp.delta}` : ""}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Fix hint */}
+                {m.fix && m.active !== false && (
+                  <div style={{ display: "flex", gap: 5, alignItems: "flex-start" }}>
+                    <span style={{ color: "#9c8347", fontSize: 11, flexShrink: 0, marginTop: 1 }}>→</span>
+                    <span className="doc-font" style={{ fontSize: 11, color: "#5c5648", lineHeight: 1.45 }}>{m.fix}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="mono-font" style={{ fontSize: 9, color: "#a8a294", lineHeight: 1.5, paddingTop: 2 }}>
+            Бюджет (доходы − расходы → казна) отражается в ленте после каждого завершения месяца.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function getPassiveEffects(key, stats) {
   const mil = stats.military ?? 50;
   const inf = stats.inflation ?? 64;
@@ -4578,6 +4774,7 @@ function StatsTab({ state, gameId }) {
 
   return (
     <>
+      <EndMonthForecastPanel stats={state.stats} />
       <div style={{ display: "grid", gap: 10 }}>
         {Object.entries(state.stats).filter(([key]) => statMeta[key]).map(([key, value]) => {
           const meta = statMeta[key];
