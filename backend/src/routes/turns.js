@@ -1481,7 +1481,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // причин цена/курс со временем стягиваются обратно к норме, а не «убегают» навсегда
       // к границам диапазона. Плюс ~15% шанс геополитического события, которое толкает
       // нефть/курс резко в плюс или в минус (Иран и т.п. — отдельный, более сильный сдвиг).
-      const OIL_BASELINE = 68;
+      // База нефти поднята с 68 до 85: фоновый конфликт США-Иран держит рынок нервным,
+      // реальные котировки Brent в такой обстановке чаще находятся в диапазоне $80-120,
+      // а не у довоенных $60-70.
+      const OIL_BASELINE = 85;
       const FX_BASELINE = 80;
       const oilBefore = typeof newStats.oil_price === "number" ? newStats.oil_price : OIL_BASELINE;
       const fxBefore = typeof newStats.usd_rub === "number" ? newStats.usd_rub : FX_BASELINE;
@@ -1499,6 +1502,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           { source: "Коммерсантъ", fxDelta: 7, text: "Новый пакет санкций ударил по экспортным расчётам — рубль ослаб на фоне дефицита валютной ликвидности." },
           { source: "РБК", fxDelta: -6, text: "Сильный экспортный квартал и удержание капитала в стране укрепили рубль." },
           { source: "Forbes", fxDelta: 8, text: "Отток капитала ускорился: крупный бизнес выводит резервы за рубеж на фоне неопределённости. Рубль слабеет." },
+          { source: "Al Jazeera", oilDelta: 11, text: "Иран пригрозил закрыть Ормузский пролив в ответ на новые удары США по своей территории. Через пролив идёт пятая часть мировой нефти — рынок в панике." },
+          { source: "CNBC", oilDelta: -6, text: "Саудовская Аравия и ОАЭ нарастили добычу сверх квот ОПЕК+, компенсируя выпадающие иранские поставки. Цены на нефть скорректировались вниз." },
+          { source: "OilPrice.com", oilDelta: 6, text: "ОПЕК+ продлила соглашение об ограничении добычи ещё на квартал — участники картеля настаивают на защите цен несмотря на рост предложения вне картеля." },
         ];
         const ev = MARKET_EVENTS[Math.floor(Math.random() * MARKET_EVENTS.length)];
         if (ev.oilDelta) oilNow = Math.max(35, Math.min(120, oilNow + ev.oilDelta));
@@ -1526,48 +1532,70 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const oilIncome = Math.round((newStats.oil_price - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
       const fxIncome = Math.round((newStats.usd_rub - FX_BASELINE) * 0.4);
       if (newStats.usd_rub > FX_BASELINE + 10) {
-        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.5);
       }
 
-      // --- РЕЗЕРВЫ: помесячный дрейф + уязвимость при низком уровне ---
+      // --- РЕЗЕРВЫ: помесячный дрейф + излишек нефтедоходов + уязвимость при низком уровне ---
       // Профицит торгового баланса (дорогая нефть + выгодный курс) понемногу пополняет ЗВР,
       // дефицит — расходует. Высокая изоляция размывает резервы (заморозка активов за рубежом,
       // ограничения на расчёты). Резервы ниже 20 означают, что ЦБ нечем защищать рубль —
       // это усиливает инфляцию (см. также демпфер валютных шоков выше).
+      // Излишек нефтегазовых доходов сверх порога 15/мес не сгорает бесследно, а частично уходит
+      // в резервы — как бюджетное правило Минфина РФ (доходы выше цены отсечения — в ФНБ).
       const tradeBalance = oilIncome + fxIncome;
-      let reservesDelta = tradeBalance > 5 ? 1 : tradeBalance < -5 ? -1 : 0;
+      const tradeSurplus = Math.max(0, tradeBalance - 15);
+      let reservesDelta = (tradeBalance > 5 ? 1 : tradeBalance < -5 ? -1 : 0) + Math.round(tradeSurplus * 0.3);
       if (isolationVal > 75) reservesDelta -= 1;
       newStats.reserves = Math.max(0, Math.min(100, (newStats.reserves ?? 48) + reservesDelta));
       if (newStats.reserves < 20) {
-        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.5);
       }
 
       // --- КАЗНА: месячный доход и расход ---
       const { TREASURY_MIN } = require("../rules/rules-engine");
-      const { OFZ_MONTHLY_COST } = require("./treasury");
+      const { ofzTotalMonthlyCost } = require("./treasury");
       const activePolicies = (game.policies || []).filter(p => p.status !== "cancelled");
-      const taxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
+      const rawTaxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
       const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
-      // ОФЗ: обслуживание долга (вычитается из казны каждый месяц)
+      // ОФЗ: обслуживание долга (вычитается из казны каждый месяц). Стоимость 1 выпуска
+      // компаундится вместе с ключевой ставкой ЦБ — см. treasury.js/ofzMonthlyCostPerBond.
       const ofzCount = newStats.ofz_count ?? 0;
-      const ofzDebtService = ofzCount * OFZ_MONTHLY_COST;
+      const ofzDebtService = ofzTotalMonthlyCost(ofzCount, newStats.key_rate);
       // Налоговый доход: при экономике > 50 — растёт, ниже 50 — падает, ниже 35 — минимум
       const eco = newStats.economy ?? 50;
-      const economyIncome = eco >= 50
+      const rawEconomyIncome = eco >= 50
         ? Math.round(20 + (eco - 50) * 0.6)  // 50→20, 60→26, 80→38, 100→50
         : eco >= 35
           ? Math.round(eco * 0.4)              // 35→14, 49→19 — почти стагнация
           : Math.round(Math.max(5, eco * 0.2)); // ниже 35 — минимальные поступления
+      // БЕЗРАБОТИЦА → НАЛОГОВАЯ БАЗА: занятость (employment) двигает множитель дохода вокруг
+      // стартового уровня 74 (сид партии) — так игра не штрафует экономику с 1-го хода из-за
+      // абсолютного значения подстаты, только за реальное отклонение от базы.
+      const employmentNow = newStats.employment ?? 74;
+      const employmentFactor = Math.max(0.6, Math.min(1.3, 1 + (employmentNow - 74) * 0.004));
+      const economyIncome = Math.round(rawEconomyIncome * employmentFactor);
+      const taxIncome = Math.round(rawTaxIncome * employmentFactor);
       // Коррупционная утечка: часть бюджета разворовывается каждый месяц, пропорционально уровню коррупции.
       // 0-50 коррупции — утечки нет; 50-100 — растёт нелинейно (схемы крупнее при высокой коррупции).
+      // Подстата живёт в группе «Одобрение» (коррупция — про элиты), но эффект чисто экономический.
       const corrLevel = newStats.corruption ?? 55;
       const corruptionDrain = corrLevel > 50 ? Math.round(Math.pow((corrLevel - 50) / 50, 1.3) * 12) : 0;
       const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome - corruptionDrain;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
-      // ОФЗ инфляционное давление: +1 инфляции за каждый активный выпуск в месяц
+      // ОФЗ инфляционное давление: +0.3 инфляции за каждый активный выпуск в месяц (было +1 —
+      // слишком резко для фонового, а не разового эффекта)
       if (ofzCount > 0) {
-        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + ofzCount);
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + ofzCount * 0.3);
+      }
+      // РОСТ ВВП → ЭКОНОМИКА: gdp_growth — подстата, которая раньше двигалась от действий, но
+      // никак не влияла на саму economy. Теперь отклонение от стартового уровня (36 на сиде)
+      // понемногу компаундится в economy — устойчивый рост ВВП постепенно поднимает всю
+      // экономику, устойчивый спад — подтачивает её, а не просто существует "для галочки".
+      const gdpGrowthNow = newStats.gdp_growth ?? 36;
+      const gdpEconomyEffect = Math.round((gdpGrowthNow - 36) / 25);
+      if (gdpEconomyEffect) {
+        newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + gdpEconomyEffect));
       }
       // Сбрасываем флаг выпуска ОФЗ за месяц
       delete newStats.ofz_used_this_month;
@@ -1575,6 +1603,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       delete newStats.cb_pressure_used;
       // Сбрасываем флаг антикоррупционной кампании
       delete newStats.anticorruption_used;
+      // Сбрасываем флаг конвертации резервов
+      delete newStats.reserves_converted_this_month;
 
       // --- КЛЮЧЕВАЯ СТАВКА ЦБ (автономная логика) ---
       // ЦБ медленно тянет ставку к целевому значению, зависящему от инфляции.
@@ -1606,12 +1636,40 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
       }
 
-      // --- ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ (раз в месяц, не на каждый confirm) ---
-      // Военные расходы давят на экономику при military > 75
-      if ((newStats.military ?? 50) > 75) {
-        const warTax = Math.floor(((newStats.military ?? 50) - 75) / 10) + 1; // 1-3 pts
-        newStats.economy = Math.max(0, (newStats.economy ?? 50) - warTax);
-        newStats.approval = Math.max(0, (newStats.approval ?? 50) - 1);
+      // --- ВОЕННОЕ БРЕМЯ (раз в месяц, не на каждый confirm) ---
+      // Объединяет два смежных по смыслу механизма: цена армии (по размеру, military > 80)
+      // и усталость общества от затянувшейся войны (по длительности непрерывных военных
+      // ходов, military_streak). Оба — про одну и ту же вещь: война стоит денег и поддержки,
+      // раньше это были два несвязанных блока с раздельными новостями.
+      {
+        const milNow = newStats.military ?? 50;
+        const warStreak = newStats.military_streak ?? 0;
+        let burdenEconomy = 0, burdenApproval = 0, burdenStability = 0;
+        const burdenParts = [];
+
+        if (milNow > 80) {
+          const sizeTax = Math.floor((milNow - 80) / 10) + 1; // 1-3 pts
+          burdenEconomy += sizeTax;
+          burdenApproval += 1;
+          burdenParts.push(`содержание армии (${milNow} > 80): экономика −${sizeTax}, рейтинг −1`);
+        }
+        if (warStreak >= 4) {
+          const wearinessHit = Math.min(5, Math.floor((warStreak - 3) * 1.5)); // 1-5 pts
+          burdenApproval += wearinessHit;
+          burdenStability += Math.ceil(wearinessHit / 2);
+          burdenParts.push(`${warStreak}-й месяц непрерывной войны: рейтинг −${wearinessHit}, стабильность −${Math.ceil(wearinessHit / 2)}`);
+        }
+
+        if (burdenEconomy || burdenApproval || burdenStability) {
+          if (burdenEconomy) newStats.economy = Math.max(0, (newStats.economy ?? 50) - burdenEconomy);
+          if (burdenApproval) newStats.approval = Math.max(0, (newStats.approval ?? 50) - burdenApproval);
+          if (burdenStability) newStats.stability = Math.max(0, (newStats.stability ?? 50) - burdenStability);
+          await client.query(
+            `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+            [gameId, completedMonth, "ВЦИОМ", `Военное бремя. ${burdenParts.join("; ")}.`]
+          );
+          fastify.log.info({ gameId, burdenEconomy, burdenApproval, burdenStability }, "War burden fired (end-month)");
+        }
       }
 
       // --- ВНУТРЕННИЕ КРИЗИСЫ (раз в месяц, не на каждый confirm) ---
@@ -1679,21 +1737,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Казна ограничена 100 сверху: профицит выше 100 не накапливается
       newStats.treasury = Math.min(100, treasuryAfter);
 
-      // --- УСТАЛОСТЬ ОТ ВОЙНЫ (помесячная) ---
-      // Если игрок провёл 4+ военных хода подряд — общество устаёт.
-      // Штраф: approval −2, stability −1 раз в месяц при стрике ≥ 4.
-      const warStreak = newStats.military_streak ?? 0;
-      if (warStreak >= 4) {
-        const wearinessHit = Math.min(5, Math.floor((warStreak - 3) * 1.5)); // 1-5 pts
-        newStats.approval = Math.max(0, (newStats.approval ?? 50) - wearinessHit);
-        newStats.stability = Math.max(0, (newStats.stability ?? 50) - Math.ceil(wearinessHit / 2));
-        await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
-          [gameId, completedMonth,
-           "ВЦИОМ",
-           `Усталость от войны. ${warStreak}-й месяц непрерывных боевых действий — общество устало. Рейтинг президента упал на ${wearinessHit} пункт${wearinessHit > 1 ? "а" : ""}. Требования прекратить огонь звучат всё громче.`]
-        );
-      }
+      // Усталость от войны объединена с военным налогом — см. блок «ВОЕННОЕ БРЕМЯ» выше.
 
       // --- ИСТЕЧЕНИЕ СРОКА ПОЛИТИК ---
       // Политики с target_turn <= completedMonth удаляются (реформа отработала срок).
