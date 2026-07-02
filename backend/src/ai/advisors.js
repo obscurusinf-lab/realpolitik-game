@@ -160,7 +160,7 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
 }`;
 
 function buildEconIndicators(stats) {
-  const OIL_BASE = 68, FX_BASE = 80, INFLATION_OFFSET = 58;
+  const OIL_BASE = 85, FX_BASE = 80, INFLATION_OFFSET = 58;
   const oil = stats.oil_price ?? OIL_BASE;
   const fx = stats.usd_rub ?? FX_BASE;
   const inflScore = stats.inflation ?? 64;
