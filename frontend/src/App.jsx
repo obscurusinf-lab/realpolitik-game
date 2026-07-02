@@ -1211,16 +1211,18 @@ function generateSmartHints(stats, turn) {
   return deduped.slice(0, 4);
 }
 
-const MODE_LABELS = { military: "⚔️ военная", decree_fast: "📜 быстрый", decree_reform: "📋 реформа", decree_program: "🏛 программа", diplomacy_op: "🤝 дипломатия", intel: "🕵️ разведка", regroup: "⚙ перегруппировка" };
+const MODE_LABELS = { military: "⚔️ военная", decree_fast: "📜 быстрый", decree_reform: "📋 реформа", decree_program: "🏛 программа", diplomacy_op: "🤝 дипломатия", intel: "🕵️ шпионаж", regroup: "⚙ перегруппировка" };
 
 // Что даёт каждый тип действия: цена инициативы, длительность эффекта, риск.
+// Военные/дипломатия/шпионаж теперь стоят ПО КОНКРЕТНОЙ КАТЕГОРИИ (см. rules-engine.js
+// CATEGORY_COST), а не плоско по режиму — cost/money здесь показывают диапазон.
 const ACTION_MODE_INFO = {
   decree_fast:    { cost: 20, money: 3,  duration: "эффект ~2 хода",  risk: "низкий риск",       riskColor: "#5a9c6a", desc: "Быстрый указ — дёшево и сразу. Разовые меры: льготы, выплаты, объявления. Слабее реформы, но почти без штрафов." },
   decree_reform:  { cost: 35, money: 8,  duration: "эффект ~5 ходов", risk: "средний эффект",    riskColor: "#9c8347", desc: "Системная реформа — сильнее и дольше быстрого указа, но дороже по инициативе и деньгам, эффект разворачивается не сразу." },
   decree_program: { cost: 55, money: 15, duration: "эффект ~10 ходов",risk: "долго, но дорого",  riskColor: "#c89347", desc: "Крупная программа — самый длительный эффект (~10 ходов), но самая дорогая по инициативе и деньгам. Выгодна в долгую." },
-  intel:          { cost: 20, money: 5,  duration: "разовый исход",   risk: "СЛУЧАЙНЫЙ исход",   riskColor: "#c0653a", desc: "Разведоперация — азартна: успех укрепляет армию/мораль, провал бьёт по дипломатии (−3..−5) и репутации. Чем сильнее армия — тем выше шанс успеха." },
-  diplomacy_op:   { cost: 35, money: 5,  duration: "двигает мирный трек", risk: "роняет военный темп", riskColor: "#9c8347", desc: "Дипломатическая операция — главный двигатель мирного трека, недорогая по деньгам. Но мирные шаги Киев может использовать для вероломства." },
-  military:       { cost: 55, money: 20, duration: "двигает территории", risk: "роняет мир/экономику", riskColor: "#a8313a", desc: "Военная операция — продвигает контроль над территориями, но самая дорогая (инициатива + деньги), бьёт по экономике и мирному треку." },
+  intel:          { cost: "20–60", money: "5–25", duration: "риск раскрытия",  risk: "риск раскрытия",   riskColor: "#c0653a", desc: "Тайная операция против противника — дестабилизация, диверсия, дезинформация, ликвидация. Дороже и опаснее для более жёстких методов. Исход раскрытия узнаете только ПОСЛЕ подписи приказа — отменить и переиграть нельзя." },
+  diplomacy_op:   { cost: "25–50", money: "3–10", duration: "разное по типу", risk: "роняет военный темп", riskColor: "#9c8347", desc: "Дипломатия — от обычных переговоров до договоров и коалиций. Мирная инициатива — отдельно и дешевле остальных: главный двигатель мирного трека. Мирные шаги Киев может использовать для вероломства." },
+  military:       { cost: "15–80", money: "3–35", duration: "двигает территории", risk: "роняет мир/экономику", riskColor: "#a8313a", desc: "От разведки и точечного удара до стратегического наступления/обороны и гибридной войны. Разведка перед операцией усиливает следующий боевой ход. Продвигает контроль над территориями, бьёт по экономике и мирному треку." },
 };
 const STATUS_COLORS = { ok: "#3a9c6a", warn: "#c8a347", crit: "#a8313a" };
 const STATUS_DOTS = { ok: "🟢", warn: "🟡", crit: "🔴" };
@@ -1626,6 +1628,34 @@ function StepBadge({ n, done, active }) {
 
 function btnStyle(bg, color) {
   return { background: bg, color, border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: "pointer" };
+}
+
+// Раскрытие тайной операции (covert_*) — показывается ПОСЛЕ подтверждения хода,
+// никогда в preview (см. backend revealCovertOutcome). Игрок узнаёт исход только
+// когда решение уже необратимо, поэтому подано как отдельный, весомый блок.
+function CovertOutcomeReveal({ exposed }) {
+  const color = exposed ? "#c0453a" : "#7fae93";
+  const bg = exposed ? "#1c0e0c" : "#0d1a10";
+  const border = exposed ? "#4a2420" : "#2a4030";
+  return (
+    <div className="covert-reveal-pop" style={{ background: bg, border: `1px solid ${border}`, borderLeft: `3px solid ${color}`, borderRadius: 4, padding: "10px 12px", marginBottom: 12 }}>
+      <style>{`
+        @keyframes covertRevealPop { 0% { opacity: 0; transform: scale(0.96) translateY(-4px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
+        .covert-reveal-pop { animation: covertRevealPop 0.35s ease-out; }
+      `}</style>
+      <div className="mono-font" style={{ fontSize: 9, color, letterSpacing: "0.1em", marginBottom: 4 }}>
+        🕵 ИСХОД ТАЙНОЙ ОПЕРАЦИИ
+      </div>
+      <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: exposed ? "#e0847a" : "#a0c090", marginBottom: exposed ? 4 : 0 }}>
+        {exposed ? "ОПЕРАЦИЯ РАСКРЫТА" : "ОПЕРАЦИЯ ОСТАЛАСЬ В ТЕНИ"}
+      </div>
+      {exposed && (
+        <div className="doc-font" style={{ fontSize: 12, color: "#c09088", lineHeight: 1.5 }}>
+          Причастность вскрылась — дипломатический скандал неизбежен. Дополнительный удар по дипломатии и стабильности уже применён к статам.
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------- MissionPanel ----------
@@ -2218,6 +2248,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         gmActionType: preview?.gmActionType,
         statChangelog: confirmResult?.statChangelog || null,
         actualPrevStats: confirmResult?.prevStats || preConfirmStats,
+        // Исход раскрытия тайной операции — известен ТОЛЬКО сейчас, после confirm
+        // (см. revealCovertOutcome в rules-engine.js). undefined для не-шпионских категорий.
+        covertExposed: confirmResult?.covertExposed,
       });
       if (confirmResult?.gameOutcome) {
         setGameOutcome(confirmResult.gameOutcome);
@@ -2647,6 +2680,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </div>
           )}
 
+          {/* Раскрытие тайной операции — известно ТОЛЬКО после подписи приказа (см. backend
+              revealCovertOutcome). Отдельный блок, чтобы не потерялось среди обычного нарратива. */}
+          {lastActionResult && typeof lastActionResult.covertExposed === "boolean" && (
+            <CovertOutcomeReveal exposed={lastActionResult.covertExposed} />
+          )}
+
           {/* Заголовок действия + переключатель режима */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2917,8 +2956,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               value={draftInput}
               onChange={(e) => setDraftInput(e.target.value)}
               placeholder={
-                actionMode === "intel" ? "Опишите разведывательную или тайную операцию…"
-                : actionMode === "military" ? "Опишите военную операцию или приказ…"
+                actionMode === "intel" ? "Опишите тайную операцию против противника (дестабилизация, диверсия, дезинформация)…"
+                : actionMode === "military" ? "Опишите военную операцию — от разведки и точечного удара до наступления…"
                 : actionMode === "decree_program" ? "Опишите крупную государственную программу (7–12 мес.)…"
                 : actionMode === "decree_reform" ? "Опишите реформу (3–6 мес.)…"
                 : actionMode === "crisis" ? "Опишите экстренную меру (ЧС режим)…"
@@ -3055,7 +3094,7 @@ const ACTION_MODE_BADGE = {
   decree_fast:    { label: "📜 Быстрый указ",     color: "#7ab09c" },
   decree_reform:  { label: "📋 Реформа",           color: "#9c8347" },
   decree_program: { label: "🏛 Крупная программа", color: "#9c7ab0" },
-  intel:          { label: "🕵️ Разведка",          color: "#7a9cb0" },
+  intel:          { label: "🕵️ Шпионаж",           color: "#7a9cb0" },
   military:       { label: "⚔️ Военная операция",  color: "#c07070" },
   diplomacy_op:   { label: "🤝 Диппереговоры",     color: "#5b8cb0" },
   crisis:         { label: "⚡ Антикризисный",     color: "#c09030" },
@@ -4972,6 +5011,41 @@ function StatsTab({ state, gameId }) {
   }
 
   const ACTION_TYPE_LABEL = {
+    // Новые категории (см. docs/04-cabinet-and-categories.md)
+    mil_recon: "Военная разведка",
+    mil_tactical: "Тактический удар",
+    mil_operational_offensive: "Наступление",
+    mil_operational_defensive: "Оборона",
+    mil_strategic_offensive: "Стратегическое наступление",
+    mil_strategic_defensive: "Стратегическая оборона",
+    mil_hybrid: "Гибридная война",
+    covert_destabilize: "Дестабилизация",
+    covert_sabotage: "Диверсия",
+    covert_disinfo: "Дезинформация",
+    covert_elimination: "Ликвидация",
+    diplo_negotiate: "Переговоры",
+    diplo_treaty: "Договор",
+    diplo_pressure: "Давление",
+    diplo_multilateral: "Коалиция",
+    diplo_soft_power: "Мягкая сила",
+    diplo_peace: "Мирная инициатива",
+    econ_stimulus: "Стимул эк-ки",
+    econ_austerity: "Жёсткая экономия",
+    econ_sanctions_counter: "Контрсанкции",
+    econ_infrastructure: "Инфраструктура",
+    econ_tech: "Технологии",
+    mil_admin_budget: "Оборонный бюджет",
+    mil_admin_mobilization: "Мобилизация",
+    mil_admin_doctrine: "Военная доктрина",
+    pol_repression: "Подавление",
+    pol_liberalization: "Либерализация",
+    pol_elite_consolidation: "Консолидация элит",
+    pol_social: "Соцпрограмма",
+    pol_propaganda: "Пропаганда",
+    military_regroup: "Перегруппировка",
+    null_action: "Бездействие",
+    nuclear_strike: "Ядерный удар",
+    // Старые категории — оставлены для истории партий, начатых до расширения категорий
     military_offensive: "Наступление",
     military_defensive: "Оборона",
     diplomacy_outreach: "Дипломатия",
@@ -4983,8 +5057,10 @@ function StatsTab({ state, gameId }) {
     info_narrative: "Нарратив",
     intelligence_covert: "Разведка",
     peace_initiative: "Мирная инициатива",
-    null_action: "Бездействие",
-    nuclear_strike: "Ядерный удар",
+    intel_success: "Разведка (успех)",
+    intel_critical_success: "Разведка (блестящий успех)",
+    intel_failure: "Разведка (провал)",
+    intel_critical_failure: "Разведка (крит. провал)",
   };
 
   return (
