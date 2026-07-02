@@ -1597,6 +1597,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       if (gdpEconomyEffect) {
         newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + gdpEconomyEffect));
       }
+      // НАРОДНОЕ НАСТРОЕНИЕ → ОДОБРЕНИЕ: middle_class и lower_class_mood были декоративными
+      // подстатами (двигались от действий, ни на что не влияли) — та же ситуация, что была
+      // с gdp_growth. Теперь отклонение от стартового уровня (сид: 44 и 41) понемногу
+      // компаундится в approval, каждая половина отдельно и мягче, чем ВВП→экономика,
+      // потому что тут два источника бьют по одной и той же стате.
+      const middleClassNow = newStats.middle_class ?? 44;
+      const lowerClassNow = newStats.lower_class_mood ?? 41;
+      const moodApprovalEffect = Math.round((middleClassNow - 44) / 30) + Math.round((lowerClassNow - 41) / 30);
+      if (moodApprovalEffect) {
+        newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + moodApprovalEffect));
+      }
       // Сбрасываем флаг выпуска ОФЗ за месяц
       delete newStats.ofz_used_this_month;
       // Сбрасываем флаг давления на ЦБ
@@ -1704,6 +1715,37 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           ])]
         );
         fastify.log.info({ gameId, source: crisis.source }, "Domestic crisis fired (end-month)");
+      }
+
+      // --- МЯТЕЖ ЭЛИТ (раз в месяц, не на каждый confirm) ---
+      // Пригожинский сценарий: если elite_satisfaction проседает надолго, часть силового
+      // блока/ЧВК может выступить против центра. Это НЕ поражение само по себе — тревожный
+      // звоночек с реальным ударом по статам. Подавление не гарантированно быстрое: второй
+      // бросок решает, обошлось малой кровью или переросло в тяжёлый внутренний кризис.
+      const eliteSatNow = newStats.elite_satisfaction ?? 62;
+      if (eliteSatNow < 35 && Math.random() < 0.15) {
+        const escalates = Math.random() < 0.55; // не так просто подавить — почти монетка не в пользу игрока
+        if (escalates) {
+          newStats.stability = Math.max(0, (newStats.stability ?? 50) - 9);
+          newStats.approval = Math.max(0, (newStats.approval ?? 50) - 4);
+          newStats.military = Math.max(0, (newStats.military ?? 50) - 3);
+          newStats.army_morale = Math.max(0, (newStats.army_morale ?? 62) - 5);
+        } else {
+          newStats.stability = Math.max(0, (newStats.stability ?? 50) - 4);
+          newStats.army_morale = Math.max(0, (newStats.army_morale ?? 62) - 2);
+        }
+        // Мятежная фракция устранена/куплена — оставшиеся элиты консолидируются вокруг центра
+        newStats.elite_satisfaction = Math.min(100, Math.max(0, eliteSatNow - (escalates ? 12 : 8) + 8));
+        const mutinyText = escalates
+          ? "Марш на столицу: колонна силовых формирований, недовольных курсом Кремля, двинулась к центру. Несколько часов страна была на грани — переговоры и переброска верных частей остановили колонну в последний момент. Часть военного руководства отправлена в отставку, но осадок в армии и обществе останется надолго."
+          : "Попытка мятежа в одном из силовых формирований подавлена в течение суток — командиры не поддержали выступление, зачинщики задержаны. Инцидент замяли, но слухи о расколе элит уже разошлись по Telegram-каналам.";
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, completedMonth, "news", "Медуза", mutinyText, JSON.stringify([
+            { emoji: "😱", label: "шок", count: Math.floor(Math.random() * 150) + 80 },
+          ])]
+        );
+        fastify.log.info({ gameId, escalates }, "Elite mutiny fired (end-month)");
       }
 
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.

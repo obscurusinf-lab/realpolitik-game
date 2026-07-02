@@ -4724,7 +4724,55 @@ function EndMonthForecastPanel({ stats }) {
     }
   }
 
-  // 9. Domestic crisis (always probabilistic)
+  // 9. Народное настроение → одобрение (компаундинг среднего класса и низов)
+  {
+    const mc = stats.middle_class ?? 44;
+    const lc = stats.lower_class_mood ?? 41;
+    const moodEffect = Math.round((mc - 44) / 30) + Math.round((lc - 41) / 30);
+    if (moodEffect !== 0) {
+      mechanisms.push({
+        active: true, severity: moodEffect > 0 ? "good" : "bad",
+        name: "Народное настроение",
+        trigger: `Средний класс ${mc} / народ ${lc} vs старт партии 44/41`,
+        impacts: [{ label: "Одобрение", delta: moodEffect }],
+        fix: moodEffect < 0
+          ? "Устойчивое недовольство среднего класса и низов подтачивает одобрение каждый месяц. Социальные и либерализационные указы поднимают оба показателя."
+          : "Довольные средний класс и низы постепенно укрепляют одобрение — держите курс.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Народное настроение",
+        trigger: `Средний класс ${mc} / народ ${lc} ≈ стартовый уровень — заметного эффекта нет`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 10. Мятеж элит (вероятностный, только при низком elite_satisfaction)
+  {
+    const eliteSat = stats.elite_satisfaction ?? 62;
+    if (eliteSat < 35) {
+      mechanisms.push({
+        active: true, severity: "crit",
+        name: "Риск мятежа элит",
+        trigger: `Элиты ${eliteSat} < 35 — 15% шанс выступления силового блока`,
+        impacts: [{ label: "Стабильность −4…−9, Одобрение −0…−4, Армия −0…−3", delta: null }],
+        fix: "Не гарантированно подавляется быстро (55% шанс перерасти в тяжёлый кризис). Консолидация элит или уступки силовикам снижают риск.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Риск мятежа элит",
+        trigger: `Элиты ${eliteSat} ≥ 35 — риска нет`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 11. Domestic crisis (always probabilistic)
   mechanisms.push({
     active: "random", severity: "random",
     name: "Внутренний кризис",
@@ -4830,7 +4878,11 @@ function getPassiveEffects(key, stats) {
   const eco = stats.economy ?? 50;
   const streak = stats.military_streak ?? 0;
   const corr = stats.corruption ?? 55;
+  const mc = stats.middle_class ?? 44;
+  const lc = stats.lower_class_mood ?? 41;
+  const eliteSat = stats.elite_satisfaction ?? 62;
   const wearinessHit = streak >= 4 ? Math.min(5, Math.floor((streak - 3) * 1.5)) : 0;
+  const moodEffect = Math.round((mc - 44) / 30) + Math.round((lc - 41) / 30);
   const effects = [];
 
   if (key === "economy") {
@@ -4873,11 +4925,17 @@ function getPassiveEffects(key, stats) {
     if (wearinessHit > 0) {
       effects.push({ sign: -1, value: wearinessHit, text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
     }
+    if (moodEffect) {
+      effects.push({ sign: moodEffect > 0 ? 1 : -1, value: Math.abs(moodEffect), text: `Народное настроение (средний класс ${mc}, народ ${lc})` });
+    }
   }
 
   if (key === "stability") {
     if (trs < 0) {
       effects.push({ sign: -1, value: 1, text: `Дефицит казны (${trs} < 0)` });
+    }
+    if (eliteSat < 35) {
+      effects.push({ sign: -1, value: 4, text: `⚠ Риск мятежа элит (15% шанс, элиты ${eliteSat} < 35, до −9 если перерастёт)` });
     }
     if (wearinessHit > 0) {
       effects.push({ sign: -1, value: Math.ceil(wearinessHit / 2), text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
