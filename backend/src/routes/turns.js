@@ -100,7 +100,7 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
 
   return null;
 }
-const { applyTurn, computeDelayedEffectDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS } = require("../rules/rules-engine");
+const { applyTurn, computeDelayedEffectDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
 // Вычисляет новую дату игры (+1 месяц в обычном режиме, +2 недели в кризисном)
@@ -463,10 +463,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
     }
 
-    // diplomacy_op → передаём AI как diplomacy_outreach (классификация та же, инициатива другая)
     const effectiveActionMode = /ядерн|термоядер|nuclear|атомн.*удар/i.test(playerInput)
       ? "military"
-      : actionMode === "diplomacy_op" ? "diplomacy_outreach"
       : actionMode;
 
     const gmClassification = await classifyTurn({
@@ -484,37 +482,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       callClaudeApi,
     });
 
-    // Intel RNG: случайный исход разведывательной операции
-    if (gmClassification.action_type === "intelligence_covert" || effectiveActionMode === "intel") {
-      const roll = Math.random();
-      let intelOutcome, outcomeLabel;
-      if (roll < 0.08) {
-        intelOutcome = "intel_critical_failure";
-        outcomeLabel = "ПРОВАЛ — агент задержан";
-      } else if (roll < 0.25) {
-        intelOutcome = "intel_failure";
-        outcomeLabel = "Операция провалена";
-      } else if (roll < 0.80) {
-        intelOutcome = "intelligence_covert"; // норма
-        outcomeLabel = null;
-      } else if (roll < 0.95) {
-        intelOutcome = "intel_success";
-        outcomeLabel = "Операция успешна";
-      } else {
-        intelOutcome = "intel_critical_success";
-        outcomeLabel = "БЛЕСТЯЩАЯ ОПЕРАЦИЯ";
-      }
-      if (intelOutcome !== "intelligence_covert") {
-        gmClassification.action_type = intelOutcome;
-        if (outcomeLabel) {
-          gmClassification.narrative = `[${outcomeLabel}] ${gmClassification.narrative || ""}`.trim();
-        }
-        if (intelOutcome === "intel_failure" || intelOutcome === "intel_critical_failure") {
-          gmClassification.advisor_objection = gmClassification.advisor_objection ||
-            "Директор СВР: Операция скомпрометирована. Необходимо немедленно отозвать агентурную сеть во избежание дальнейших потерь.";
-        }
-      }
-    }
+    // Раскрытие тайных операций (covert_*) считается внутри applyTurn (rules-engine.js) —
+    // seeded-бросок по exposure_risk, который декларирует ИИ. Старый Math.random()-бросок
+    // с подменой action_type на intel_success/intel_failure/... убран целиком (см.
+    // docs/04-cabinet-and-categories.md §4.1) — операция всегда «состоялась» по своей
+    // строке RULES_TABLE, раскрытие добавляет отдельный штраф поверх.
 
     // Защита: если AI вернул null_action при явном упоминании ядерного оружия — форсируем nuclear_strike
     const NUCLEAR_RE = /ядерн|термоядер|nuclear|атомн.*удар/i;
@@ -529,13 +501,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     }
 
     // Считаем превью дельт ТЕМ ЖЕ rules-engine — то, что увидит игрок,
-    // должно совпадать 1:1 с тем, что применится при confirm (тот же seed).
+    // должно совпадать 1:1 с тем, что применится при confirm (тот же seed) —
+    // ЗА ИСКЛЮЧЕНИЕМ исхода тайных операций (exposure_risk): его нельзя показывать
+    // до подписи приказа, иначе игрок отменит ход и обойдёт риск раскрытия «читом».
+    // См. revealCovertOutcome в applyTurn.
     const { statDeltas, relationDeltas } = applyTurn({
       state: { stats: statsAfterDelayed, relations: game.relations },
       gmClassification,
       gameId,
       turnNumber: nextTurnNumber,
       actionMode,
+      revealCovertOutcome: false,
     });
 
     await pendingTurnStore.save(gameId, {
@@ -597,7 +573,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       // Военный лимит: повторная проверка (защита от race condition)
       const confirmAt = gmClassification.action_type;
-      const isConfirmMilitary = confirmAt === "military_offensive" || confirmAt === "military_defensive";
+      const isConfirmMilitary = CATEGORY_GROUP.military_operations.has(confirmAt);
       if (isConfirmMilitary) {
         if (game.stats?.military_blocked_this_month) {
           await client.query("ROLLBACK");
@@ -621,6 +597,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         actionMode: pendingActionMode,
         crisisMode,
         regenInitiative: !multiAction, // в мульти-режиме инициатива = бюджет месяца (регенерация в конце месяца)
+        revealCovertOutcome: true, // раскрытие тайной операции считается только здесь, один раз, после подписи
       });
 
       // Снапшот после декрета — для расчёта changelog в конце хода
@@ -638,14 +615,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ---
-      // military_offensive продвигает фронт, peace/diplomacy могут фиксировать или уступать территории
+      // Наступательные операции продвигают фронт, peace/diplomacy могут фиксировать или уступать территории
       {
         const TERRITORY_KEYS = ["donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"];
         const TERRITORY_HARDNESS = { donetsk: 1.0, luhansk: 0.6, zaporizhzhia: 1.2, kherson: 1.3, kharkiv: 1.5 };
         const at = gmClassification.action_type;
         const sev = gmClassification.severity || 2;
+        const isOffensiveLike = CATEGORY_GROUP.military_offensive_like.has(at);
+        const isDefensiveLike = CATEGORY_GROUP.military_defensive_like.has(at);
+        const isDiplomaticLike = CATEGORY_GROUP.diplomatic_activity.has(at) || pendingActionMode === "diplomacy_op";
 
-        if (at === "military_offensive") {
+        if (isOffensiveLike) {
           // Прогресс зависит от армии и severity
           const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50) + (newStats.equipment ?? 50)) / 3;
           const baseGain = sev * 3 + Math.max(0, (armyQuality - 60) / 5); // 3-12 pts
@@ -660,7 +640,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               newStats[key] = Math.min(100, current + Math.max(1, gain));
             }
           }
-        } else if (at === "military_defensive") {
+        } else if (isDefensiveLike) {
           // Оборона — удержание. Небольшое восстановление потерянных позиций
           for (const key of TERRITORY_KEYS) {
             const current = newStats[key] ?? 50;
@@ -668,7 +648,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               newStats[key] = Math.min(60, current + 2);
             }
           }
-        } else if (at === "peace_initiative" || at === "diplomacy_outreach" || pendingActionMode === "diplomacy_op") {
+        } else if (isDiplomaticLike) {
           // Мирный/дипломатический трек — небольшие уступки на спорных территориях
           const concession = sev === 3 ? 4 : sev === 2 ? 2 : 1;
           for (const key of ["kharkiv_control", "kherson_control"]) {
@@ -678,7 +658,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               newStats[key] = Math.max(5, current - concession);
             }
           }
-        } else if (at === "diplomacy_confrontation") {
+        } else if (at === "diplo_pressure") {
           // Жёсткая риторика — обострение, мелкие тактические потери
           const kh = "kharkiv_control";
           const current = newStats[kh] ?? 12;
@@ -694,7 +674,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
         // --- Украинское сопротивление при наступлении ---
         // Каждый offensive — ВСУ и союзники контратакуют: случайный откат 1-3 территорий
-        if (at === "military_offensive") {
+        if (isOffensiveLike) {
           const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50)) / 2;
           // Интенсивность ответа зависит от западной поддержки (diplomacy_vs_west прокси = relations с США/ЕС)
           const resistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
@@ -826,22 +806,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Если игрок не делает дипломатию/мирные инициативы — мир сам по себе распадается.
       // В мульти-режиме пассивный распад переносится в конец месяца (/turns/end-month).
       if (!multiAction) {
-        const peaceDiplomacyActions = new Set(["diplomacy_outreach", "peace_initiative", "diplomacy_confrontation"]);
-        const isActiveDiplomacy = peaceDiplomacyActions.has(gmClassification.action_type);
+        const isActiveDiplomacy = CATEGORY_GROUP.diplomatic_activity.has(gmClassification.action_type);
+        const isOffensiveLikeForDecay = CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type);
         if (!isActiveDiplomacy && (newStats.peace_progress ?? 0) > 5) {
           const p = newStats.peace_progress ?? 0;
           // Установленный мир (>=40, порог принуждения к миру) распадается заметно медленнее:
           // игрок, выстроивший мирный трек, может давить военным путём, не теряя его —
           // «дипломатия с позиции силы». Низкий мир по-прежнему тает быстро.
-          let decay = gmClassification.action_type === "military_offensive" ? 7 : 4;
-          if (p >= 40) decay = gmClassification.action_type === "military_offensive" ? 3 : 1;
+          let decay = isOffensiveLikeForDecay ? 7 : 4;
+          if (p >= 40) decay = isOffensiveLikeForDecay ? 3 : 1;
           newStats.peace_progress = Math.max(0, p - decay);
         }
       }
 
       // --- ВОЕННЫЙ БЛОУЭФФЕКТ ---
-      // Военные наступления с вероятностью 35% вызывают эскалацию и международное осуждение
-      if (gmClassification.action_type === "military_offensive" && Math.random() < 0.20) {
+      // Наступательные операции с вероятностью 35% вызывают эскалацию и международное осуждение
+      if (CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type) && Math.random() < 0.20) {
         const BLOWBACK_EVENTS = [
           { source: "AP", penalty: 8, diplomacyDelta: -5, approvalDelta: -4,
             text: "Международный суд ООН открыл расследование в связи с последними военными операциями. Верховный комиссар по правам человека ООН Гомес потребовал немедленного прекращения огня." },
@@ -870,7 +850,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           ])]
         );
         fastify.log.info({ gameId, source: blowback.source }, "Military blowback fired");
-      } else if (gmClassification.action_type !== "military_offensive") {
+      } else if (!CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type)) {
         // Снижаем счётчик если не воюем
         if ((newStats.war_escalation_counter ?? 0) > 0) {
           newStats.war_escalation_counter = Math.max(0, (newStats.war_escalation_counter ?? 0) - 1);
@@ -1403,6 +1383,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         month: turnNumber,
         statChangelog,
         prevStats: Object.fromEntries(CHANGELOG_KEYS.map(k => [k, statsAfterDelayed[k] ?? 50])),
+        // Исход раскрытия тайной операции (covert_*) — известен ТОЛЬКО здесь, после подписи
+        // приказа (см. revealCovertOutcome в applyTurn). undefined для остальных категорий —
+        // фронт показывает отдельный «реванш»-попап только когда поле присутствует.
+        covertExposed: typeof statDeltas.exposed === "boolean" ? statDeltas.exposed : undefined,
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -1464,10 +1448,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         `SELECT action_mode, gm_classification FROM turns WHERE game_id = $1 AND turn_n = $2`,
         [gameId, completedMonth]
       );
-      const peaceDiplomacyActions = new Set(["diplomacy_outreach", "peace_initiative", "diplomacy_confrontation"]);
       const hadDiplomacy = turnsThisMonth.rows.some(r => {
         const at = (typeof r.gm_classification === "string" ? JSON.parse(r.gm_classification) : r.gm_classification)?.action_type;
-        return peaceDiplomacyActions.has(at) || r.action_mode === "diplomacy_op";
+        return CATEGORY_GROUP.diplomatic_activity.has(at) || r.action_mode === "diplomacy_op";
       });
       if (!hadDiplomacy && (newStats.peace_progress ?? 0) > 5) {
         const p = newStats.peace_progress ?? 0;
