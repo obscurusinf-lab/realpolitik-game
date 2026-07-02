@@ -327,6 +327,19 @@ export async function repayBonds(gameId) {
   return res.json();
 }
 
+export async function convertReserves(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/convert-reserves`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: "{}",
+  }, 10000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Ошибка конвертации резервов");
+  }
+  return res.json();
+}
+
 export async function cbPressure(gameId, direction) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/cb-pressure`, {
     method: "POST",

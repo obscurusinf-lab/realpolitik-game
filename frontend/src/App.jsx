@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 
 // ---------- EndTurnScreen ----------
@@ -4506,28 +4506,44 @@ function EndMonthForecastPanel({ stats }) {
   const inf = stats.inflation ?? 64;
   const trs = stats.treasury ?? 52;
   const eco = stats.economy ?? 50;
+  const streak = stats.military_streak ?? 0;
 
   // Build list of all mechanisms, active or not
   const mechanisms = [];
 
-  // 1. War tax
-  if (mil > 75) {
-    const tax = Math.floor((mil - 75) / 10) + 1;
-    mechanisms.push({
-      active: true, severity: tax >= 3 ? "crit" : "bad",
-      name: "Военный налог",
-      trigger: `Армия ${mil} > 75`,
-      impacts: [{ label: "Экономика", delta: -tax }, { label: "Одобрение", delta: -1 }],
-      fix: `Снизьте Армию до <75. Сейчас порог превышен на ${mil - 75} пт → каждые 10 пт сверх = ещё −1/мес.`,
-    });
-  } else {
-    mechanisms.push({
-      active: false,
-      name: "Военный налог",
-      trigger: `Армия ${mil} ≤ 75 — не активен`,
-      impacts: [{ label: "Экономика", delta: -1 }, { label: "Одобрение", delta: -1 }],
-      fix: null,
-    });
+  // 1. Военное бремя: размер армии (military > 80) + усталость от затянувшейся войны (streak >= 4).
+  // Объединены в один механизм — оба про одно и то же: война стоит денег и поддержки.
+  {
+    const sizeTax = mil > 80 ? Math.floor((mil - 80) / 10) + 1 : 0;
+    const wearinessHit = streak >= 4 ? Math.min(5, Math.floor((streak - 3) * 1.5)) : 0;
+    const stabHit = Math.ceil(wearinessHit / 2);
+    if (sizeTax > 0 || wearinessHit > 0) {
+      const impacts = [];
+      if (sizeTax > 0) impacts.push({ label: "Экономика", delta: -sizeTax }, { label: "Одобрение", delta: -1 });
+      if (wearinessHit > 0) impacts.push({ label: "Одобрение", delta: -wearinessHit }, { label: "Стабильность", delta: -stabHit });
+      const parts = [];
+      if (sizeTax > 0) parts.push(`армия ${mil} > 80`);
+      if (wearinessHit > 0) parts.push(`${streak}-й месяц войны подряд`);
+      mechanisms.push({
+        active: true, severity: (sizeTax >= 3 || wearinessHit >= 4) ? "crit" : "bad",
+        name: "Военное бремя",
+        trigger: parts.join(" + "),
+        impacts,
+        fix: sizeTax > 0 && wearinessHit > 0
+          ? "Снизьте Армию до ≤80 и дайте войскам передышку (регруппировка сбрасывает счётчик усталости)."
+          : sizeTax > 0
+          ? `Снизьте Армию до ≤80. Превышение на ${mil - 80} пт → каждые 10 пт сверх = ещё −1 экономика/мес.`
+          : "Передышка (регруппировка вместо наступления) сбрасывает счётчик усталости.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Военное бремя",
+        trigger: `Армия ${mil} ≤ 80 и нет затяжной войны — не активно`,
+        impacts: [],
+        fix: null,
+      });
+    }
   }
 
   // 2. Inflation shock
@@ -4539,7 +4555,7 @@ function EndMonthForecastPanel({ stats }) {
       name: "Инфляционный шок",
       trigger: `Инфляция ${inflationPercent(inf).toFixed(0)}% г/г > 15% (балл ${inf} > 73)`,
       impacts: [{ label: "Экономика", delta: -ecoP }, { label: "Одобрение", delta: -appP }],
-      fix: "Указы «Жёсткая экономия» снижают инфляцию. Не выпускайте ОФЗ (каждый выпуск +1 инфл/мес). Потолок штрафа −3/−2.",
+      fix: "Указы «Жёсткая экономия» снижают инфляцию. Не выпускайте ОФЗ (каждый выпуск +0.5 инфл/мес + 0.3/мес пока висит долг). Потолок штрафа −3/−2.",
     });
   } else {
     mechanisms.push({
@@ -4586,15 +4602,17 @@ function EndMonthForecastPanel({ stats }) {
     });
   }
 
-  // 4. ОФЗ инфляционное давление
+  // 4. ОФЗ: инфляционное давление + компаундинг стоимости обслуживания через ставку ЦБ
   if ((stats.ofz_count ?? 0) > 0) {
     const ofzCount = stats.ofz_count;
+    const rateForOfz = stats.key_rate ?? 18.5;
+    const costPerBond = Math.max(2, Math.round(rateForOfz / 6));
     mechanisms.push({
       active: true, severity: "bad",
       name: "Давление ОФЗ",
-      trigger: `${ofzCount} выпуск(а) ОФЗ в обращении`,
-      impacts: [{ label: "Инфляция", delta: +ofzCount }],
-      fix: "Каждый выпуск ОФЗ добавляет +1 инфляции в месяц. Погашайте долги при первой возможности через «Погасить ОФЗ».",
+      trigger: `${ofzCount} выпуск(а) ОФЗ в обращении, ставка ЦБ ${rateForOfz}%`,
+      impacts: [{ label: "Инфляция", delta: Math.round(ofzCount * 0.3 * 10) / 10 }, { label: "Казна", delta: -(ofzCount * costPerBond) }],
+      fix: `Обслуживание растёт вместе со ставкой ЦБ (сейчас ${costPerBond}/выпуск) — чем выше инфляция, тем дороже висящий долг. Погашайте через «Погасить ОФЗ», пока ставка не выросла ещё сильнее.`,
     });
   }
 
@@ -4655,7 +4673,58 @@ function EndMonthForecastPanel({ stats }) {
     }
   }
 
-  // 7. Domestic crisis (always probabilistic)
+  // 7. Рост ВВП → экономика (компаундинг относительно старта партии)
+  {
+    const gdp = stats.gdp_growth ?? 36;
+    const gdpEffect = Math.round((gdp - 36) / 25);
+    if (gdpEffect !== 0) {
+      mechanisms.push({
+        active: true, severity: gdpEffect > 0 ? "good" : "bad",
+        name: "Рост ВВП",
+        trigger: `ВВП ${gdp} vs старт партии 36 — отклонение компаундится в экономику`,
+        impacts: [{ label: "Экономика", delta: gdpEffect }],
+        fix: gdpEffect < 0
+          ? "Устойчивый спад ВВП подтачивает экономику каждый месяц. Реформы и стимулирующие указы поднимают gdp_growth."
+          : "Устойчивый рост ВВП постепенно усиливает экономику — держите курс.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Рост ВВП",
+        trigger: `ВВП ${gdp} ≈ стартовый уровень — заметного эффекта на экономику нет`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 8. Занятость → налоговая база (доход казны от экономики и политик)
+  {
+    const empl = stats.employment ?? 74;
+    const factor = Math.max(0.6, Math.min(1.3, 1 + (empl - 74) * 0.004));
+    const pctShift = Math.round((factor - 1) * 100);
+    if (pctShift !== 0) {
+      mechanisms.push({
+        active: true, severity: pctShift > 0 ? "good" : "bad",
+        name: "Занятость / безработица",
+        trigger: `Занятость ${empl} vs старт партии 74 — двигает налоговую базу`,
+        impacts: [{ label: `Доход казны ${pctShift > 0 ? "+" : ""}${pctShift}%`, delta: null }],
+        fix: pctShift < 0
+          ? "Высокая безработица режет налоговые поступления и доход от экономики. Указы «Стимул экономики» и либерализация поднимают занятость."
+          : "Низкая безработица расширяет налоговую базу — доход казны выше обычного.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Занятость / безработица",
+        trigger: `Занятость ${empl} ≈ стартовый уровень — налоговая база не искажена`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 9. Domestic crisis (always probabilistic)
   mechanisms.push({
     active: "random", severity: "random",
     name: "Внутренний кризис",
@@ -4759,12 +4828,15 @@ function getPassiveEffects(key, stats) {
   const inf = stats.inflation ?? 64;
   const trs = stats.treasury ?? 52;
   const eco = stats.economy ?? 50;
+  const streak = stats.military_streak ?? 0;
+  const corr = stats.corruption ?? 55;
+  const wearinessHit = streak >= 4 ? Math.min(5, Math.floor((streak - 3) * 1.5)) : 0;
   const effects = [];
 
   if (key === "economy") {
-    if (mil > 75) {
-      const tax = Math.floor((mil - 75) / 10) + 1;
-      effects.push({ sign: -1, value: tax, text: `Военный налог (Армия ${mil} > 75)` });
+    if (mil > 80) {
+      const tax = Math.floor((mil - 80) / 10) + 1;
+      effects.push({ sign: -1, value: tax, text: `Военное бремя: содержание армии (${mil} > 80)` });
     }
     if (inf > 73) {
       const pen = Math.min(3, Math.floor((inf - 73) / 10) + 1);
@@ -4777,12 +4849,16 @@ function getPassiveEffects(key, stats) {
     } else if (trs > 65 && eco < 82) {
       effects.push({ sign: +1, value: 1, text: `Профицит казны (${trs} > 65)` });
     }
+    if (corr > 50) {
+      const drain = Math.round(Math.pow((corr - 50) / 50, 1.3) * 12);
+      effects.push({ sign: -1, value: drain, text: `Коррупционная утечка бюджета (бьёт по казне, элиты в доле)` });
+    }
   }
 
   if (key === "military") {
-    if (mil > 75) {
-      const tax = Math.floor((mil - 75) / 10) + 1;
-      effects.push({ sign: -1, value: tax, text: `→ Экономика −${tax}/мес (армия выше порога 75)` });
+    if (mil > 80) {
+      const tax = Math.floor((mil - 80) / 10) + 1;
+      effects.push({ sign: -1, value: tax, text: `→ Экономика −${tax}/мес (армия выше порога 80)` });
     }
   }
 
@@ -4791,10 +4867,21 @@ function getPassiveEffects(key, stats) {
       const pen = Math.min(2, Math.floor((inf - 73) / 15) + 1);
       effects.push({ sign: -1, value: pen, text: `Инфляционный шок (${inflationPercent(inf).toFixed(0)}% > 15% г/г)` });
     }
+    if (mil > 80) {
+      effects.push({ sign: -1, value: 1, text: `Военное бремя: содержание армии (армия > 80)` });
+    }
+    if (wearinessHit > 0) {
+      effects.push({ sign: -1, value: wearinessHit, text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
+    }
   }
 
-  if (key === "stability" && trs < 0) {
-    effects.push({ sign: -1, value: 1, text: `Дефицит казны (${trs} < 0)` });
+  if (key === "stability") {
+    if (trs < 0) {
+      effects.push({ sign: -1, value: 1, text: `Дефицит казны (${trs} < 0)` });
+    }
+    if (wearinessHit > 0) {
+      effects.push({ sign: -1, value: Math.ceil(wearinessHit / 2), text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
+    }
   }
 
   return effects;
@@ -5569,8 +5656,12 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded, warCounte
 }
 
 const OFZ_MAX = 3;
-const OFZ_MONTHLY_COST = 3;
 const TREASURY_PER_TRILLION = 0.8;
+// Компаундинг: та же формула, что и в backend/src/routes/treasury.js (ofzMonthlyCostPerBond) —
+// стоимость обслуживания 1 выпуска ОФЗ растёт вместе с ключевой ставкой ЦБ.
+function ofzMonthlyCostPerBondPreview(keyRate) {
+  return Math.max(2, Math.round((keyRate ?? 18.5) / 6));
+}
 
 function TreasuryTab({ state, gameId, onRefresh }) {
   const stats = state.stats || {};
@@ -5582,13 +5673,18 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const ofzCount = stats.ofz_count ?? 0;
   const ofzUsedThisMonth = !!stats.ofz_used_this_month;
   const activePolicies = (state.policies || []).filter(p => p.status !== "cancelled");
-  const taxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
+  const rawTaxIncomeT = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
   const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
-  const ofzDebt = ofzCount * OFZ_MONTHLY_COST;
-  const economyIncome = eco >= 50
+  const ofzDebt = ofzCount * ofzMonthlyCostPerBondPreview(stats.key_rate);
+  const rawEconomyIncomeT = eco >= 50
     ? Math.round(20 + (eco - 50) * 0.6)
     : eco >= 35 ? Math.round(eco * 0.4) : Math.round(Math.max(5, eco * 0.2));
-  const OIL_BASELINE_T = 68, FX_BASELINE_T = 80;
+  // Безработица → налоговая база: тот же коэффициент, что и в backend end-month
+  const employmentT = stats.employment ?? 74;
+  const employmentFactorT = Math.max(0.6, Math.min(1.3, 1 + (employmentT - 74) * 0.004));
+  const economyIncome = Math.round(rawEconomyIncomeT * employmentFactorT);
+  const taxIncome = Math.round(rawTaxIncomeT * employmentFactorT);
+  const OIL_BASELINE_T = 85, FX_BASELINE_T = 80;
   const oilPriceT = stats.oil_price ?? OIL_BASELINE_T;
   const usdRubT = stats.usd_rub ?? FX_BASELINE_T;
   const isolationT = stats.isolation ?? 68;
@@ -5639,6 +5735,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   async function handleAntiCorruption() {
     setLoading("anticorruption"); setError(null);
     try { await antiCorruptionCampaign(gameId); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
+  async function handleConvertReserves() {
+    setLoading("convert_reserves"); setError(null);
+    try { await convertReserves(gameId); onRefresh?.(); }
     catch (e) { setError(e.message); }
     finally { setLoading(null); }
   }
@@ -6006,6 +6109,64 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 {anticorruptionUsed && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 5 }}>
                     Доступно снова после завершения месяца. Возможные исходы: успешные аресты (коррупция −6…−10, элиты недовольны), показательный процесс (тот же эффект + рост одобрения), либо саботаж расследования (минимальный эффект, удар по стабильности).
+                  </div>
+                )}
+              </div>
+
+              {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Резервы (ФНБ) */}
+      {(() => {
+        const reservesNow = stats.reserves ?? 48;
+        const reservesConverted = !!stats.reserves_converted_this_month;
+        const RESERVES_CONVERT_AMOUNT_T = 10, RESERVES_CONVERT_MIN_LEFT_T = 15;
+        const initiativeR = stats.initiative ?? 100;
+        const canConvert = !reservesConverted && initiativeR >= 20 && reservesNow - RESERVES_CONVERT_AMOUNT_T >= RESERVES_CONVERT_MIN_LEFT_T;
+        const reservesColor = reservesNow < 20 ? "#c03030" : reservesNow < 35 ? "#9c8347" : "#4a7a5a";
+        return (
+          <div style={sectionStyle}>
+            <div style={labelStyle}>РЕЗЕРВЫ (ФНБ)</div>
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 26, fontWeight: 700, color: reservesColor, lineHeight: 1 }}>
+                    {Math.round(reservesNow)}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", marginTop: 3 }}>
+                    {reservesNow < 20 ? "ЦБ нечем защищать рубль" : reservesNow < 35 ? "буфер тонкий" : "надёжный демпфер"}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ height: 6, background: "#1a2030", borderRadius: 3, marginBottom: 14, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${reservesNow}%`, background: reservesColor, borderRadius: 3, transition: "width 0.4s" }} />
+              </div>
+
+              <div style={{ borderTop: "1px solid #2a3040", paddingTop: 12 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>
+                  КОНВЕРТАЦИЯ В КАЗНУ · ⚡20, +{RESERVES_CONVERT_AMOUNT_T} казны, −{RESERVES_CONVERT_AMOUNT_T} резервов · инфляция +0.3
+                </div>
+                <button
+                  onClick={handleConvertReserves}
+                  disabled={!canConvert || loading === "convert_reserves"}
+                  style={{
+                    width: "100%", background: !canConvert ? "#1a2030" : "#1a1208",
+                    border: `1px solid ${!canConvert ? "#2a3040" : "#8a6020"}`,
+                    color: !canConvert ? "#3a4050" : "#c09050",
+                    borderRadius: 3, padding: "9px 12px",
+                    fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: !canConvert ? "not-allowed" : "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  {loading === "convert_reserves" ? "Конвертация…" : reservesConverted ? "⚠ Резервы уже конвертировались в этом месяце" : `💰 Распечатать ${RESERVES_CONVERT_AMOUNT_T} пунктов ФНБ в казну`}
+                </button>
+                {!reservesConverted && reservesNow - RESERVES_CONVERT_AMOUNT_T < RESERVES_CONVERT_MIN_LEFT_T && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 5 }}>
+                    Резервы нельзя опускать ниже {RESERVES_CONVERT_MIN_LEFT_T} — ниже этого уровня ЦБ нечем защищать рубль от шоков курса.
                   </div>
                 )}
               </div>
