@@ -4489,6 +4489,17 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
 
 // Авто-эффекты каждый месяц: пороги из rules-engine + turns.js/end-month
 // Consolidated end-of-month forecast panel — all auto-mechanics in one place
+const IMPACT_STAT_KEY = { "Экономика": "economy", "Одобрение": "approval", "Инфляция": "inflation", "Казна": "treasury", "Стабильность": "stability" };
+// % от текущего значения статы — тот же удар в очках ощущается сильнее при низком текущем значении
+function impactPercent(label, delta, stats) {
+  if (delta == null) return null;
+  const key = IMPACT_STAT_KEY[label];
+  if (!key) return null;
+  const current = stats[key];
+  if (typeof current !== "number" || current <= 0) return null;
+  return Math.round((delta / current) * 100);
+}
+
 function EndMonthForecastPanel({ stats }) {
   const [open, setOpen] = useState(false);
   const mil = stats.military ?? 50;
@@ -4714,9 +4725,11 @@ function EndMonthForecastPanel({ stats }) {
                       const isPos = imp.delta !== null && imp.delta > 0;
                       const chipColor = isNeg ? "#a8313a" : isPos ? "#4a6b5c" : "#5a4a8a";
                       const chipBg = isNeg ? "#fde8e8" : isPos ? "#e8f5e8" : "#f0eef8";
+                      const pct = impactPercent(imp.label, imp.delta, stats);
                       return (
                         <span key={j} className="mono-font" style={{ fontSize: 10, background: chipBg, color: chipColor, borderRadius: 3, padding: "2px 7px", fontWeight: 700 }}>
                           {imp.label}{imp.delta !== null ? ` ${imp.delta > 0 ? "+" : ""}${imp.delta}` : ""}
+                          {pct !== null && <span style={{ opacity: 0.75, fontWeight: 400 }}> ({pct > 0 ? "+" : ""}{pct}%)</span>}
                         </span>
                       );
                     })}
