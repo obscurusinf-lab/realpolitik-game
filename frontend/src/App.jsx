@@ -2501,6 +2501,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const tabs = [
     { id: "overview", label: "Обстановка", icon: Globe2 },
+    { id: "kremlin", label: "🏛 Кремль", icon: Landmark },
     { id: "map", label: "Карта", icon: Globe2 },
     { id: "stats", label: "Показатели", icon: Shield },
     { id: "world", label: "Мир", icon: Globe2 },
@@ -2627,6 +2628,17 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
       <div style={{ background: NK.contentBg, color: NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} />}
+        {tab === "kremlin" && (
+          <KremlinTab
+            state={state}
+            onSelectCategory={(template, mode) => {
+              setDraftInput(template);
+              if (["decree_fast","decree_reform","decree_program","intel","military","diplomacy_op"].includes(mode)) setActionMode(mode);
+              setTab("overview");
+              setTimeout(() => draftTextareaRef.current?.focus(), 100);
+            }}
+          />
+        )}
         {tab === "map" && <MapTab state={state} />}
         {tab === "stats" && <StatsTab state={state} gameId={gameId} />}
         {tab === "world" && <WorldTab state={state} />}
@@ -5382,6 +5394,165 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
                 </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- КРЕМЛЬ: браузер категорий действий с карточками ----------
+// Каждая карточка — категория из docs/04-cabinet-and-categories.md. Клик заполняет
+// draftInput шаблоном и выставляет actionMode — дальше игрок правит текст и жмёт
+// «Рассмотреть» как обычно (тот же поток preview→confirm, ничего нового не изобретаем).
+const KREMLIN_STAT_LABEL = { economy: "Экономика", military: "Армия", stability: "Стабильность", diplomacy: "Дипломатия", approval: "Одобрение" };
+
+const KREMLIN_CATEGORIES = {
+  military: [
+    { id: "mil_recon", title: "Военная разведка", desc: "Спутники, SIGINT, разведка боем перед операцией. Даёт бонус к следующей боевой операции.", cost: "15 иниц. / 3 казны", effects: { military: 1 }, template: "Начальнику Генштаба поручаю провести разведывательную операцию на направлении..." },
+    { id: "mil_tactical", title: "Тактический удар", desc: "Точечный удар, локальная контратака, штурм позиции.", cost: "30 иниц. / 8 казны", effects: { military: 1, economy: -1, stability: -1, diplomacy: -1 }, template: "Приказываю нанести точечный удар по позициям противника на участке..." },
+    { id: "mil_operational_offensive", title: "Наступление", desc: "Наступательная операция на участке фронта, прорыв обороны.", cost: "55 иниц. / 20 казны", effects: { military: 1, economy: -1, stability: -1, diplomacy: -1 }, template: "Приказываю начать наступательную операцию на участке фронта..." },
+    { id: "mil_operational_defensive", title: "Оборона", desc: "Оборонительная операция, удержание рубежей, отход с выравниванием линии.", cost: "45 иниц. / 15 казны", effects: { military: 1, stability: 1, diplomacy: 1, approval: 1, economy: -1 }, template: "Приказываю перейти к обороне и удержанию текущих рубежей на участке..." },
+    { id: "mil_strategic_offensive", title: "Стратегическое наступление", desc: "Наступление по всей линии фронта, масштабная мобилизация ресурсов.", cost: "80 иниц. / 35 казны", effects: { military: 1, economy: -1, stability: -1, diplomacy: -1 }, template: "Приказываю начать масштабную наступательную операцию по всей линии фронта..." },
+    { id: "mil_strategic_defensive", title: "Стратегическая оборона", desc: "Глубокоэшелонированная оборона, доктрина сдерживания (не ядерное применение).", cost: "60 иниц. / 25 казны", effects: { military: 1, stability: 1, diplomacy: 1, approval: 1, economy: -1 }, template: "Приказываю перейти к глубокоэшелонированной стратегической обороне..." },
+    { id: "mil_hybrid", title: "Гибридная война", desc: "ЧВК, партизанские операции, поддержка прокси-сил.", cost: "40 иниц. / 12 казны", effects: { military: 1, stability: 1, approval: 1, diplomacy: -1, economy: -1 }, template: "Поручаю задействовать частные военные формирования на направлении..." },
+  ],
+  espionage: [
+    { id: "covert_disinfo", title: "Дезинформация", desc: "Дезинформационная кампания за рубежом — влияет на настроения и нарратив.", cost: "20 иниц. / 5 казны", effects: { stability: 1, approval: 1 }, template: "Поручаю СВР провести дезинформационную кампанию против..." },
+    { id: "covert_destabilize", title: "Дестабилизация", desc: "Финансирование оппозиции, провокации против власти противника.", cost: "30 иниц. / 8 казны", effects: { military: 1, stability: 1, diplomacy: -1, approval: 1 }, template: "Поручаю разведке начать операцию по дестабилизации..." },
+    { id: "covert_sabotage", title: "Диверсия", desc: "Диверсия против инфраструктуры противника. Высокий риск раскрытия.", cost: "40 иниц. / 15 казны", effects: { military: 1, economy: 1, diplomacy: -1, approval: 1 }, template: "Поручаю провести диверсионную операцию против инфраструктуры..." },
+    { id: "covert_elimination", title: "Ликвидация", desc: "Ликвидация ключевой фигуры. Только для серьёзных решений — максимальный риск.", cost: "60 иниц. / 25 казны", effects: { military: 1, diplomacy: -1 }, template: "Поручаю спецслужбам организовать ликвидацию..." },
+  ],
+  diplomacy: [
+    { id: "diplo_negotiate", title: "Переговоры", desc: "Обычные переговоры, визиты, дипломатические ноты.", cost: "35 иниц. / 5 казны", effects: { diplomacy: 1, economy: 1, stability: 1, approval: 1 }, template: "Министерству иностранных дел поручаю провести переговоры с..." },
+    { id: "diplo_treaty", title: "Договор", desc: "Торговый, военный или гуманитарный договор — крупный долгосрочный эффект.", cost: "50 иниц. / 10 казны", effects: { diplomacy: 1, economy: 1, stability: 1, approval: 1 }, template: "Поручаю подготовить и подписать договор с..." },
+    { id: "diplo_pressure", title: "Давление", desc: "Ультиматум, санкции, заморозка активов, высылка дипломатов.", cost: "35 иниц. / 3 казны", effects: { diplomacy: -1, economy: -1, stability: -1 }, template: "МИДу поручаю выступить с ультиматумом в адрес..." },
+    { id: "diplo_multilateral", title: "Коалиция", desc: "Инициатива в ООН/БРИКС/ШОС, формирование коалиции, посредничество.", cost: "45 иниц. / 8 казны", effects: { diplomacy: 1, economy: 1, stability: 1, approval: 1 }, template: "Поручаю выступить с инициативой в рамках..." },
+    { id: "diplo_soft_power", title: "Мягкая сила", desc: "Культурная дипломатия, гуманитарная помощь, образовательные программы.", cost: "25 иниц. / 8 казны", effects: { diplomacy: 1, economy: 1, stability: 1, approval: 1 }, template: "Поручаю запустить программу гуманитарной помощи для..." },
+    { id: "diplo_peace", title: "Мирная инициатива", desc: "Переговоры об урегулировании конфликта. Главный двигатель мирного трека — самая дешёвая из дипломатических операций.", cost: "30 иниц. / 5 казны", effects: { diplomacy: 1, economy: 1, stability: 1, approval: 1, military: -1 }, template: "Поручаю МИДу инициировать переговоры об урегулировании конфликта..." },
+  ],
+  decrees: [
+    { id: "econ_stimulus", domain: "Экономика", title: "Стимулирование экономики", desc: "Льготы, инвестиции, субсидии, снижение ставки.", effects: { economy: 1, stability: 1, approval: 1 }, template: "Правительству поручаю разработать пакет мер по стимулированию экономики..." },
+    { id: "econ_austerity", domain: "Экономика", title: "Жёсткая экономия", desc: "Сокращение расходов, налоги вверх — казна крепнет, но общество недовольно.", effects: { economy: 1, stability: -1, approval: -1 }, template: "Правительству поручаю программу бюджетной консолидации..." },
+    { id: "econ_sanctions_counter", domain: "Экономика", title: "Контрсанкции", desc: "Параллельный импорт, обход ограничений, торговые партнёрства в обход Запада.", effects: { economy: 1, diplomacy: -1, stability: 1, approval: 1 }, template: "Правительству поручаю разработать меры по обходу санкционных ограничений..." },
+    { id: "econ_infrastructure", domain: "Экономика", title: "Инфраструктура", desc: "Крупные инфраструктурные проекты — дороги, энергетика, промышленность.", effects: { military: 1, stability: 1, diplomacy: 1, approval: 1 }, template: "Утверждаю программу развития инфраструктуры в сфере..." },
+    { id: "econ_tech", domain: "Экономика", title: "Технологии", desc: "НИОКР, космос, ИИ-суверенитет — небольшие затраты сейчас, рост экономики со временем.", effects: { military: 1, stability: 1, diplomacy: 1, approval: 1, economy: -1 }, template: "Утверждаю государственную программу технологического развития в сфере..." },
+    { id: "mil_admin_budget", domain: "Военно-административные", title: "Оборонный бюджет", desc: "Контракт с ВПК, увеличение расходов на оборону. НЕ боевая операция.", effects: { military: 1, stability: 1, economy: -1 }, template: "Утверждаю увеличение оборонного бюджета для..." },
+    { id: "mil_admin_mobilization", domain: "Военно-административные", title: "Мобилизация", desc: "Указ о частичной мобилизации — растит армию ценой одобрения. НЕ боевая операция.", effects: { military: 1, stability: -1, approval: -1, economy: -1 }, template: "Подписываю указ о частичной мобилизации..." },
+    { id: "mil_admin_doctrine", domain: "Военно-административные", title: "Военная доктрина", desc: "Обновление военной доктрины — стратегия и приоритеты Вооружённых сил.", effects: { military: 1, stability: 1, diplomacy: -1, approval: 1 }, template: "Утверждаю обновлённую военную доктрину, определяющую..." },
+    { id: "pol_repression", domain: "Политика", title: "Подавление", desc: "Подавление протестов, цензура, аресты оппозиции.", effects: { military: 1, stability: 1, diplomacy: -1, approval: -1 }, template: "Поручаю силовым структурам обеспечить порядок в связи с..." },
+    { id: "pol_liberalization", domain: "Политика", title: "Либерализация", desc: "Реформы, снятие ограничений, амнистия, свободы.", effects: { economy: 1, diplomacy: 1 }, template: "Подписываю указ о либерализации в сфере..." },
+    { id: "pol_elite_consolidation", domain: "Политика", title: "Консолидация элит", desc: "Кадровые перестановки, укрепление вертикали власти.", effects: { military: 1, stability: 1 }, template: "Провожу кадровые перестановки в целях консолидации..." },
+    { id: "pol_social", domain: "Политика", title: "Социальная программа", desc: "Маткапитал, пенсии, здравоохранение, демография — двигает одобрение народа.", effects: { stability: 1, approval: 1, economy: -1 }, template: "Утверждаю социальную программу в сфере..." },
+    { id: "pol_propaganda", domain: "Информационные", title: "Пропаганда", desc: "Информационная кампания внутри страны, нарратив для населения.", effects: { stability: 1, approval: 1, diplomacy: -1 }, template: "Поручаю госСМИ развернуть информационную кампанию о..." },
+  ],
+};
+
+const KREMLIN_DOMAINS = [
+  { id: "military", label: "⚔️ Военное", mode: "military" },
+  { id: "espionage", label: "🕵️ Шпионаж", mode: "intel" },
+  { id: "diplomacy", label: "🤝 Дипломатия", mode: "diplomacy_op" },
+  { id: "decrees", label: "📜 Указы", mode: null },
+];
+
+const KREMLIN_TIER_LABEL = { decree_fast: "📜 Быстрый указ (1–2 мес.)", decree_reform: "📋 Реформа (3–6 мес.)", decree_program: "🏛 Программа (7–12 мес.)" };
+
+function KremlinTab({ state, onSelectCategory }) {
+  const [domainId, setDomainId] = useState("military");
+  const [tier, setTier] = useState("decree_fast");
+  const domain = KREMLIN_DOMAINS.find(d => d.id === domainId);
+  const cards = KREMLIN_CATEGORIES[domainId] || [];
+  const stats = state.stats || {};
+
+  return (
+    <div>
+      {/* Мини-сводка показателей */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 5, padding: "8px 12px" }}>
+        {Object.entries(KREMLIN_STAT_LABEL).map(([key, label]) => (
+          <div key={key} style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+            <span className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.06em" }}>{label.slice(0, 3).toUpperCase()}</span>
+            <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: (stats[key] ?? 50) >= 55 ? "#4a6b5c" : (stats[key] ?? 50) < 35 ? "#a8313a" : "#9c8347" }}>{stats[key] ?? 50}</span>
+          </div>
+        ))}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 4 }}>
+          <span className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.06em" }}>ИНИЦ.</span>
+          <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: "#9c8347" }}>{stats.initiative ?? 100}</span>
+        </div>
+      </div>
+
+      {/* Домены */}
+      <div className="scroll-hide" style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
+        {KREMLIN_DOMAINS.map(d => (
+          <button
+            key={d.id}
+            onClick={() => setDomainId(d.id)}
+            style={{
+              flexShrink: 0, background: domainId === d.id ? "#9c8347" : "#f5f1e6",
+              color: domainId === d.id ? "#1a1f2c" : "#5c5648",
+              border: `1px solid ${domainId === d.id ? "#9c8347" : "#d8d2bf"}`,
+              borderRadius: 5, padding: "7px 14px", fontFamily: "'PT Serif',serif",
+              fontSize: 13, fontWeight: domainId === d.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Тир для указов */}
+      {domainId === "decrees" && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          {Object.entries(KREMLIN_TIER_LABEL).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTier(id)}
+              style={{
+                flex: 1, background: tier === id ? "#3a5a4a" : "#f5f1e6",
+                color: tier === id ? "#ece7d8" : "#5c5648",
+                border: `1px solid ${tier === id ? "#3a5a4a" : "#d8d2bf"}`,
+                borderRadius: 4, padding: "6px 8px", fontFamily: "'PT Serif',serif",
+                fontSize: 11.5, cursor: "pointer",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Карточки */}
+      <div style={{ display: "grid", gap: 8 }}>
+        {cards.map(card => (
+          <div
+            key={card.id}
+            onClick={() => onSelectCategory(card.template, domain.mode || tier)}
+            style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 5, padding: "11px 13px", cursor: "pointer", transition: "border-color 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{card.title}</span>
+                {card.domain && (
+                  <span className="mono-font" style={{ fontSize: 8, background: "#eee6d0", color: "#8a6b3a", borderRadius: 3, padding: "1px 5px" }}>{card.domain}</span>
+                )}
+              </div>
+              {card.cost && <span className="mono-font" style={{ fontSize: 9, color: "#9c8347", flexShrink: 0, whiteSpace: "nowrap" }}>{card.cost}</span>}
+            </div>
+            <div className="doc-font" style={{ fontSize: 12, color: "#5c5648", lineHeight: 1.4, marginBottom: 6 }}>{card.desc}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {Object.entries(card.effects || {}).map(([stat, sign]) => (
+                <span key={stat} className="mono-font" style={{
+                  fontSize: 9, borderRadius: 3, padding: "1px 6px", fontWeight: 700,
+                  background: sign > 0 ? "#e8f5e8" : "#fde8e8", color: sign > 0 ? "#4a6b5c" : "#a8313a",
+                }}>
+                  {KREMLIN_STAT_LABEL[stat]} {sign > 0 ? "↑" : "↓"}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mono-font" style={{ fontSize: 9.5, color: "#a8a294", marginTop: 12, lineHeight: 1.5 }}>
+        Клик по карточке подставит шаблон текста во вкладке «Обстановка» — отредактируйте под свою ситуацию и нажмите «Рассмотреть». Точные изменения статов покажет предпросмотр, не карточка.
       </div>
     </div>
   );
