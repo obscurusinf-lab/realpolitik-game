@@ -6,14 +6,20 @@
  * POST /games/:gameId/treasury/cb-pressure   — давление на ЦБ (body: {direction:"raise"|"lower"})
  * POST /games/:gameId/treasury/cb-replace    — смена главы ЦБ (body: {type:"soft"|"hawkish"})
  * POST /games/:gameId/treasury/anti-corruption — антикоррупционная кампания
+ * POST /games/:gameId/treasury/convert-reserves — конвертация ФНБ в казну (1 раз/мес, лимит, инфл. след)
  *
  * Механика ОФЗ:
  *   - Максимум 3 активных выпуска (stats.ofz_count)
  *   - 1 выпуск за месяц (stats.ofz_used_this_month)
- *   - Каждый выпуск: +20 к казне немедленно, -3/мес. в end-month + давление инфляции +2
+ *   - Каждый выпуск: +20 к казне немедленно, -0.5 давление инфляции (было +2 — слишком резко для
+ *     разового события)
  *   - Погашение: -22 к казне (премия за досрочное погашение выше суммы выпуска), снимает 1 выпуск,
- *     давление инфляции -1 (не симметрично выпуску — долг нельзя "обнулить" без следа:
- *     быстрый цикл выпуск→погашение всегда оставляет чистый минус в казне и +1 инфляции)
+ *     давление инфляции -0.3 (не симметрично выпуску — долг нельзя "обнулить" без следа:
+ *     быстрый цикл выпуск→погашение всегда оставляет чистый минус в казне и небольшой + инфляции)
+ *   - КОМПАУНДИНГ: стоимость обслуживания 1 выпуска не фиксирована, а растёт вместе с ключевой
+ *     ставкой ЦБ (ofzMonthlyCostPerBond). Чем выше ставка (обычно — реакция на инфляцию, которую
+ *     сами же ОФЗ и разгоняют), тем дороже занимать → печатать ОФЗ при высокой ставке невыгодно.
+ *     Замыкает контур: ОФЗ → инфляция → ставка ЦБ → дороже ОФЗ → дефицит → снова ОФЗ.
  *
  * Механика ключевой ставки:
  *   - stats.key_rate — текущая ставка (5–25%), ЦБ двигает автономно каждый месяц
@@ -30,8 +36,18 @@
 
 const OFZ_TREASURY_GAIN = 20;        // немедленный прирост казны
 const OFZ_MAX_COUNT = 3;             // максимум активных выпусков
-const OFZ_MONTHLY_COST = 3;          // стоимость обслуживания 1 выпуска в месяц
 const OFZ_REPAY_COST = 22;           // сколько казны нужно для погашения (выше суммы выпуска — премия за досрочный выкуп)
+const RESERVES_CONVERT_AMOUNT = 10;  // сколько резервов конвертируется в казну за 1 раз
+const RESERVES_CONVERT_MIN_LEFT = 15; // ниже этого уровня резервов конвертация запрещена
+
+// Компаундинг: стоимость обслуживания 1 выпуска ОФЗ растёт вместе с ключевой ставкой ЦБ.
+// При базовой ставке ~18.5% даёт те же −3/мес, что и раньше при фиксированной стоимости.
+function ofzMonthlyCostPerBond(keyRate) {
+  return Math.max(2, Math.round((keyRate ?? 18.5) / 6));
+}
+function ofzTotalMonthlyCost(count, keyRate) {
+  return count * ofzMonthlyCostPerBond(keyRate);
+}
 
 async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
   async function loadGameForUpdate(client, gameId) {
@@ -76,7 +92,7 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       newStats.ofz_count = ofzCount + 1;
       newStats.ofz_used_this_month = true;
       // Небольшой инфляционный всплеск при выпуске
-      newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 2);
+      newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.5);
 
       await client.query(
         `UPDATE game_state SET stats = $1 WHERE game_id = $2`,
@@ -85,15 +101,15 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
 
       const T = 0.8;
       const gain = OFZ_TREASURY_GAIN;
-      const monthlyCost = newStats.ofz_count * OFZ_MONTHLY_COST;
+      const monthlyCost = ofzTotalMonthlyCost(newStats.ofz_count, newStats.key_rate);
 
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, game.current_turn + 1, "Минфин",
          `Размещён выпуск ОФЗ на ₽${(gain * T).toFixed(1)} трлн — казна пополнена на ${gain} пунктов. ` +
          `Активных выпусков: ${newStats.ofz_count}/${OFZ_MAX_COUNT}. ` +
-         `Обслуживание долга: −${monthlyCost} пунктов/мес. (≈₽${(monthlyCost * T).toFixed(1)} трлн). ` +
-         `Инфляционное давление +2.`]
+         `Обслуживание долга: −${monthlyCost} пунктов/мес. при текущей ставке ЦБ ${newStats.key_rate ?? 18.5}% (≈₽${(monthlyCost * T).toFixed(1)} трлн). ` +
+         `Инфляционное давление +0.5.`]
       );
 
       await client.query("COMMIT");
@@ -142,7 +158,7 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       newStats.treasury = Math.max(TREASURY_MIN, treasuryCurrent - OFZ_REPAY_COST);
       newStats.ofz_count = ofzCount - 1;
       // Снижение инфляционного давления (меньше, чем прирост при выпуске — погашение не "отменяет" эффект бесплатно)
-      newStats.inflation = Math.max(0, (newStats.inflation ?? 64) - 1);
+      newStats.inflation = Math.max(0, (newStats.inflation ?? 64) - 0.3);
 
       await client.query(
         `UPDATE game_state SET stats = $1 WHERE game_id = $2`,
@@ -150,12 +166,13 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       );
 
       const T = 0.8;
+      const newMonthlyCost = ofzTotalMonthlyCost(newStats.ofz_count, newStats.key_rate);
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, game.current_turn + 1, "Минфин",
          `Погашен 1 выпуск ОФЗ — казна сократилась на ${OFZ_REPAY_COST} пунктов (≈₽${(OFZ_REPAY_COST * T).toFixed(1)} трлн, с премией за досрочный выкуп). ` +
          `Осталось активных выпусков: ${newStats.ofz_count}/${OFZ_MAX_COUNT}. ` +
-         `Ежемесячное обслуживание снижено до ${newStats.ofz_count * OFZ_MONTHLY_COST} пунктов/мес. Инфляционное давление −1.`]
+         `Ежемесячное обслуживание снижено до ${newMonthlyCost} пунктов/мес. Инфляционное давление −0.3.`]
       );
 
       await client.query("COMMIT");
@@ -164,7 +181,7 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
         treasury: newStats.treasury,
         ofzCount: newStats.ofz_count,
         inflation: newStats.inflation,
-        monthlyCost: newStats.ofz_count * OFZ_MONTHLY_COST,
+        monthlyCost: newMonthlyCost,
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -174,6 +191,70 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       client.release();
     }
   });
+
+  // ---------- КОНВЕРТАЦИЯ РЕЗЕРВОВ В КАЗНУ ----------
+  // ФНБ можно распечатать, но не досуха: конвертация ограничена лимитом за месяц
+  // (RESERVES_CONVERT_AMOUNT) и не даёт увести резервы ниже RESERVES_CONVERT_MIN_LEFT —
+  // ниже этого уровня ЦБ нечем защищать рубль (см. демпфер валютных шоков в turns.js).
+  // Конвертация — по сути расширение денежной массы, поэтому даёт небольшой инфляционный след.
+  fastify.post("/games/:gameId/treasury/convert-reserves", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const newStats = { ...game.stats };
+      if (newStats.reserves_converted_this_month) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Резервы уже конвертировались в этом месяце." });
+      }
+      const reservesNow = newStats.reserves ?? 48;
+      if (reservesNow - RESERVES_CONVERT_AMOUNT < RESERVES_CONVERT_MIN_LEFT) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({
+          error: `Нельзя опускать резервы ниже ${RESERVES_CONVERT_MIN_LEFT} — ЦБ нечем будет защищать рубль от шоков. Доступно к конвертации: ${Math.max(0, reservesNow - RESERVES_CONVERT_MIN_LEFT)} из ${RESERVES_CONVERT_AMOUNT}.`,
+        });
+      }
+      const initiative = typeof newStats.initiative === "number" ? newStats.initiative : 100;
+      if (initiative < 20) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Недостаточно инициативы (нужно 20)." });
+      }
+
+      const { TREASURY_MIN } = require("../rules/rules-engine");
+      const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
+      newStats.reserves = reservesNow - RESERVES_CONVERT_AMOUNT;
+      newStats.treasury = Math.min(100, treasuryBefore + RESERVES_CONVERT_AMOUNT);
+      newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.3);
+      newStats.initiative = initiative - 20;
+      newStats.reserves_converted_this_month = true;
+
+      await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+
+      const T = 0.8;
+      await client.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        [gameId, game.current_turn + 1, "Минфин",
+         `ФНБ распечатан: ${RESERVES_CONVERT_AMOUNT} пунктов резервов конвертированы в казну (≈₽${(RESERVES_CONVERT_AMOUNT * T).toFixed(1)} трлн). ` +
+         `Остаток резервов: ${newStats.reserves}. Расширение денежной массы слегка подтолкнуло инфляцию (+0.3).`]
+      );
+
+      await client.query("COMMIT");
+      return reply.send({ treasury: newStats.treasury, reserves: newStats.reserves, inflation: newStats.inflation });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Ошибка конвертации резервов" });
+    } finally {
+      client.release();
+    }
+  });
+
   // ---------- ДАВЛЕНИЕ НА ЦБ ----------
   fastify.post("/games/:gameId/treasury/cb-pressure", async (request, reply) => {
     const { gameId } = request.params;
@@ -386,4 +467,4 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
   });
 }
 
-module.exports = { registerTreasuryRoutes, OFZ_MONTHLY_COST };
+module.exports = { registerTreasuryRoutes, ofzMonthlyCostPerBond, ofzTotalMonthlyCost };

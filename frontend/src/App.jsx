@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 
 // ---------- EndTurnScreen ----------
@@ -2542,7 +2542,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </div>
             <h1 className="doc-font" style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "0.04em", color: isNuclearWorld ? "#e88080" : "#ece7d8" }}>REALPOLITIK</h1>
             <div className="mono-font" style={{ fontSize: 11, color: isNuclearWorld ? "#9a5050" : "#a8a294", marginTop: 2 }}>
-              {state.date} · Ход №{state.turn}{playerName ? ` · ${playerName}` : ""}
+              {state.date} · Ход №{state.turn + 1}{playerName ? ` · ${playerName}` : ""}
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
@@ -4002,7 +4002,7 @@ function OverviewTab({ state }) {
       {modal && (
         <Modal title={modal.region.toUpperCase() + " · ПОДРОБНЕЕ"} onClose={() => setModal(null)}>
           <div className="mono-font" style={{ fontSize: 10, color: "#a8313a", letterSpacing: "0.08em", marginBottom: 10 }}>
-            ХОД {state.turn}
+            ХОД {state.turn + 1}
           </div>
           <div className="doc-font" style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, lineHeight: 1.4 }}>
             {modal.region}
@@ -4017,7 +4017,7 @@ function OverviewTab({ state }) {
 
       <div style={{ borderLeft: "3px solid #a8313a", paddingLeft: 12, marginBottom: 14 }}>
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8313a", marginBottom: 4 }}>
-          ГЛАВНОЕ СЕЙЧАС · ХОД {state.turn}
+          ГЛАВНОЕ СЕЙЧАС · ХОД {state.turn + 1}
         </div>
         <p className="doc-font" style={{ margin: 0, fontSize: 15, lineHeight: 1.55 }}>
           {state.overview?.headline ?? state.log?.[state.log.length - 1]?.body}
@@ -4163,7 +4163,7 @@ function MapTab({ state }) {
   return (
     <div style={{ background: "#14181f", margin: "-20px -16px -32px", padding: "14px 14px 20px", minHeight: "60vh" }}>
       <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#a8313a", marginBottom: 10 }}>
-        КАРТА МИРА · ХОД {state.turn}
+        КАРТА МИРА · ХОД {state.turn + 1}
       </div>
 
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
@@ -4354,13 +4354,34 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
   const currentValue = state.stats[statKey] ?? 0;
   const historyValues = history ? history.map(h => h.stats_snapshot?.[statKey]).filter(v => v != null) : [];
 
-  // Факторы влияния
-  const FACTORS = {
-    economy:  ["Экономические указы", "Санкции", "Торговые соглашения", "Военные расходы"],
-    military: ["Военные операции", "Оборонные указы", "Разведка", "Союзники"],
-    stability:["Репрессии", "Либерализация", "Военные конфликты", "Экономика"],
-    diplomacy:["Дипломатические контакты", "Санкции", "Союзные договоры", "Конфронтация"],
-    approval: ["Экономическое благополучие", "Военные успехи", "Репрессии", "Мир"],
+  // Механика влияния — конкретные пороги, а не абстрактные теги
+  const MECHANIC_NOTES = {
+    economy: [
+      { text: "Армия > 75 → −1…−3 эк./мес (военный налог: каждые 10 пунктов выше 75 = −1)", warn: (state.stats.military ?? 50) > 75 },
+      { text: "Инфляция > 15% г/г → −1…−3 эк./мес (каждые 10 пп сверх порога = −1 доп.)", warn: (state.stats.inflation ?? 64) > 73 },
+      { text: "Казна < 0 → −2 эк./мес + инфляция +2; Казна < 15 → −1 эк./мес", warn: (state.stats.treasury ?? 52) < 15 },
+      { text: "Казна > 65 → +1 эк./мес (профицит поддерживает инвестиции)", warn: false },
+      { text: "Стимул эк-ки: +экономика, но также +инфляция (долгосрочно вреден при инфляции > 15%)", warn: false },
+      { text: "Жёсткая экономия: +экономика +бóльше чем стимул, −инфляция, но −стабильность/одобрение", warn: false },
+    ],
+    military: [
+      { text: "Если армия > 75 → каждый месяц списывается военный налог с экономики (−1…−3)", warn: (state.stats.military ?? 50) > 75 },
+      { text: "Военная усталость: 3+ наступлений подряд → убывающая отдача (−15% за каждое лишнее)", warn: false },
+      { text: "Перегруппировка → +30…+50 инициативы + бонус на следующую операцию, но следующий мес. заблокирован", warn: false },
+    ],
+    stability: [
+      { text: "Казна < 0 → −1 стаб./мес (дефицит дестабилизирует)", warn: (state.stats.treasury ?? 52) < 0 },
+      { text: "Репрессии: +стабильность краткосрочно, но +коррупция и −одобрение", warn: false },
+      { text: "Соц. напряжённость > 70 → риск кризисных событий", warn: (state.stats.social_tension ?? 38) > 70 },
+    ],
+    diplomacy: [
+      { text: "Изоляция > 70 → санкционное давление усиливается, экономика уязвимее", warn: (state.stats.isolation ?? 68) > 70 },
+      { text: "Дипломатия: −инфляция, −изоляция; конфронтация: −дипломатия, +изоляция", warn: false },
+    ],
+    approval: [
+      { text: "Инфляция > 15% г/г → −1…−2 одобр./мес автоматически", warn: (state.stats.inflation ?? 64) > 73 },
+      { text: "Экономика < 40 → риск потери поддержки через кризисные события", warn: (state.stats.economy ?? 50) < 40 },
+    ],
   };
 
   const substats = (SUBSTAT_META[statKey] || []).map(sm => ({ ...sm, value: state.stats[sm.key] ?? 50 }));
@@ -4433,15 +4454,20 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
             </div>
           )}
 
-          {/* Факторы влияния */}
-          <div style={{ marginBottom: 18 }}>
-            <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>ФАКТОРЫ ВЛИЯНИЯ</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {(FACTORS[statKey] || []).map(f => (
-                <span key={f} style={{ background: "#ece7d8", border: "1px solid #d8d2bf", borderRadius: 3, padding: "3px 8px", fontSize: 11, fontFamily: "'PT Serif',serif", color: "#5c5648" }}>{f}</span>
-              ))}
+          {/* Механика влияния */}
+          {(MECHANIC_NOTES[statKey] || []).length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>МЕХАНИКА · КАК ЭТО РАБОТАЕТ</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {(MECHANIC_NOTES[statKey] || []).map((note, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 10px", background: note.warn ? "#fdf0f0" : "#ece7d8", borderRadius: 4, border: `1px solid ${note.warn ? "#e8c8c8" : "#d8d2bf"}` }}>
+                    {note.warn && <span style={{ fontSize: 11, flexShrink: 0, marginTop: 1 }}>⚠</span>}
+                    <span className="doc-font" style={{ fontSize: 11.5, color: note.warn ? "#7a2020" : "#5c5648", lineHeight: 1.4 }}>{note.text}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Последние события */}
           <div>
@@ -4459,6 +4485,406 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
       </div>
     </div>
   );
+}
+
+// Авто-эффекты каждый месяц: пороги из rules-engine + turns.js/end-month
+// Consolidated end-of-month forecast panel — all auto-mechanics in one place
+const IMPACT_STAT_KEY = { "Экономика": "economy", "Одобрение": "approval", "Инфляция": "inflation", "Казна": "treasury", "Стабильность": "stability" };
+// % от текущего значения статы — тот же удар в очках ощущается сильнее при низком текущем значении
+function impactPercent(label, delta, stats) {
+  if (delta == null) return null;
+  const key = IMPACT_STAT_KEY[label];
+  if (!key) return null;
+  const current = stats[key];
+  if (typeof current !== "number" || current <= 0) return null;
+  return Math.round((delta / current) * 100);
+}
+
+function EndMonthForecastPanel({ stats }) {
+  const [open, setOpen] = useState(false);
+  const mil = stats.military ?? 50;
+  const inf = stats.inflation ?? 64;
+  const trs = stats.treasury ?? 52;
+  const eco = stats.economy ?? 50;
+  const streak = stats.military_streak ?? 0;
+
+  // Build list of all mechanisms, active or not
+  const mechanisms = [];
+
+  // 1. Военное бремя: размер армии (military > 80) + усталость от затянувшейся войны (streak >= 4).
+  // Объединены в один механизм — оба про одно и то же: война стоит денег и поддержки.
+  {
+    const sizeTax = mil > 80 ? Math.floor((mil - 80) / 10) + 1 : 0;
+    const wearinessHit = streak >= 4 ? Math.min(5, Math.floor((streak - 3) * 1.5)) : 0;
+    const stabHit = Math.ceil(wearinessHit / 2);
+    if (sizeTax > 0 || wearinessHit > 0) {
+      const impacts = [];
+      if (sizeTax > 0) impacts.push({ label: "Экономика", delta: -sizeTax }, { label: "Одобрение", delta: -1 });
+      if (wearinessHit > 0) impacts.push({ label: "Одобрение", delta: -wearinessHit }, { label: "Стабильность", delta: -stabHit });
+      const parts = [];
+      if (sizeTax > 0) parts.push(`армия ${mil} > 80`);
+      if (wearinessHit > 0) parts.push(`${streak}-й месяц войны подряд`);
+      mechanisms.push({
+        active: true, severity: (sizeTax >= 3 || wearinessHit >= 4) ? "crit" : "bad",
+        name: "Военное бремя",
+        trigger: parts.join(" + "),
+        impacts,
+        fix: sizeTax > 0 && wearinessHit > 0
+          ? "Снизьте Армию до ≤80 и дайте войскам передышку (регруппировка сбрасывает счётчик усталости)."
+          : sizeTax > 0
+          ? `Снизьте Армию до ≤80. Превышение на ${mil - 80} пт → каждые 10 пт сверх = ещё −1 экономика/мес.`
+          : "Передышка (регруппировка вместо наступления) сбрасывает счётчик усталости.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Военное бремя",
+        trigger: `Армия ${mil} ≤ 80 и нет затяжной войны — не активно`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 2. Inflation shock
+  if (inf > 73) {
+    const ecoP = Math.min(3, Math.floor((inf - 73) / 10) + 1);
+    const appP = Math.min(2, Math.floor((inf - 73) / 15) + 1);
+    mechanisms.push({
+      active: true, severity: ecoP >= 3 ? "crit" : "bad",
+      name: "Инфляционный шок",
+      trigger: `Инфляция ${inflationPercent(inf).toFixed(0)}% г/г > 15% (балл ${inf} > 73)`,
+      impacts: [{ label: "Экономика", delta: -ecoP }, { label: "Одобрение", delta: -appP }],
+      fix: "Указы «Жёсткая экономия» снижают инфляцию. Не выпускайте ОФЗ (каждый выпуск +0.5 инфл/мес + 0.3/мес пока висит долг). Потолок штрафа −3/−2.",
+    });
+  } else {
+    mechanisms.push({
+      active: false,
+      name: "Инфляционный шок",
+      trigger: `Инфляция ${inflationPercent(inf).toFixed(0)}% г/г ≤ 15% — не активен`,
+      impacts: [{ label: "Экономика", delta: -1 }, { label: "Одобрение", delta: -1 }],
+      fix: null,
+    });
+  }
+
+  // 3. Treasury spiral
+  if (trs < 0) {
+    mechanisms.push({
+      active: true, severity: "crit",
+      name: "Дефицит казны",
+      trigger: `Казна ${trs} < 0 — критический дефицит`,
+      impacts: [{ label: "Экономика", delta: -2 }, { label: "Инфляция", delta: +2 }, { label: "Стабильность", delta: -1 }],
+      fix: "Срочно: откажитесь от части госпрограмм, погасите ОФЗ, проведите 2–3 указа «Жёсткой экономии». Дефицит разгоняет инфляцию → двойной удар.",
+    });
+  } else if (trs < 15) {
+    mechanisms.push({
+      active: true, severity: "bad",
+      name: "Низкая казна",
+      trigger: `Казна ${trs} < 15 — вынужденная аустерити`,
+      impacts: [{ label: "Экономика", delta: -1 }],
+      fix: "Экономика >50 даёт ~40 дохода в мес. Снизьте расходы (госпрограммы, ОФЗ) или проведите налоговые указы.",
+    });
+  } else if (trs > 65 && eco < 82) {
+    mechanisms.push({
+      active: true, severity: "good",
+      name: "Профицит казны",
+      trigger: `Казна ${trs} > 65 — есть ресурс для инвестиций`,
+      impacts: [{ label: "Экономика", delta: +1 }],
+      fix: null,
+    });
+  } else {
+    mechanisms.push({
+      active: false,
+      name: "Казна",
+      trigger: `Казна ${trs} — в норме, штрафов нет`,
+      impacts: [],
+      fix: null,
+    });
+  }
+
+  // 4. ОФЗ: инфляционное давление + компаундинг стоимости обслуживания через ставку ЦБ
+  if ((stats.ofz_count ?? 0) > 0) {
+    const ofzCount = stats.ofz_count;
+    const rateForOfz = stats.key_rate ?? 18.5;
+    const costPerBond = Math.max(2, Math.round(rateForOfz / 6));
+    mechanisms.push({
+      active: true, severity: "bad",
+      name: "Давление ОФЗ",
+      trigger: `${ofzCount} выпуск(а) ОФЗ в обращении, ставка ЦБ ${rateForOfz}%`,
+      impacts: [{ label: "Инфляция", delta: Math.round(ofzCount * 0.3 * 10) / 10 }, { label: "Казна", delta: -(ofzCount * costPerBond) }],
+      fix: `Обслуживание растёт вместе со ставкой ЦБ (сейчас ${costPerBond}/выпуск) — чем выше инфляция, тем дороже висящий долг. Погашайте через «Погасить ОФЗ», пока ставка не выросла ещё сильнее.`,
+    });
+  }
+
+  // 5. Ключевая ставка ЦБ — эффект на инфляцию и экономику
+  {
+    const rate = stats.key_rate ?? 18.5;
+    const cbHead = stats.cb_head_type ?? "neutral";
+    const softExtra = cbHead === "soft" && rate > 10 ? 1 : 0;
+    if (rate > 17) {
+      mechanisms.push({
+        active: true, severity: "bad",
+        name: "Ключевая ставка ЦБ",
+        trigger: `Ставка ${rate}% > 17% — дорогой кредит душит бизнес`,
+        impacts: [{ label: "Экономика", delta: -1 }, { label: "Инфляция", delta: -1 + softExtra }],
+        fix: "Высокая ставка сдерживает инфляцию ценой роста. ЦБ сам снижает ставку по мере падения инфляции — ускорить можно только сменив главу ЦБ или надавив на него.",
+      });
+    } else if (rate < 11) {
+      mechanisms.push({
+        active: true, severity: softExtra ? "bad" : "good",
+        name: "Ключевая ставка ЦБ",
+        trigger: `Ставка ${rate}% < 11% — дешёвый кредит стимулирует рост`,
+        impacts: [{ label: "Экономика", delta: +1 }, { label: "Инфляция", delta: +1 + softExtra }],
+        fix: "Низкая ставка разгоняет экономику, но и инфляцию. Следите, чтобы инфляция не ушла за 15% г/г.",
+      });
+    } else {
+      mechanisms.push({
+        active: softExtra ? true : false, severity: softExtra ? "bad" : undefined,
+        name: "Ключевая ставка ЦБ",
+        trigger: softExtra
+          ? `Ставка ${rate}% — нейтральна, но мягкий глава ЦБ добавляет инфляционный риск`
+          : `Ставка ${rate}% — в нейтральной зоне 11–17%, прямых эффектов нет`,
+        impacts: softExtra ? [{ label: "Инфляция", delta: +1 }] : [],
+        fix: softExtra ? "Мягкий глава ЦБ держит ставку заниженной — хронический +1 инфляции/мес, пока ставка выше 10%." : null,
+      });
+    }
+  }
+
+  // 6. Коррупционная утечка казны
+  {
+    const corr = stats.corruption ?? 55;
+    const drain = corr > 50 ? Math.round(Math.pow((corr - 50) / 50, 1.3) * 12) : 0;
+    if (drain > 0) {
+      mechanisms.push({
+        active: true, severity: drain >= 6 ? "crit" : "bad",
+        name: "Коррупционная утечка",
+        trigger: `Коррупция ${corr} > 50 — часть бюджета разворовывается`,
+        impacts: [{ label: "Казна", delta: -drain }],
+        fix: "Антикоррупционная кампания снижает уровень коррупции. Утечка растёт нелинейно: при коррупции 75 теряется вдвое больше, чем при 60.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Коррупционная утечка",
+        trigger: `Коррупция ${corr} ≤ 50 — утечки из казны нет`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 7. Рост ВВП → экономика (компаундинг относительно старта партии)
+  {
+    const gdp = stats.gdp_growth ?? 36;
+    const gdpEffect = Math.round((gdp - 36) / 25);
+    if (gdpEffect !== 0) {
+      mechanisms.push({
+        active: true, severity: gdpEffect > 0 ? "good" : "bad",
+        name: "Рост ВВП",
+        trigger: `ВВП ${gdp} vs старт партии 36 — отклонение компаундится в экономику`,
+        impacts: [{ label: "Экономика", delta: gdpEffect }],
+        fix: gdpEffect < 0
+          ? "Устойчивый спад ВВП подтачивает экономику каждый месяц. Реформы и стимулирующие указы поднимают gdp_growth."
+          : "Устойчивый рост ВВП постепенно усиливает экономику — держите курс.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Рост ВВП",
+        trigger: `ВВП ${gdp} ≈ стартовый уровень — заметного эффекта на экономику нет`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 8. Занятость → налоговая база (доход казны от экономики и политик)
+  {
+    const empl = stats.employment ?? 74;
+    const factor = Math.max(0.6, Math.min(1.3, 1 + (empl - 74) * 0.004));
+    const pctShift = Math.round((factor - 1) * 100);
+    if (pctShift !== 0) {
+      mechanisms.push({
+        active: true, severity: pctShift > 0 ? "good" : "bad",
+        name: "Занятость / безработица",
+        trigger: `Занятость ${empl} vs старт партии 74 — двигает налоговую базу`,
+        impacts: [{ label: `Доход казны ${pctShift > 0 ? "+" : ""}${pctShift}%`, delta: null }],
+        fix: pctShift < 0
+          ? "Высокая безработица режет налоговые поступления и доход от экономики. Указы «Стимул экономики» и либерализация поднимают занятость."
+          : "Низкая безработица расширяет налоговую базу — доход казны выше обычного.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Занятость / безработица",
+        trigger: `Занятость ${empl} ≈ стартовый уровень — налоговая база не искажена`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 9. Domestic crisis (always probabilistic)
+  mechanisms.push({
+    active: "random", severity: "random",
+    name: "Внутренний кризис",
+    trigger: "7% шанс каждый месяц — случайное событие",
+    impacts: [{ label: "≈ −4…−7 к одной из стат", delta: null }],
+    fix: "Нельзя устранить. Высокая Стабильность и Одобрение создают «подушку» перед ударом.",
+  });
+
+  const activeCount = mechanisms.filter(m => m.active === true).length;
+  const totalDrain = mechanisms
+    .filter(m => m.active === true)
+    .flatMap(m => m.impacts)
+    .filter(i => i.delta !== null && i.delta < 0)
+    .reduce((s, i) => s + i.delta, 0);
+
+  const severityColor = { crit: "#a8313a", bad: "#9c5a1a", good: "#4a6b5c", random: "#5a4a8a" };
+  const severityBg = { crit: "#fde8e8", bad: "#fdf3e8", good: "#e8f5e8", random: "#f0eef8" };
+
+  return (
+    <div style={{ marginBottom: 14, borderRadius: 6, border: `1px solid ${activeCount > 0 ? "#c8a87a" : "#d8d2bf"}`, overflow: "hidden", background: "#f5f1e6" }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ cursor: "pointer", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.1em", color: "#8a8472" }}>КОНЕЦ МЕСЯЦА · МЕХАНИКИ</span>
+          {activeCount > 0 && (
+            <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
+              {activeCount} активно
+            </span>
+          )}
+          {totalDrain < 0 && (
+            <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
+              ≈{totalDrain}/мес авто
+            </span>
+          )}
+        </div>
+        <span style={{ color: "#9c8347", fontSize: 16, transition: "transform 0.2s", display: "inline-block", transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+      </div>
+
+      {open && (
+        <div style={{ borderTop: "1px solid #e8e2d0", padding: "12px 12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {mechanisms.map((m, i) => {
+            const color = m.active === false ? "#a8a294" : (severityColor[m.severity] || "#5c5648");
+            const bg = m.active === false ? "#f0ede4" : (severityBg[m.severity] || "#f5f1e6");
+            return (
+              <div key={i} style={{ background: bg, borderRadius: 5, border: `1px solid ${m.active === false ? "#d8d2bf" : color + "55"}`, padding: "8px 10px" }}>
+                {/* Header row */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span className="doc-font" style={{ fontSize: 12, fontWeight: 700, color: m.active === false ? "#a8a294" : "#2e2a22" }}>{m.name}</span>
+                  {m.active === false && (
+                    <span className="mono-font" style={{ fontSize: 8, color: "#a8a294", background: "#e8e2d0", borderRadius: 2, padding: "1px 5px" }}>НЕ АКТИВЕН</span>
+                  )}
+                  {m.active === "random" && (
+                    <span className="mono-font" style={{ fontSize: 8, color: "#5a4a8a", background: "#f0eef8", borderRadius: 2, padding: "1px 5px" }}>СЛУЧАЙНЫЙ</span>
+                  )}
+                </div>
+                {/* Trigger condition */}
+                <div className="mono-font" style={{ fontSize: 9.5, color: color, marginBottom: m.impacts.length > 0 || m.fix ? 6 : 0, lineHeight: 1.4 }}>
+                  {m.trigger}
+                </div>
+                {/* Impact chips */}
+                {m.impacts.length > 0 && m.active !== false && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: m.fix ? 6 : 0 }}>
+                    {m.impacts.map((imp, j) => {
+                      const isNeg = imp.delta !== null && imp.delta < 0;
+                      const isPos = imp.delta !== null && imp.delta > 0;
+                      const chipColor = isNeg ? "#a8313a" : isPos ? "#4a6b5c" : "#5a4a8a";
+                      const chipBg = isNeg ? "#fde8e8" : isPos ? "#e8f5e8" : "#f0eef8";
+                      const pct = impactPercent(imp.label, imp.delta, stats);
+                      return (
+                        <span key={j} className="mono-font" style={{ fontSize: 10, background: chipBg, color: chipColor, borderRadius: 3, padding: "2px 7px", fontWeight: 700 }}>
+                          {imp.label}{imp.delta !== null ? ` ${imp.delta > 0 ? "+" : ""}${imp.delta}` : ""}
+                          {pct !== null && <span style={{ opacity: 0.75, fontWeight: 400 }}> ({pct > 0 ? "+" : ""}{pct}%)</span>}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Fix hint */}
+                {m.fix && m.active !== false && (
+                  <div style={{ display: "flex", gap: 5, alignItems: "flex-start" }}>
+                    <span style={{ color: "#9c8347", fontSize: 11, flexShrink: 0, marginTop: 1 }}>→</span>
+                    <span className="doc-font" style={{ fontSize: 11, color: "#5c5648", lineHeight: 1.45 }}>{m.fix}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="mono-font" style={{ fontSize: 9, color: "#a8a294", lineHeight: 1.5, paddingTop: 2 }}>
+            Бюджет (доходы − расходы → казна) отражается в ленте после каждого завершения месяца.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getPassiveEffects(key, stats) {
+  const mil = stats.military ?? 50;
+  const inf = stats.inflation ?? 64;
+  const trs = stats.treasury ?? 52;
+  const eco = stats.economy ?? 50;
+  const streak = stats.military_streak ?? 0;
+  const corr = stats.corruption ?? 55;
+  const wearinessHit = streak >= 4 ? Math.min(5, Math.floor((streak - 3) * 1.5)) : 0;
+  const effects = [];
+
+  if (key === "economy") {
+    if (mil > 80) {
+      const tax = Math.floor((mil - 80) / 10) + 1;
+      effects.push({ sign: -1, value: tax, text: `Военное бремя: содержание армии (${mil} > 80)` });
+    }
+    if (inf > 73) {
+      const pen = Math.min(3, Math.floor((inf - 73) / 10) + 1);
+      effects.push({ sign: -1, value: pen, text: `Инфляционный шок (${inflationPercent(inf).toFixed(0)}% > 15% г/г)` });
+    }
+    if (trs < 0) {
+      effects.push({ sign: -1, value: 2, text: `Дефицит казны (${trs} < 0)` });
+    } else if (trs < 15) {
+      effects.push({ sign: -1, value: 1, text: `Низкая казна (${trs} < 15)` });
+    } else if (trs > 65 && eco < 82) {
+      effects.push({ sign: +1, value: 1, text: `Профицит казны (${trs} > 65)` });
+    }
+    if (corr > 50) {
+      const drain = Math.round(Math.pow((corr - 50) / 50, 1.3) * 12);
+      effects.push({ sign: -1, value: drain, text: `Коррупционная утечка бюджета (бьёт по казне, элиты в доле)` });
+    }
+  }
+
+  if (key === "military") {
+    if (mil > 80) {
+      const tax = Math.floor((mil - 80) / 10) + 1;
+      effects.push({ sign: -1, value: tax, text: `→ Экономика −${tax}/мес (армия выше порога 80)` });
+    }
+  }
+
+  if (key === "approval") {
+    if (inf > 73) {
+      const pen = Math.min(2, Math.floor((inf - 73) / 15) + 1);
+      effects.push({ sign: -1, value: pen, text: `Инфляционный шок (${inflationPercent(inf).toFixed(0)}% > 15% г/г)` });
+    }
+    if (mil > 80) {
+      effects.push({ sign: -1, value: 1, text: `Военное бремя: содержание армии (армия > 80)` });
+    }
+    if (wearinessHit > 0) {
+      effects.push({ sign: -1, value: wearinessHit, text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
+    }
+  }
+
+  if (key === "stability") {
+    if (trs < 0) {
+      effects.push({ sign: -1, value: 1, text: `Дефицит казны (${trs} < 0)` });
+    }
+    if (wearinessHit > 0) {
+      effects.push({ sign: -1, value: Math.ceil(wearinessHit / 2), text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
+    }
+  }
+
+  return effects;
 }
 
 function StatsTab({ state, gameId }) {
@@ -4505,6 +4931,7 @@ function StatsTab({ state, gameId }) {
 
   return (
     <>
+      <EndMonthForecastPanel stats={state.stats} />
       <div style={{ display: "grid", gap: 10 }}>
         {Object.entries(state.stats).filter(([key]) => statMeta[key]).map(([key, value]) => {
           const meta = statMeta[key];
@@ -4512,6 +4939,9 @@ function StatsTab({ state, gameId }) {
           const substats = (SUBSTAT_META[key] || []).map(sm => ({ ...sm, value: state.stats[sm.key] ?? 50 }));
           const expanded = expandedKey === key;
           const events = getStatEvents(key);
+
+          const passiveEffects = getPassiveEffects(key, state.stats);
+          const passiveTotal = passiveEffects.reduce((s, e) => s + e.sign * e.value, 0);
 
           return (
             <div key={key} style={{ borderRadius: 6, background: "#f5f1e6", border: `1px solid ${expanded ? meta.color : "#d8d2bf"}`, transition: "border-color 0.15s", overflow: "hidden" }}>
@@ -4526,6 +4956,16 @@ function StatsTab({ state, gameId }) {
                   {events.length > 0 && (
                     <span style={{ fontSize: 9, background: "#eee6d0", color: "#8a8472", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>
                       {events.length} событий
+                    </span>
+                  )}
+                  {passiveTotal < 0 && (
+                    <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", fontWeight: 700 }}>
+                      ⚠ {passiveTotal}/мес авто
+                    </span>
+                  )}
+                  {passiveTotal > 0 && (
+                    <span style={{ fontSize: 9, background: "#e8f5e8", color: "#4a6b5c", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", fontWeight: 700 }}>
+                      +{passiveTotal}/мес авто
                     </span>
                   )}
                 </div>
@@ -4587,6 +5027,28 @@ function StatsTab({ state, gameId }) {
                         })}
                       </div>
                     </>
+                  )}
+
+                  {passiveEffects.length > 0 && (
+                    <div style={{ marginTop: events.length > 0 ? 12 : 0, borderTop: events.length > 0 ? "1px solid #e8e2d0" : "none", paddingTop: events.length > 0 ? 10 : 0 }}>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 6 }}>АВТО-ЭФФЕКТЫ · КАЖДЫЙ МЕСЯЦ</div>
+                      {passiveEffects.map((eff, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: eff.sign < 0 ? "#f9f0f0" : "#f0f6f0", borderRadius: 3, borderLeft: `3px solid ${eff.sign < 0 ? "#a8313a" : "#4a6b5c"}`, marginBottom: 4 }}>
+                          <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: eff.sign < 0 ? "#a8313a" : "#4a6b5c", minWidth: 30 }}>
+                            {eff.sign < 0 ? "−" : "+"}{eff.value}
+                          </span>
+                          <span className="doc-font" style={{ fontSize: 11, color: "#5c5648", flex: 1 }}>{eff.text}</span>
+                        </div>
+                      ))}
+                      {passiveEffects.length > 1 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", marginTop: 2 }}>
+                          <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: passiveTotal < 0 ? "#a8313a" : "#4a6b5c", minWidth: 30 }}>
+                            {passiveTotal < 0 ? "−" : "+"}{Math.abs(passiveTotal)}
+                          </span>
+                          <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ИТОГО / МЕС (без учёта твоих ходов)</span>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   <button
@@ -5194,8 +5656,12 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded, warCounte
 }
 
 const OFZ_MAX = 3;
-const OFZ_MONTHLY_COST = 3;
 const TREASURY_PER_TRILLION = 0.8;
+// Компаундинг: та же формула, что и в backend/src/routes/treasury.js (ofzMonthlyCostPerBond) —
+// стоимость обслуживания 1 выпуска ОФЗ растёт вместе с ключевой ставкой ЦБ.
+function ofzMonthlyCostPerBondPreview(keyRate) {
+  return Math.max(2, Math.round((keyRate ?? 18.5) / 6));
+}
 
 function TreasuryTab({ state, gameId, onRefresh }) {
   const stats = state.stats || {};
@@ -5207,13 +5673,18 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const ofzCount = stats.ofz_count ?? 0;
   const ofzUsedThisMonth = !!stats.ofz_used_this_month;
   const activePolicies = (state.policies || []).filter(p => p.status !== "cancelled");
-  const taxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
+  const rawTaxIncomeT = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
   const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
-  const ofzDebt = ofzCount * OFZ_MONTHLY_COST;
-  const economyIncome = eco >= 50
+  const ofzDebt = ofzCount * ofzMonthlyCostPerBondPreview(stats.key_rate);
+  const rawEconomyIncomeT = eco >= 50
     ? Math.round(20 + (eco - 50) * 0.6)
     : eco >= 35 ? Math.round(eco * 0.4) : Math.round(Math.max(5, eco * 0.2));
-  const OIL_BASELINE_T = 68, FX_BASELINE_T = 80;
+  // Безработица → налоговая база: тот же коэффициент, что и в backend end-month
+  const employmentT = stats.employment ?? 74;
+  const employmentFactorT = Math.max(0.6, Math.min(1.3, 1 + (employmentT - 74) * 0.004));
+  const economyIncome = Math.round(rawEconomyIncomeT * employmentFactorT);
+  const taxIncome = Math.round(rawTaxIncomeT * employmentFactorT);
+  const OIL_BASELINE_T = 85, FX_BASELINE_T = 80;
   const oilPriceT = stats.oil_price ?? OIL_BASELINE_T;
   const usdRubT = stats.usd_rub ?? FX_BASELINE_T;
   const isolationT = stats.isolation ?? 68;
@@ -5264,6 +5735,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   async function handleAntiCorruption() {
     setLoading("anticorruption"); setError(null);
     try { await antiCorruptionCampaign(gameId); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
+  async function handleConvertReserves() {
+    setLoading("convert_reserves"); setError(null);
+    try { await convertReserves(gameId); onRefresh?.(); }
     catch (e) { setError(e.message); }
     finally { setLoading(null); }
   }
@@ -5631,6 +6109,64 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 {anticorruptionUsed && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 5 }}>
                     Доступно снова после завершения месяца. Возможные исходы: успешные аресты (коррупция −6…−10, элиты недовольны), показательный процесс (тот же эффект + рост одобрения), либо саботаж расследования (минимальный эффект, удар по стабильности).
+                  </div>
+                )}
+              </div>
+
+              {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Резервы (ФНБ) */}
+      {(() => {
+        const reservesNow = stats.reserves ?? 48;
+        const reservesConverted = !!stats.reserves_converted_this_month;
+        const RESERVES_CONVERT_AMOUNT_T = 10, RESERVES_CONVERT_MIN_LEFT_T = 15;
+        const initiativeR = stats.initiative ?? 100;
+        const canConvert = !reservesConverted && initiativeR >= 20 && reservesNow - RESERVES_CONVERT_AMOUNT_T >= RESERVES_CONVERT_MIN_LEFT_T;
+        const reservesColor = reservesNow < 20 ? "#c03030" : reservesNow < 35 ? "#9c8347" : "#4a7a5a";
+        return (
+          <div style={sectionStyle}>
+            <div style={labelStyle}>РЕЗЕРВЫ (ФНБ)</div>
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 26, fontWeight: 700, color: reservesColor, lineHeight: 1 }}>
+                    {Math.round(reservesNow)}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", marginTop: 3 }}>
+                    {reservesNow < 20 ? "ЦБ нечем защищать рубль" : reservesNow < 35 ? "буфер тонкий" : "надёжный демпфер"}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ height: 6, background: "#1a2030", borderRadius: 3, marginBottom: 14, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${reservesNow}%`, background: reservesColor, borderRadius: 3, transition: "width 0.4s" }} />
+              </div>
+
+              <div style={{ borderTop: "1px solid #2a3040", paddingTop: 12 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>
+                  КОНВЕРТАЦИЯ В КАЗНУ · ⚡20, +{RESERVES_CONVERT_AMOUNT_T} казны, −{RESERVES_CONVERT_AMOUNT_T} резервов · инфляция +0.3
+                </div>
+                <button
+                  onClick={handleConvertReserves}
+                  disabled={!canConvert || loading === "convert_reserves"}
+                  style={{
+                    width: "100%", background: !canConvert ? "#1a2030" : "#1a1208",
+                    border: `1px solid ${!canConvert ? "#2a3040" : "#8a6020"}`,
+                    color: !canConvert ? "#3a4050" : "#c09050",
+                    borderRadius: 3, padding: "9px 12px",
+                    fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: !canConvert ? "not-allowed" : "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  {loading === "convert_reserves" ? "Конвертация…" : reservesConverted ? "⚠ Резервы уже конвертировались в этом месяце" : `💰 Распечатать ${RESERVES_CONVERT_AMOUNT_T} пунктов ФНБ в казну`}
+                </button>
+                {!reservesConverted && reservesNow - RESERVES_CONVERT_AMOUNT_T < RESERVES_CONVERT_MIN_LEFT_T && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 5 }}>
+                    Резервы нельзя опускать ниже {RESERVES_CONVERT_MIN_LEFT_T} — ниже этого уровня ЦБ нечем защищать рубль от шоков курса.
                   </div>
                 )}
               </div>
