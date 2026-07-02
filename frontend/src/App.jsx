@@ -2510,10 +2510,16 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           <KremlinTab
             state={state}
             onSelectCategory={(template, mode) => {
+              // Остаёмся на вкладке «Кремль» — форма подписи (композер/предпросмотр) рендерится
+              // ниже вкладок независимо от того, какая вкладка сейчас активна, так что менять
+              // вкладку не нужно. Прокручиваем к полю и подсвечиваем, чтобы было видно, что
+              // текст подставился.
               setDraftInput(template);
               if (["decree_fast","decree_reform","decree_program","intel","military","diplomacy_op"].includes(mode)) setActionMode(mode);
-              setTab("overview");
-              setTimeout(() => draftTextareaRef.current?.focus(), 100);
+              setTimeout(() => {
+                draftTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                draftTextareaRef.current?.focus();
+              }, 50);
             }}
           />
         )}
@@ -5483,10 +5489,13 @@ function KremlinTab({ state, onSelectCategory }) {
                     style={{ width: "100%", padding: "8px 10px", borderRadius: 4, border: "1px solid #d8d2bf", fontFamily: "'PT Serif',serif", fontSize: 12.5, resize: "vertical", marginBottom: 10, boxSizing: "border-box" }}
                   />
                   <button
-                    onClick={() => onSelectCategory(customText.trim() || variants[selectedVariant ?? 0]?.text || card.template, domain.mode || tier)}
+                    onClick={() => {
+                      onSelectCategory(customText.trim() || variants[selectedVariant ?? 0]?.text || card.template, domain.mode || tier);
+                      setExpandedCardId(null);
+                    }}
                     style={{ width: "100%", background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "9px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
                   >
-                    Выбрать → перейти к рассмотрению
+                    Выбрать эту формулировку
                   </button>
                 </div>
               )}
@@ -5495,7 +5504,7 @@ function KremlinTab({ state, onSelectCategory }) {
         })}
       </div>
       <div className="mono-font" style={{ fontSize: 9.5, color: "#a8a294", marginTop: 12, lineHeight: 1.5 }}>
-        Раскройте карточку, выберите готовую формулировку или напишите свою. «Выбрать» перенесёт текст в «Обстановку», где предпросмотр покажет точные изменения статов перед подписью.
+        Раскройте карточку, выберите готовую формулировку или напишите свою. Текст подставится в форму подписи внизу экрана — она видна на любой вкладке. Прокрутите вниз: там же появится предпросмотр с точными изменениями статов и кнопка подписи.
       </div>
     </div>
   );
