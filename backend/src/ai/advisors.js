@@ -22,7 +22,7 @@ const ADVISORS = [
     id: "finance",
     name: "Силин А.Г.",
     role: "Министр финансов",
-    persona: `Бухгалтер при дворе. Мысль всегда начинается с денег и ими заканчивается. Говорит негромко, будто зачитывает протокол. Оперирует триллионами рублей, процентами ключевой ставки, дефицитом бюджета. Его фирменный приём — согласиться с целью и тут же перечислить три конкретных финансовых риска. Никогда не возражает прямо: «Это можно рассмотреть, однако необходимо учитывать, что…» Изредка позволяет себе мрачный юмор: «Денег нет, но держитесь». ВАЖНО: Силин ВСЕГДА упоминает конкретные цифры — цену нефти, курс рубля, инфляцию, состояние казны. Он объясняет как эти показатели влияют на бюджет: нефть выше базовых $68 даёт профицит, слабый рубль разгоняет инфляцию через импорт, высокая инфляция давит на экономику и одобрение. Он единственный кто понимает эти рычаги — и говорит о них прямо.`,
+    persona: `Бухгалтер при дворе. Мысль всегда начинается с денег и ими заканчивается. Говорит негромко, будто зачитывает протокол. Оперирует триллионами рублей, процентами ключевой ставки, дефицитом бюджета. Его фирменный приём — согласиться с целью и тут же перечислить три конкретных финансовых риска. Никогда не возражает прямо: «Это можно рассмотреть, однако необходимо учитывать, что…» Изредка позволяет себе мрачный юмор: «Денег нет, но держитесь». ВАЖНО: Силин ВСЕГДА упоминает конкретные цифры — цену нефти, курс рубля, инфляцию, состояние казны. Он объясняет как эти показатели влияют на бюджет: нефть выше базовых $85 даёт профицит, слабый рубль разгоняет инфляцию через импорт, высокая инфляция давит на экономику и одобрение. Он единственный кто понимает эти рычаги — и говорит о них прямо.`,
   },
   {
     id: "security",
@@ -127,6 +127,22 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
 ЭКОНОМИЧЕСКИЕ ИНДИКАТОРЫ (Силин должен их прокомментировать):
 {{econ_indicators}}
 
+═══════════════════════════════════════════
+МАТЕМАТИЧЕСКИ РАССЧИТАННЫЙ ОПТИМАЛЬНЫЙ ХОД (из формул движка, не мнение)
+═══════════════════════════════════════════
+{{optimal_move}}
+
+ОБЯЗАТЕЛЬНО: советник [{{optimal_advisor}}] должен предложить ИМЕННО этот ход —
+его proposed_decree должен близко повторять формулировку выше, а recommendation —
+объяснить расчёт своими словами (в стиле персонажа). Остальные советники могут
+соглашаться или предлагать альтернативы из СВОЕЙ сферы.
+
+РАЗНООБРАЗИЕ КЛАССОВ: среди пяти suggested_scale должны встретиться минимум три
+разных класса (например decree_fast, decree_reform, decree_program) — советники
+не должны хором предлагать один масштаб. Быстрый указ — точечная мера на 1–2 мес,
+реформа — системное изменение на 3–6 мес, программа — нацпроект на 7–12 мес:
+содержание совета обязано соответствовать выбранному классу.
+
 ИСТОРИЯ ({{history_count}} ходов, от старых к новым):
 {{history_json}}
 
@@ -177,7 +193,112 @@ function buildEconIndicators(stats) {
 Рычаги: указ об экономическом стимулировании поднимает экономику +1..+3, но при дефиците казны или инфляции >73 этот рост гасится. Нефть дороже базы — профицит бюджета. Слабый рубль (>${FX_BASE + 10}₽/$) разгоняет инфляцию.`;
 }
 
-function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode }) {
+/**
+ * Детерминированный расчёт оптимального хода из формул движка (не ИИ).
+ * Приоритет: сначала отвести от порога поражения тот показатель, что ближе всех
+ * к нему, потом чинить казну/инфляцию, потом двигаться к победе.
+ * Пороги поражения: экономика <30, рейтинг <30, стабильность <25, дипломатия <15.
+ * Победа военная (с хода 8): армия ≥85, мораль/готовность ≥70, стаб/рейтинг ≥52,
+ * экономика ≥36, Донецк/Луганск 100 + 2 из 3 (Запорожье ≥85, Херсон ≥65, Харьков ≥50).
+ * Победа дипломатическая (с хода 12): мирный трек 100 + экономика/рейтинг/стабильность ≥65.
+ */
+function computeOptimalMove(stats, turnNumber = 1) {
+  const s = (k, d = 50) => (typeof stats[k] === "number" ? stats[k] : d);
+  const economy = s("economy"), approval = s("approval"), stability = s("stability"),
+    diplomacy = s("diplomacy"), treasury = s("treasury", 52), inflation = s("inflation", 64),
+    military = s("military"), peace = s("peace_track", 0);
+
+  // 1. Опасность: расстояние до порога поражения (меньше = хуже)
+  const dangers = [
+    { key: "economy", margin: economy - 30, label: "экономика" },
+    { key: "approval", margin: approval - 30, label: "рейтинг" },
+    { key: "stability", margin: stability - 25, label: "стабильность" },
+    { key: "diplomacy", margin: diplomacy - 15, label: "дипломатия" },
+  ].sort((a, b) => a.margin - b.margin);
+  const worst = dangers[0];
+
+  // Порог 10: месячная автоэрозия экономики ограничена −6, плюс цена действий —
+  // запас меньше 10 пунктов уже может быть съеден за один месяц.
+  if (worst.margin < 10) {
+    if (worst.key === "economy") {
+      // При пустой казне стимулирование гасится дефицитной спиралью — сначала казна.
+      if (treasury < 10) {
+        return { advisorId: "finance", category: "econ_austerity", mode: "decree_fast", direction: "economic_austerity",
+          title: "Бюджетная консолидация (срочно)",
+          decree: "Правительству поручаю программу срочной бюджетной консолидации: сокращение некритических расходов и повышение сборов с экспортёров.",
+          reason: `Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п. Казна ${treasury} — стимулирование при пустой казне гасится дефицитной спиралью, сначала нужно закрыть дефицит. Никаких военных операций в этом месяце: end-month снимет ещё до −6 автоматических потерь.` };
+      }
+      return { advisorId: "finance", category: "econ_stimulus", mode: "decree_fast", direction: "economic_stimulus",
+        title: "Стимулирование экономики (срочно)",
+        decree: "Правительству поручаю разработать пакет мер по льготному кредитованию малого и среднего бизнеса.",
+        reason: `Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п. Стимул даёт +1..+3, автоматическая эрозия за месяц ограничена −6, так что одного стимула может не хватить — стоит воздержаться от дорогих военных операций.` };
+    }
+    if (worst.key === "approval") {
+      return { advisorId: "press", category: "pol_social", mode: "decree_fast", direction: "domestic_liberalization",
+        title: "Социальная программа (срочно)",
+        decree: "Утверждаю социальную программу поддержки семей военнослужащих и ветеранов.",
+        reason: `Рейтинг ${approval} — до переворота (<30) осталось ${worst.margin} п. Социальные меры — самый прямой рычаг одобрения (+1..+2); мобилизация и жёсткая экономия сейчас недопустимы.` };
+    }
+    if (worst.key === "stability") {
+      return { advisorId: "press", category: "pol_propaganda", mode: "decree_fast", direction: "info_narrative",
+        title: "Информационная кампания (срочно)",
+        decree: "Поручаю госСМИ развернуть информационную кампанию об успехах на фронте и героизме военнослужащих.",
+        reason: `Стабильность ${stability} — до волнений (<25) осталось ${worst.margin} п. Информационная кампания поднимает стабильность и рейтинг без удара по казне (подавление подняло бы стабильность, но обвалило бы рейтинг ${approval}).` };
+    }
+    return { advisorId: "foreign", category: "diplo_negotiate", mode: "diplomacy_op", direction: "diplomacy_outreach",
+      title: "Дипломатические переговоры (срочно)",
+      decree: "Министерству иностранных дел поручаю провести переговоры с Турцией и ОАЭ о посредничестве в мирном процессе.",
+      reason: `Дипломатия ${diplomacy} — до изоляции (<15) осталось ${worst.margin} п. Переговоры — единственный прямой рычаг; эскалация и тайные операции сейчас усугубят изоляцию.` };
+  }
+
+  // 2. Казна в минусе — спираль вниз тянет экономику каждый месяц
+  if (treasury < 0) {
+    return { advisorId: "finance", category: "econ_austerity", mode: "decree_fast", direction: "economic_austerity",
+      title: "Закрыть дефицит казны",
+      decree: "Правительству поручаю программу бюджетной консолидации с сокращением некритических расходов.",
+      reason: `Казна ${treasury} — дефицит каждый месяц давит экономику (${economy}) и разгоняет инфляцию. Пока дефицит не закрыт, любые дорогие операции углубляют спираль.` };
+  }
+
+  // 3. Инфляция выше порога — ежемесячный штраф экономике и рейтингу
+  if (inflation > 73 && economy < 55) {
+    return { advisorId: "finance", category: "econ_austerity", mode: "decree_reform", direction: "economic_austerity",
+      title: "Сбить инфляцию",
+      decree: "Правительству поручаю программу бюджетной консолидации: сдержать госрасходы и не давить на ЦБ за снижение ставки.",
+      reason: `Инфляция ${inflation} (порог 73) — каждый месяц −1..−3 экономике и рейтингу. Консолидация снижает дефицитное давление; ставку ЦБ поднимет сам.` };
+  }
+
+  // 4. Опасностей нет — путь к победе
+  const donetsk = s("donetsk_control", 0), luhansk = s("luhansk_control", 0),
+    zap = s("zaporizhzhia_control", 0), kher = s("kherson_control", 0), khar = s("kharkiv_control", 0);
+  const secondary = [zap >= 85, kher >= 65, khar >= 50].filter(Boolean).length;
+  const territoriesClose = donetsk >= 80 && luhansk >= 90;
+
+  if (territoriesClose && military >= 75 && economy >= 45 && treasury >= 35) {
+    const target = donetsk < 100 ? { nom: "Донецкое", prep: "Донецком" }
+      : luhansk < 100 ? { nom: "Луганское", prep: "Луганском" }
+      : secondary < 2 ? { nom: "Запорожское", prep: "Запорожском" } : null;
+    if (target) {
+      return { advisorId: "defense", category: "mil_operational_offensive", mode: "military", direction: "military_offensive",
+        title: `Наступление (${target.nom} направление)`,
+        decree: `Приказываю начать наступательную операцию на ${target.prep} направлении.`,
+        reason: `Военная победа близко (Донецк ${donetsk}, Луганск ${luhansk}, доп. регионы ${secondary}/2). Экономика ${economy} и казна ${treasury} выдержат месячное военное бремя (потолок автопотерь −6/мес).` };
+    }
+  }
+
+  if (peace >= 40 || turnNumber >= 10) {
+    return { advisorId: "foreign", category: "diplo_peace", mode: "diplomacy_op", direction: "peace_initiative",
+      title: "Мирная инициатива",
+      decree: "Поручаю МИДу инициировать переговоры об урегулировании конфликта при посредничестве Турции и ОАЭ.",
+      reason: `Мирный трек ${peace} — самая дешёвая дипломатическая операция и главный двигатель к дипломатической победе (нужен трек 100 и экономика/рейтинг/стабильность ≥65; сейчас ${economy}/${approval}/${stability}).` };
+  }
+
+  return { advisorId: "finance", category: "econ_stimulus", mode: "decree_reform", direction: "economic_stimulus",
+    title: "Укреплять экономику",
+    decree: "Правительству поручаю разработать пакет мер по стимулированию экономики и поддержке несырьевого экспорта.",
+    reason: `Острых угроз нет. Экономика ${economy} — фундамент обоих путей к победе (военный требует ≥36 на момент победы, дипломатический ≥65). Запас прочности против месячной эрозии (до −6) окупается всегда.` };
+}
+
+function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode, optimalMove }) {
   const draftSection = playerDraft
     ? `ЧЕРНОВИК РЕШЕНИЯ ПРЕЗИДЕНТА (советники реагируют на него):\n"${playerDraft}"`
     : `ПРЕЗИДЕНТ ЕЩЁ НЕ СФОРМУЛИРОВАЛ РЕШЕНИЕ. Советники дают общие рекомендации исходя из текущей обстановки и выбранного типа действия.`;
@@ -195,6 +316,10 @@ function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, st
     .replace("{{relations_json}}", JSON.stringify(relations.slice(0, 8)))
     .replace("{{policies_json}}", JSON.stringify(policies))
     .replace("{{econ_indicators}}", buildEconIndicators(stats))
+    .replace("{{optimal_move}}", optimalMove
+      ? `Ход: ${optimalMove.title}\nФормулировка указа: "${optimalMove.decree}"\nРасчёт: ${optimalMove.reason}`
+      : "(расчёт недоступен)")
+    .replace("{{optimal_advisor}}", optimalMove?.advisorId || "finance")
     .replace("{{history_count}}", recentHistory.length)
     .replace("{{history_json}}", recentHistory.length
       ? recentHistory.map(h => `Ход ${h.turn_n}: "${h.player_input}" → ${h.narrative_text}`).join("\n")
@@ -207,7 +332,8 @@ function stripMarkdownFences(text) {
 }
 
 async function consultAdvisors({ params, callClaudeApi }) {
-  const prompt = buildAdvisorsPrompt(params);
+  const optimalMove = computeOptimalMove(params.stats || {}, params.turnNumber);
+  const prompt = buildAdvisorsPrompt({ ...params, optimalMove });
 
   const response = await callClaudeApi({
     model: "claude-haiku-4-5-20251001",
@@ -224,29 +350,42 @@ async function consultAdvisors({ params, callClaudeApi }) {
   try {
     parsed = JSON.parse(stripMarkdownFences(rawText));
   } catch {
-    return fallbackConsult();
+    return fallbackConsult(optimalMove);
   }
 
-  // Обогащаем ответ статичными данными советников (имя, роль)
+  // Обогащаем ответ статичными данными советников (имя, роль).
+  // Советник, несущий математически рассчитанный ход, помечается is_optimal —
+  // фронт показывает бейдж «расчёт» на его карточке.
   const enriched = (parsed.advisors || []).map(a => {
     const meta = ADVISORS.find(adv => adv.id === a.id) || {};
-    return { ...meta, ...a, persona: undefined };
+    return { ...meta, ...a, persona: undefined, is_optimal: a.id === optimalMove.advisorId };
   });
 
-  return { advisors: enriched };
+  return { advisors: enriched, optimalMove };
 }
 
-function fallbackConsult() {
+function fallbackConsult(optimalMove) {
+  // ИИ недоступен, но детерминированный расчёт работает всегда —
+  // носитель оптимального хода получает его текстом вместо заглушки.
   return {
-    advisors: ADVISORS.map(a => ({
-      id: a.id,
-      name: a.name,
-      role: a.role,
-      recommendation: "Запрос к советнику временно недоступен. Примите решение самостоятельно.",
-      suggested_direction: "null_action",
-      tone: "cautious",
-    })),
+    advisors: ADVISORS.map(a => {
+      const isOptimal = optimalMove && a.id === optimalMove.advisorId;
+      return {
+        id: a.id,
+        name: a.name,
+        role: a.role,
+        recommendation: isOptimal
+          ? `По расчёту аппарата: ${optimalMove.reason}`
+          : "Запрос к советнику временно недоступен. Примите решение самостоятельно.",
+        proposed_decree: isOptimal ? optimalMove.decree : undefined,
+        suggested_direction: isOptimal ? optimalMove.direction : "null_action",
+        suggested_scale: isOptimal ? optimalMove.mode : undefined,
+        tone: "cautious",
+        is_optimal: !!isOptimal,
+      };
+    }),
+    optimalMove: optimalMove || null,
   };
 }
 
-module.exports = { consultAdvisors, ADVISORS };
+module.exports = { consultAdvisors, computeOptimalMove, ADVISORS };

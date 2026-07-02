@@ -3029,6 +3029,12 @@ function AdvisorsTab({ advisors, consulting, advisorError, draftInput, actionMod
                     <div className="mono-font" style={{ fontSize: 10, color: "#8a8472", letterSpacing: "0.06em" }}>{adv.role?.toUpperCase()}</div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                    {adv.is_optimal && (
+                      <span className="mono-font" title="Этот совет совпадает с математически рассчитанным оптимальным ходом (детерминированный расчёт по формулам игры, не мнение ИИ)"
+                        style={{ fontSize: 9, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 3, background: "#1a3a2a", color: "#5adc8c", border: "1px solid #2a6a4a", fontWeight: 700 }}>
+                        📐 РАСЧЁТ: ОПТИМАЛЬНЫЙ ХОД
+                      </span>
+                    )}
                     <span
                       className="mono-font"
                       style={{
