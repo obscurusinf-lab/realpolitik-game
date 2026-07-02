@@ -1987,127 +1987,6 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
   );
 }
 
-function DecreeLegendModal({ onClose }) {
-  const CATEGORIES = [
-    {
-      id: "decree_fast",
-      icon: "📜",
-      title: "Быстрый указ",
-      duration: "1–2 месяца",
-      initiative: 20,
-      color: "#7ab09c",
-      desc: "Оперативное президентское решение: кадровые назначения, точечные постановления, экстренные меры. Подписывается и вступает в силу немедленно. Эффект ограниченный — вы решаете конкретную проблему, но не меняете систему.",
-      examples: ["Отправить в отставку министра", "Ввести временные пошлины на импорт", "Назначить спецпредставителя по переговорам", "Заморозить цены на топливо на 2 месяца"],
-      pros: ["Быстро — виден результат уже на следующем ходе", "Дёшево по инициативе"],
-      cons: ["Эффект краткосрочный и небольшой", "Не решает структурных проблем"],
-    },
-    {
-      id: "decree_reform",
-      icon: "📋",
-      title: "Реформа",
-      duration: "3–6 месяцев",
-      initiative: 35,
-      color: "#9c8347",
-      desc: "Системные изменения в одной отрасли или сфере государственного управления. Требует согласования ведомств, выделения ресурсов, назначения ответственных. Меняет правила работы — не разовую ситуацию, а механизм.",
-      examples: ["Реформа судебной системы", "Налоговая реформа малого бизнеса", "Реструктуризация армейских подразделений", "Программа поддержки регионального экспорта"],
-      pros: ["Средний масштаб эффекта", "Относительно управляемый риск", "Виден прогресс по ходам"],
-      cons: ["Нужно время — результат через 3–6 ходов", "Может встретить сопротивление элит"],
-    },
-    {
-      id: "decree_program",
-      icon: "🏛",
-      title: "Крупная программа",
-      duration: "7–12 месяцев",
-      initiative: 55,
-      color: "#9c7ab0",
-      desc: "Масштабная государственная инициатива с федеральным бюджетом, KPI, несколькими министерствами-исполнителями. Меняет структуру экономики, вооружённых сил или общества. Высокий риск — провал программы ударит по рейтингу и стабильности. Высокий выигрыш — при успехе эффект многократно превышает реформу.",
-      examples: ["Государственная программа вооружений", "Национальный проект «Инфраструктура»", "Программа импортозамещения в IT", "Масштабная демографическая программа"],
-      pros: ["Максимальный эффект при успехе", "Видна международному сообществу — влияет на дипломатию"],
-      cons: ["Очень дорого по инициативе", "Долгий срок — много ходов до результата", "Провал = крупный штраф к рейтингу и стабильности"],
-    },
-  ];
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(14,18,26,0.9)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 8, width: "min(95vw, 680px)", maxHeight: "88vh", overflowY: "auto", color: "#ece7d8" }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid #2a3040", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.15em", marginBottom: 4 }}>ЛИКБЕЗ · ТИПЫ ГОСУДАРСТВЕННЫХ РЕШЕНИЙ</div>
-            <div className="doc-font" style={{ fontSize: 15, fontWeight: 700 }}>Как работают указы, реформы и программы</div>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#5a6070", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
-        </div>
-        <div style={{ padding: "20px" }}>
-          <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", lineHeight: 1.6, marginBottom: 20 }}>
-            Президент не управляет страной напрямую — он задаёт направление. Масштаб решения определяет, насколько глубоко оно меняет систему, сколько времени нужно на исполнение и сколько политического капитала (инициативы) оно стоит.
-          </div>
-
-          <div style={{ display: "grid", gap: 16 }}>
-            {CATEGORIES.map(cat => (
-              <div key={cat.id} style={{ background: "#1a1f2c", border: `1px solid ${cat.color}30`, borderRadius: 6, padding: "16px 18px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <span style={{ fontSize: 20 }}>{cat.icon}</span>
-                  <div>
-                    <div className="doc-font" style={{ fontSize: 15, fontWeight: 700, color: cat.color }}>{cat.title}</div>
-                    <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>
-                      СРОК: {cat.duration} · ИНИЦИАТИВА: −{cat.initiative}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="doc-font" style={{ fontSize: 13, color: "#c0b898", lineHeight: 1.55, marginBottom: 12 }}>{cat.desc}</div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                  <div>
-                    <div className="mono-font" style={{ fontSize: 8, color: "#4a6b5c", marginBottom: 5 }}>ПРИМЕРЫ</div>
-                    <ul style={{ margin: 0, paddingLeft: 14 }}>
-                      {cat.examples.map((e, i) => (
-                        <li key={i} className="doc-font" style={{ fontSize: 12, color: "#8a8472", lineHeight: 1.5 }}>{e}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <div className="mono-font" style={{ fontSize: 8, color: "#4a6b5c", marginBottom: 5 }}>ПЛЮСЫ</div>
-                    {cat.pros.map((p, i) => (
-                      <div key={i} className="doc-font" style={{ fontSize: 12, color: "#7ab09c", lineHeight: 1.5, marginBottom: 2 }}>+ {p}</div>
-                    ))}
-                    <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", marginTop: 6, marginBottom: 5 }}>МИНУСЫ</div>
-                    {cat.cons.map((c, i) => (
-                      <div key={i} className="doc-font" style={{ fontSize: 12, color: "#c07070", lineHeight: 1.5, marginBottom: 2 }}>− {c}</div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ marginTop: 16, background: "#1a1f2c", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 16px" }}>
-            <div className="mono-font" style={{ fontSize: 8, color: "#9c8347", marginBottom: 6 }}>РАЗВЕДКА И ВОЕННЫЕ ОПЕРАЦИИ</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <span style={{ fontSize: 13 }}>🕵️ </span>
-                <span className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#7a9cb0" }}>Разведка</span>
-                <span className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginLeft: 6 }}>−20 инициативы</span>
-                <div className="doc-font" style={{ fontSize: 12, color: "#8a8472", marginTop: 4, lineHeight: 1.5 }}>Тайная операция — компромат, вербовка, дезинформация, провокация. Случайный исход: от блестящей операции до провала с задержанием агента.</div>
-              </div>
-              <div>
-                <span style={{ fontSize: 13 }}>⚔️ </span>
-                <span className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#c07070" }}>Военная операция</span>
-                <span className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginLeft: 6 }}>−55 инициативы</span>
-                <div className="doc-font" style={{ fontSize: 12, color: "#8a8472", marginTop: 4, lineHeight: 1.5 }}>Прямое применение силы или публичная угроза её применения. Самое дорогое и рискованное действие. Влияет на всех соседей и союзников.</div>
-              </div>
-            </div>
-          </div>
-
-          <button onClick={onClose} style={{ marginTop: 16, width: "100%", background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "10px", fontFamily: "'PT Serif',serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-            Понятно →
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
   const [state, setState] = useState(null);
   const [assistMode, setAssistMode] = useState("advisor"); // закреплён на старте партии: "advisor" | "hardcore"
@@ -2151,7 +2030,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const [suggestions, setSuggestions] = useState(null);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [showDecreeLegend, setShowDecreeLegend] = useState(false);
   const [showTreasuryTip, setShowTreasuryTip] = useState(false);
 
   const loadState = useCallback(async () => {
@@ -2914,53 +2792,30 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             );
           })()}
 
-          {/* Тип действия */}
-          {showDecreeLegend && <DecreeLegendModal onClose={() => setShowDecreeLegend(false)} />}
-          {(() => {
-            const crisisMode = !!(state?.overview?.crisis_mode);
-            const decreeButtons = crisisMode
-              ? [{ id: "crisis", label: "⚡ Антикризисный", cost: 15, tip: "Экстренный указ. Дёшево, быстро, краткосрочно.", dur: "1–2 мес." }]
-              : [
-                  { id: "decree_fast",    label: "📜 Быстрый указ",  cost: 20, tip: "Оперативное решение. 1–2 месяца.",    dur: "1–2 мес." },
-                  { id: "decree_reform",  label: "📋 Реформа",        cost: 35, tip: "Системные изменения. 3–6 месяцев.",   dur: "3–6 мес." },
-                  { id: "decree_program", label: "🏛 Программа",      cost: 55, tip: "Масштабная инициатива. 7–12 месяцев.", dur: "7–12 мес." },
-                ];
-            const allButtons = [
-              ...decreeButtons,
-              { id: "intel",    label: "🕵️ Разведка",     cost: 20, tip: "Тайная операция. Компромат, агентура, провокации. Случайный исход.", dur: null },
-              { id: "military", label: "⚔️ Военная оп.",  cost: 55, tip: "Прямое применение силы. Двигает территориальный контроль. Эскалирует, получает отпор.", dur: null },
-              { id: "diplomacy_op", label: "🤝 Диппереговоры", cost: 35, tip: "Прямые контакты с партнёрами. Двигает мирный трек. Не влияет на территории.", dur: null },
-            ];
-            // Если текущий режим несовместим с кризисом — сбросить на crisis
-            return (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
-                {allButtons.map(({ id, label, cost, tip, dur }) => (
-                  <button
-                    key={id}
-                    onClick={() => { setActionMode(id); setSuggestions(null); }}
-                    title={tip}
-                    style={{
-                      background: actionMode === id ? "#1f2733" : "transparent",
-                      border: `1px solid ${actionMode === id ? "#9c8347" : "#2a3040"}`,
-                      color: actionMode === id ? "#9c8347" : "#5a6070",
-                      borderRadius: 4, padding: "4px 8px",
-                      fontFamily: "'JetBrains Mono',monospace", fontSize: 9,
-                      cursor: "pointer", display: "flex", alignItems: "center", gap: 3,
-                    }}
-                  >
-                    {label}
-                    <span style={{ color: "#5a6070" }}>−{cost}</span>
-                    {dur && <span style={{ color: "#3a4050", fontSize: 8 }}>{dur}</span>}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setShowDecreeLegend(true)}
-                  title="Что такое быстрый указ, реформа и программа?"
-                  style={{ background: "transparent", border: "1px solid #2a3040", borderRadius: "50%", width: 22, height: 22, color: "#5a6070", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}
-                >?</button>
-              </div>
-            );
-          })()}
+          {/* Тип действия: обычный выбор (указ/реформа/программа/разведка/военная/дипломатия)
+              переехал во вкладку «Кремль» — там теперь и категория, и формулировка выбираются
+              вместе. Здесь остаётся только антикризисная кнопка (особый принудительный режим,
+              не входящий в обычные категории Кремля) и свободное поле ниже. */}
+          {!!(state?.overview?.crisis_mode) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+              <button
+                onClick={() => { setActionMode("crisis"); setSuggestions(null); }}
+                title="Экстренный указ. Дёшево, быстро, краткосрочно."
+                style={{
+                  background: actionMode === "crisis" ? "#1f2733" : "transparent",
+                  border: `1px solid ${actionMode === "crisis" ? "#9c8347" : "#2a3040"}`,
+                  color: actionMode === "crisis" ? "#9c8347" : "#5a6070",
+                  borderRadius: 4, padding: "4px 8px",
+                  fontFamily: "'JetBrains Mono',monospace", fontSize: 9,
+                  cursor: "pointer", display: "flex", alignItems: "center", gap: 3,
+                }}
+              >
+                ⚡ Антикризисный
+                <span style={{ color: "#5a6070" }}>−15</span>
+                <span style={{ color: "#3a4050", fontSize: 8 }}>1–2 мес.</span>
+              </button>
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
             <textarea
@@ -3984,7 +3839,7 @@ function NewsLiveFeed({ state }) {
   const headlines = useMemo(() => {
     const fromGame = (state?.newsfeed || [])
       .filter(n => n.text && n.source)
-      .map(n => ({ src: n.source, text: truncateHeadline(n.text) }))
+      .map(n => ({ src: n.source, text: truncateHeadline(n.text), fullText: n.text }))
       .reverse(); // последние первыми
     const combined = [...fromGame, ...LIVE_HEADLINES];
     return combined.slice(0, 20);
@@ -3992,6 +3847,7 @@ function NewsLiveFeed({ state }) {
 
   const [visibleIdx, setVisibleIdx] = useState(0);
   const [fade, setFade] = useState(true);
+  const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
     setVisibleIdx(0); // сброс при смене хода
@@ -4024,15 +3880,31 @@ function NewsLiveFeed({ state }) {
       </div>
 
       {/* Главная новость — свободная высота, полный текст */}
-      <div style={{ padding: "10px 12px 10px", transition: "opacity 0.4s", opacity: fade ? 1 : 0 }}>
+      <div
+        onClick={() => setExpanded(item)}
+        style={{ padding: "10px 12px 10px", transition: "opacity 0.4s", opacity: fade ? 1 : 0, cursor: "pointer" }}
+        title="Нажмите, чтобы прочитать полностью"
+      >
         <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 5 }}>{item.src.toUpperCase()}</div>
         <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700 }}>{item.text}</div>
       </div>
 
+      {expanded && (
+        <Modal title={expanded.src.toUpperCase()} onClose={() => setExpanded(null)}>
+          <div className="doc-font" style={{ fontSize: 15, lineHeight: 1.6, color: "#1e1c18" }}>
+            {expanded.fullText || expanded.text}
+          </div>
+        </Modal>
+      )}
+
       {/* Следующие заголовки */}
       <div style={{ borderTop: "1px solid #d8d2bf" }}>
         {[next, prev].map((h, i) => (
-          <div key={i} style={{ padding: "6px 12px", borderBottom: i === 0 ? "1px solid #e8e2cf" : "none", display: "flex", gap: 8, alignItems: "baseline" }}>
+          <div
+            key={i}
+            onClick={() => setExpanded(h)}
+            style={{ padding: "6px 12px", borderBottom: i === 0 ? "1px solid #e8e2cf" : "none", display: "flex", gap: 8, alignItems: "baseline", cursor: "pointer" }}
+          >
             <span className="mono-font" style={{ fontSize: 8, color: "#8c6b3a", flexShrink: 0 }}>{h.src}</span>
             <span className="doc-font" style={{ fontSize: 11.5, color: "#3a362e", lineHeight: 1.4 }}>{h.text.length > 100 ? h.text.slice(0, 100) + "…" : h.text}</span>
           </div>
@@ -4405,33 +4277,34 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
   const currentValue = state.stats[statKey] ?? 0;
   const historyValues = history ? history.map(h => h.stats_snapshot?.[statKey]).filter(v => v != null) : [];
 
-  // Механика влияния — конкретные пороги, а не абстрактные теги
+  // Механика влияния — простыми предложениями, без стрелок и сокращений
   const MECHANIC_NOTES = {
     economy: [
-      { text: "Армия > 75 → −1…−3 эк./мес (военный налог: каждые 10 пунктов выше 75 = −1)", warn: (state.stats.military ?? 50) > 75 },
-      { text: "Инфляция > 15% г/г → −1…−3 эк./мес (каждые 10 пп сверх порога = −1 доп.)", warn: (state.stats.inflation ?? 64) > 73 },
-      { text: "Казна < 0 → −2 эк./мес + инфляция +2; Казна < 15 → −1 эк./мес", warn: (state.stats.treasury ?? 52) < 15 },
-      { text: "Казна > 65 → +1 эк./мес (профицит поддерживает инвестиции)", warn: false },
-      { text: "Стимул эк-ки: +экономика, но также +инфляция (долгосрочно вреден при инфляции > 15%)", warn: false },
-      { text: "Жёсткая экономия: +экономика +бóльше чем стимул, −инфляция, но −стабильность/одобрение", warn: false },
+      { text: "Большая армия дорого обходится: если военная мощь выше 80, каждый месяц с экономики списывается содержание армии — от 1 до 3 пунктов, тем больше, чем сильнее армия превышает порог.", warn: (state.stats.military ?? 50) > 80 },
+      { text: "Высокая инфляция бьёт по экономике: выше 15% годовых начинают идти ежемесячные потери — до 3 пунктов при инфляции 100%.", warn: (state.stats.inflation ?? 64) > 73 },
+      { text: "Пустая казна — это дефицит: при отрицательной казне экономика теряет 2 пункта в месяц, а инфляция ускоряется. Казна ниже 15 из 100 тоже понемногу давит на экономику.", warn: (state.stats.treasury ?? 52) < 15 },
+      { text: "Здоровый запас в казне (выше 65) даёт небольшой плюс к экономике — есть деньги на инвестиции.", warn: false },
+      { text: "Стимулирующие меры разгоняют экономику, но одновременно немного повышают инфляцию — на дистанции это может навредить, если инфляция и так высокая.", warn: false },
+      { text: "Жёсткая экономия поднимает экономику сильнее, чем стимулирование, и снижает инфляцию — но бьёт по рейтингу и стабильности.", warn: false },
+      { text: "Все автоматические месячные потери экономики (армия, инфляция, дефицит, случайные кризисы) суммарно ограничены −6 за один месяц — резкий обвал за один ход больше не случится.", warn: false },
     ],
     military: [
-      { text: "Если армия > 75 → каждый месяц списывается военный налог с экономики (−1…−3)", warn: (state.stats.military ?? 50) > 75 },
-      { text: "Военная усталость: 3+ наступлений подряд → убывающая отдача (−15% за каждое лишнее)", warn: false },
-      { text: "Перегруппировка → +30…+50 инициативы + бонус на следующую операцию, но следующий мес. заблокирован", warn: false },
+      { text: "Если военная мощь выше 80, каждый месяц с экономики списывается содержание армии — от 1 до 3 пунктов.", warn: (state.stats.military ?? 50) > 80 },
+      { text: "Три и более наступления подряд без отдыха снижают отдачу от каждого следующего удара на 15%.", warn: false },
+      { text: "Перегруппировка восстанавливает 30–50 очков инициативы и даёт бонус к следующей операции, но следующий месяц военные действия будут недоступны.", warn: false },
     ],
     stability: [
-      { text: "Казна < 0 → −1 стаб./мес (дефицит дестабилизирует)", warn: (state.stats.treasury ?? 52) < 0 },
-      { text: "Репрессии: +стабильность краткосрочно, но +коррупция и −одобрение", warn: false },
-      { text: "Соц. напряжённость > 70 → риск кризисных событий", warn: (state.stats.social_tension ?? 38) > 70 },
+      { text: "Отрицательная казна снижает стабильность на 1 пункт в месяц — дефицит бюджета дестабилизирует страну.", warn: (state.stats.treasury ?? 52) < 0 },
+      { text: "Репрессии временно поднимают стабильность, но повышают коррупцию и снижают рейтинг.", warn: false },
+      { text: "Если социальная напряжённость выше 70, растёт риск внутренних кризисных событий.", warn: (state.stats.social_tension ?? 38) > 70 },
     ],
     diplomacy: [
-      { text: "Изоляция > 70 → санкционное давление усиливается, экономика уязвимее", warn: (state.stats.isolation ?? 68) > 70 },
-      { text: "Дипломатия: −инфляция, −изоляция; конфронтация: −дипломатия, +изоляция", warn: false },
+      { text: "При международной изоляции выше 70 санкционное давление усиливается, а экономика становится более уязвимой.", warn: (state.stats.isolation ?? 68) > 70 },
+      { text: "Дипломатические шаги снижают инфляцию и изоляцию; конфронтация, наоборот, снижает дипломатию и повышает изоляцию.", warn: false },
     ],
     approval: [
-      { text: "Инфляция > 15% г/г → −1…−2 одобр./мес автоматически", warn: (state.stats.inflation ?? 64) > 73 },
-      { text: "Экономика < 40 → риск потери поддержки через кризисные события", warn: (state.stats.economy ?? 50) < 40 },
+      { text: "Инфляция выше 15% годовых автоматически снижает рейтинг на 1–2 пункта в месяц.", warn: (state.stats.inflation ?? 64) > 73 },
+      { text: "Если экономика падает ниже 40, растёт риск потерять поддержку населения из-за внутренних кризисов.", warn: (state.stats.economy ?? 50) < 40 },
     ],
   };
 
@@ -5455,12 +5328,37 @@ const KREMLIN_DOMAINS = [
 
 const KREMLIN_TIER_LABEL = { decree_fast: "📜 Быстрый указ (1–2 мес.)", decree_reform: "📋 Реформа (3–6 мес.)", decree_program: "🏛 Программа (7–12 мес.)" };
 
+// Три готовых варианта формулировки на основе базового шаблона карточки — разный тон,
+// одна и та же суть. Игрок выбирает готовый вариант или пишет свой в свободном поле —
+// без немедленного перехода на другую вкладку (см. KremlinTab).
+function buildCardVariants(card) {
+  const base = card.template || card.desc || card.title;
+  return [
+    { label: "Стандартно", text: base },
+    { label: "Решительно", text: `Незамедлительно и в полном объёме: ${base.charAt(0).toLowerCase()}${base.slice(1)}` },
+    { label: "Осторожно", text: `Поэтапно, с оглядкой на международную реакцию: ${base.charAt(0).toLowerCase()}${base.slice(1)}` },
+  ];
+}
+
 function KremlinTab({ state, onSelectCategory }) {
   const [domainId, setDomainId] = useState("military");
   const [tier, setTier] = useState("decree_fast");
+  const [expandedCardId, setExpandedCardId] = useState(null);
+  const [selectedVariant, setSelectedVariant] = useState(null);
+  const [customText, setCustomText] = useState("");
   const domain = KREMLIN_DOMAINS.find(d => d.id === domainId);
   const cards = KREMLIN_CATEGORIES[domainId] || [];
   const stats = state.stats || {};
+
+  const toggleCard = (card) => {
+    if (expandedCardId === card.id) {
+      setExpandedCardId(null);
+    } else {
+      setExpandedCardId(card.id);
+      setSelectedVariant(0);
+      setCustomText("");
+    }
+  };
 
   return (
     <div>
@@ -5520,39 +5418,84 @@ function KremlinTab({ state, onSelectCategory }) {
 
       {/* Карточки */}
       <div style={{ display: "grid", gap: 8 }}>
-        {cards.map(card => (
-          <div
-            key={card.id}
-            onClick={() => onSelectCategory(card.template, domain.mode || tier)}
-            style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 5, padding: "11px 13px", cursor: "pointer", transition: "border-color 0.15s" }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
-            onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{card.title}</span>
-                {card.domain && (
-                  <span className="mono-font" style={{ fontSize: 8, background: "#eee6d0", color: "#8a6b3a", borderRadius: 3, padding: "1px 5px" }}>{card.domain}</span>
-                )}
+        {cards.map(card => {
+          const isExpanded = expandedCardId === card.id;
+          const variants = isExpanded ? buildCardVariants(card) : [];
+          return (
+            <div
+              key={card.id}
+              style={{ background: "#f5f1e6", border: `1px solid ${isExpanded ? "#9c8347" : "#d8d2bf"}`, borderRadius: 5, padding: "11px 13px", transition: "border-color 0.15s" }}
+            >
+              <div
+                onClick={() => toggleCard(card)}
+                style={{ cursor: "pointer" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{card.title}</span>
+                    {card.domain && (
+                      <span className="mono-font" style={{ fontSize: 8, background: "#eee6d0", color: "#8a6b3a", borderRadius: 3, padding: "1px 5px" }}>{card.domain}</span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    {card.cost && <span className="mono-font" style={{ fontSize: 9, color: "#9c8347", whiteSpace: "nowrap" }}>{card.cost}</span>}
+                    <span style={{ color: "#9c8347", fontSize: 13, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+                  </div>
+                </div>
+                <div className="doc-font" style={{ fontSize: 12, color: "#5c5648", lineHeight: 1.4, marginBottom: 6 }}>{card.desc}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {Object.entries(card.effects || {}).map(([stat, sign]) => (
+                    <span key={stat} className="mono-font" style={{
+                      fontSize: 9, borderRadius: 3, padding: "1px 6px", fontWeight: 700,
+                      background: sign > 0 ? "#e8f5e8" : "#fde8e8", color: sign > 0 ? "#4a6b5c" : "#a8313a",
+                    }}>
+                      {KREMLIN_STAT_LABEL[stat]} {sign > 0 ? "↑" : "↓"}
+                    </span>
+                  ))}
+                </div>
               </div>
-              {card.cost && <span className="mono-font" style={{ fontSize: 9, color: "#9c8347", flexShrink: 0, whiteSpace: "nowrap" }}>{card.cost}</span>}
+
+              {isExpanded && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #d8d2bf" }} onClick={e => e.stopPropagation()}>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8, letterSpacing: "0.05em" }}>ВЫБЕРИТЕ ФОРМУЛИРОВКУ</div>
+                  <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+                    {variants.map((v, i) => (
+                      <div
+                        key={i}
+                        onClick={() => { setSelectedVariant(i); setCustomText(""); }}
+                        style={{
+                          padding: "8px 10px", borderRadius: 4, cursor: "pointer",
+                          background: selectedVariant === i && !customText ? "#e8dcc0" : "#fff",
+                          border: `1px solid ${selectedVariant === i && !customText ? "#9c8347" : "#d8d2bf"}`,
+                        }}
+                      >
+                        <div className="mono-font" style={{ fontSize: 8.5, color: "#8a6b3a", marginBottom: 3 }}>{v.label.toUpperCase()}</div>
+                        <div className="doc-font" style={{ fontSize: 12, lineHeight: 1.4, color: "#3a362e" }}>{v.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 6, letterSpacing: "0.05em" }}>ИЛИ НАПИШИТЕ СВОЙ ВАРИАНТ</div>
+                  <textarea
+                    value={customText}
+                    onChange={e => setCustomText(e.target.value)}
+                    placeholder="Свой текст указа/операции…"
+                    rows={2}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 4, border: "1px solid #d8d2bf", fontFamily: "'PT Serif',serif", fontSize: 12.5, resize: "vertical", marginBottom: 10, boxSizing: "border-box" }}
+                  />
+                  <button
+                    onClick={() => onSelectCategory(customText.trim() || variants[selectedVariant ?? 0]?.text || card.template, domain.mode || tier)}
+                    style={{ width: "100%", background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "9px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Выбрать → перейти к рассмотрению
+                  </button>
+                </div>
+              )}
             </div>
-            <div className="doc-font" style={{ fontSize: 12, color: "#5c5648", lineHeight: 1.4, marginBottom: 6 }}>{card.desc}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {Object.entries(card.effects || {}).map(([stat, sign]) => (
-                <span key={stat} className="mono-font" style={{
-                  fontSize: 9, borderRadius: 3, padding: "1px 6px", fontWeight: 700,
-                  background: sign > 0 ? "#e8f5e8" : "#fde8e8", color: sign > 0 ? "#4a6b5c" : "#a8313a",
-                }}>
-                  {KREMLIN_STAT_LABEL[stat]} {sign > 0 ? "↑" : "↓"}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="mono-font" style={{ fontSize: 9.5, color: "#a8a294", marginTop: 12, lineHeight: 1.5 }}>
-        Клик по карточке подставит шаблон текста во вкладке «Обстановка» — отредактируйте под свою ситуацию и нажмите «Рассмотреть». Точные изменения статов покажет предпросмотр, не карточка.
+        Раскройте карточку, выберите готовую формулировку или напишите свою. «Выбрать» перенесёт текст в «Обстановку», где предпросмотр покажет точные изменения статов перед подписью.
       </div>
     </div>
   );

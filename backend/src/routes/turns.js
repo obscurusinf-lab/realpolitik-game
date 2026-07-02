@@ -1429,6 +1429,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const completedMonth = game.current_turn + 1;
       const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
       const newStats = { ...game.stats };
+      // БАЛАНС: экономика на начало месяца — используется в конце блока, чтобы ограничить
+      // суммарную автоматическую эрозию за месяц (ставка ЦБ + военное бремя + инфляция +
+      // спираль казны + случайный кризис могли раньше сложиться в −10..−15 за один ход без
+      // предупреждения игрока — теперь потолок и явный лог см. ниже, "ECONOMY EROSION CAP").
+      const economyAtMonthStart = newStats.economy ?? 50;
+      const economyAutoEffects = []; // {label, delta} — каждый автоматический эффект на экономику за этот месяц
 
       // Рефилл инициативы — бюджет нового месяца.
       // Carryover 40%: неизрасходованная инициатива частично переходит в следующий месяц,
@@ -1584,6 +1590,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const gdpEconomyEffect = Math.round((gdpGrowthNow - 36) / 25);
       if (gdpEconomyEffect) {
         newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + gdpEconomyEffect));
+        economyAutoEffects.push({ label: "Рост ВВП", delta: gdpEconomyEffect });
       }
       // НАРОДНОЕ НАСТРОЕНИЕ → ОДОБРЕНИЕ: middle_class и lower_class_mood были декоративными
       // подстатами (двигались от действий, ни на что не влияли) — та же ситуация, что была
@@ -1625,9 +1632,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         if (newStats.key_rate > 17) {
           newStats.inflation = Math.max(0, (newStats.inflation ?? 64) - 1); // высокая ставка сдерживает инфляцию
           newStats.economy = Math.max(0, (newStats.economy ?? 50) - 1);     // но душит кредитование
+          economyAutoEffects.push({ label: "Ставка ЦБ (высокая)", delta: -1 });
         } else if (newStats.key_rate < 11) {
           newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1); // низкая разгоняет инфляцию
           newStats.economy = Math.min(100, (newStats.economy ?? 50) + 1);     // стимулирует рост
+          economyAutoEffects.push({ label: "Ставка ЦБ (низкая)", delta: 1 });
         }
         // Мягкий глава дополнительно давит ставку вниз: инфляционный риск
         if (cbHead === "soft" && newStats.key_rate > 10) {
@@ -1660,7 +1669,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
 
         if (burdenEconomy || burdenApproval || burdenStability) {
-          if (burdenEconomy) newStats.economy = Math.max(0, (newStats.economy ?? 50) - burdenEconomy);
+          if (burdenEconomy) {
+            newStats.economy = Math.max(0, (newStats.economy ?? 50) - burdenEconomy);
+            economyAutoEffects.push({ label: "Военное бремя", delta: -burdenEconomy });
+          }
           if (burdenApproval) newStats.approval = Math.max(0, (newStats.approval ?? 50) - burdenApproval);
           if (burdenStability) newStats.stability = Math.max(0, (newStats.stability ?? 50) - burdenStability);
           await client.query(
@@ -1693,7 +1705,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         ];
         const crisis = DOMESTIC_CRISES[Math.floor(Math.random() * DOMESTIC_CRISES.length)];
         if (crisis.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + crisis.approvalDelta));
-        if (crisis.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
+        if (crisis.economyDelta) {
+          newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
+          economyAutoEffects.push({ label: `Кризис (${crisis.source})`, delta: crisis.economyDelta });
+        }
         if (crisis.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + crisis.stabilityDelta));
         applyOilFxTextImpact(crisis.text, newStats);
         await client.query(
@@ -1746,6 +1761,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         inflationApprovalPenalty = Math.min(2, Math.floor((inflationNow - 73) / 15) + 1);
         newStats.economy = Math.max(0, (newStats.economy ?? 50) - inflationEconomyPenalty);
         newStats.approval = Math.max(0, (newStats.approval ?? 50) - inflationApprovalPenalty);
+        economyAutoEffects.push({ label: "Инфляционный шок", delta: -inflationEconomyPenalty });
       }
       // СПИРАЛЬ КАЗНА → ЭКОНОМИКА (двусторонняя связь; обратная сторона — доход казны зависит от экономики)
       let deficitHit = false;
@@ -1763,11 +1779,28 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         // Здоровый профицит — есть на инвестиции, экономика восстанавливается
         economyEffect = +1;
       }
-      if (economyEffect) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + economyEffect));
+      if (economyEffect) {
+        newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + economyEffect));
+        economyAutoEffects.push({ label: deficitHit ? "Дефицит казны" : economyEffect < 0 ? "Низкая казна" : "Профицит казны", delta: economyEffect });
+      }
       // Казна ограничена 100 сверху: профицит выше 100 не накапливается
       newStats.treasury = Math.min(100, treasuryAfter);
 
-      // Усталость от войны объединена с военным налогом — см. блок «ВОЕННОЕ БРЕМЯ» выше.
+      // --- ПОТОЛОК МЕСЯЧНОЙ ЭРОЗИИ ЭКОНОМИКИ ---
+      // Раньше несколько автоэффектов (ставка ЦБ, военное бремя, инфляция, спираль казны,
+      // случайный кризис) могли сложиться в −10..−15 экономики за ОДИН месяц без верхнего
+      // предела и без предупреждения игрока в момент подписи хода — партии срывались в
+      // defeat_collapse внезапно. Теперь суммарное падение от автоэффектов капается, а разница
+      // логируется прозрачно в бюджетной сводке ниже, чтобы ожидание игрока (по прогнозу при
+      // подписи хода) совпадало с фактом.
+      const EROSION_CAP = 6;
+      const autoErosion = economyAutoEffects.reduce((sum, e) => sum + Math.min(0, e.delta), 0);
+      let erosionCapped = false;
+      if (autoErosion < -EROSION_CAP) {
+        const giveBack = -EROSION_CAP - autoErosion; // положительное число
+        newStats.economy = Math.min(100, (newStats.economy ?? 50) + giveBack);
+        erosionCapped = true;
+      }
 
       // --- ИСТЕЧЕНИЕ СРОКА ПОЛИТИК ---
       // Политики с target_turn <= completedMonth удаляются (реформа отработала срок).
@@ -1859,6 +1892,23 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
          inflationLine]
       );
 
+      // ПРОЗРАЧНАЯ СВОДКА: игрок видел прогноз при подписи хода, но реальный итог месяца
+      // складывается из НЕСКОЛЬКИХ автоэффектов, о которых он не знал заранее (ставка ЦБ,
+      // военное бремя, инфляция, спираль казны, случайный кризис). Показываем их одним
+      // списком, чтобы ожидание совпадало с фактом — плюс явно говорим, если сработал потолок.
+      if (economyAutoEffects.length > 0) {
+        const lines = economyAutoEffects.map(e => `${e.label}: ${e.delta >= 0 ? "+" : ""}${e.delta}`);
+        const netChange = (newStats.economy ?? 50) - economyAtMonthStart;
+        const capNote = erosionCapped
+          ? ` Автоматические потери месяца превысили потолок в −${EROSION_CAP} — часть эффекта компенсирована, чтобы не рушить экономику за один ход.`
+          : "";
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+          [gameId, completedMonth, "Минэкономразвития",
+           `Итоги месяца · экономика: ${economyAtMonthStart} → ${newStats.economy} (${netChange >= 0 ? "+" : ""}${netChange}). Из чего сложилось: ${lines.join("; ")}.${capNote}`]
+        );
+      }
+
       // --- ФИНАЛЬНАЯ ГЛАВА: эскалация на ходах 17–23 ---
       const finalEvents = generateFinalChapterEvent(newStats, completedMonth);
       for (const ev of finalEvents) {
@@ -1902,6 +1952,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
         budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, oilIncome, fxIncome, corruptionDrain, net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow), oilPrice: newStats.oil_price, usdRub: newStats.usd_rub },
+        // Прозрачная разбивка ВСЕХ автоматических эффектов на экономику за месяц (см. "ПОТОЛОК
+        // МЕСЯЧНОЙ ЭРОЗИИ ЭКОНОМИКИ" выше) — фронт может показать это как единый список вместо
+        // текста в ленте, чтобы игрок видел причину каждого пункта изменения.
+        economySummary: {
+          before: economyAtMonthStart,
+          after: newStats.economy,
+          effects: economyAutoEffects,
+          capped: erosionCapped,
+          cap: EROSION_CAP,
+        },
         autonomousEvents: autonomousEvents.map(e => ({ source: e.source, text: e.text })),
       });
     } catch (err) {
