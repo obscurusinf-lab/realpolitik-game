@@ -4576,8 +4576,8 @@ function EndMonthForecastPanel({ stats }) {
   }
 
   // 4. ОФЗ инфляционное давление
-  if (stats.ofz_bonds_outstanding > 0) {
-    const ofzCount = stats.ofz_bonds_outstanding;
+  if ((stats.ofz_count ?? 0) > 0) {
+    const ofzCount = stats.ofz_count;
     mechanisms.push({
       active: true, severity: "bad",
       name: "Давление ОФЗ",
@@ -4587,7 +4587,64 @@ function EndMonthForecastPanel({ stats }) {
     });
   }
 
-  // 5. Domestic crisis (always probabilistic)
+  // 5. Ключевая ставка ЦБ — эффект на инфляцию и экономику
+  {
+    const rate = stats.key_rate ?? 18.5;
+    const cbHead = stats.cb_head_type ?? "neutral";
+    const softExtra = cbHead === "soft" && rate > 10 ? 1 : 0;
+    if (rate > 17) {
+      mechanisms.push({
+        active: true, severity: "bad",
+        name: "Ключевая ставка ЦБ",
+        trigger: `Ставка ${rate}% > 17% — дорогой кредит душит бизнес`,
+        impacts: [{ label: "Экономика", delta: -1 }, { label: "Инфляция", delta: -1 + softExtra }],
+        fix: "Высокая ставка сдерживает инфляцию ценой роста. ЦБ сам снижает ставку по мере падения инфляции — ускорить можно только сменив главу ЦБ или надавив на него.",
+      });
+    } else if (rate < 11) {
+      mechanisms.push({
+        active: true, severity: softExtra ? "bad" : "good",
+        name: "Ключевая ставка ЦБ",
+        trigger: `Ставка ${rate}% < 11% — дешёвый кредит стимулирует рост`,
+        impacts: [{ label: "Экономика", delta: +1 }, { label: "Инфляция", delta: +1 + softExtra }],
+        fix: "Низкая ставка разгоняет экономику, но и инфляцию. Следите, чтобы инфляция не ушла за 15% г/г.",
+      });
+    } else {
+      mechanisms.push({
+        active: softExtra ? true : false, severity: softExtra ? "bad" : undefined,
+        name: "Ключевая ставка ЦБ",
+        trigger: softExtra
+          ? `Ставка ${rate}% — нейтральна, но мягкий глава ЦБ добавляет инфляционный риск`
+          : `Ставка ${rate}% — в нейтральной зоне 11–17%, прямых эффектов нет`,
+        impacts: softExtra ? [{ label: "Инфляция", delta: +1 }] : [],
+        fix: softExtra ? "Мягкий глава ЦБ держит ставку заниженной — хронический +1 инфляции/мес, пока ставка выше 10%." : null,
+      });
+    }
+  }
+
+  // 6. Коррупционная утечка казны
+  {
+    const corr = stats.corruption ?? 55;
+    const drain = corr > 50 ? Math.round(Math.pow((corr - 50) / 50, 1.3) * 12) : 0;
+    if (drain > 0) {
+      mechanisms.push({
+        active: true, severity: drain >= 6 ? "crit" : "bad",
+        name: "Коррупционная утечка",
+        trigger: `Коррупция ${corr} > 50 — часть бюджета разворовывается`,
+        impacts: [{ label: "Казна", delta: -drain }],
+        fix: "Антикоррупционная кампания снижает уровень коррупции. Утечка растёт нелинейно: при коррупции 75 теряется вдвое больше, чем при 60.",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Коррупционная утечка",
+        trigger: `Коррупция ${corr} ≤ 50 — утечки из казны нет`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
+  // 7. Domestic crisis (always probabilistic)
   mechanisms.push({
     active: "random", severity: "random",
     name: "Внутренний кризис",
