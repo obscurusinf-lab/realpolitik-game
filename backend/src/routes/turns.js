@@ -505,6 +505,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // ЗА ИСКЛЮЧЕНИЕМ исхода тайных операций (exposure_risk): его нельзя показывать
     // до подписи приказа, иначе игрок отменит ход и обойдёт риск раскрытия «читом».
     // См. revealCovertOutcome в applyTurn.
+    // regenInitiative ДОЛЖЕН совпадать с тем, что использует confirm (!multiAction) —
+    // без этого preview в мульти-режиме показывал заниженную (на величину regen) цену
+    // хода, расходясь с тем, что реально спишется при confirm. Найдено при тестировании.
+    const { MULTI_ACTION_TURNS: previewMultiAction } = require("../rules/rules-engine");
     const { statDeltas, relationDeltas } = applyTurn({
       state: { stats: statsAfterDelayed, relations: game.relations },
       gmClassification,
@@ -512,6 +516,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       turnNumber: nextTurnNumber,
       actionMode,
       revealCovertOutcome: false,
+      regenInitiative: !previewMultiAction,
     });
 
     await pendingTurnStore.save(gameId, {
