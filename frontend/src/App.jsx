@@ -2542,7 +2542,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </div>
             <h1 className="doc-font" style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "0.04em", color: isNuclearWorld ? "#e88080" : "#ece7d8" }}>REALPOLITIK</h1>
             <div className="mono-font" style={{ fontSize: 11, color: isNuclearWorld ? "#9a5050" : "#a8a294", marginTop: 2 }}>
-              {state.date} · Ход №{state.turn}{playerName ? ` · ${playerName}` : ""}
+              {state.date} · Ход №{state.turn + 1}{playerName ? ` · ${playerName}` : ""}
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
@@ -4002,7 +4002,7 @@ function OverviewTab({ state }) {
       {modal && (
         <Modal title={modal.region.toUpperCase() + " · ПОДРОБНЕЕ"} onClose={() => setModal(null)}>
           <div className="mono-font" style={{ fontSize: 10, color: "#a8313a", letterSpacing: "0.08em", marginBottom: 10 }}>
-            ХОД {state.turn}
+            ХОД {state.turn + 1}
           </div>
           <div className="doc-font" style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, lineHeight: 1.4 }}>
             {modal.region}
@@ -4017,7 +4017,7 @@ function OverviewTab({ state }) {
 
       <div style={{ borderLeft: "3px solid #a8313a", paddingLeft: 12, marginBottom: 14 }}>
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8313a", marginBottom: 4 }}>
-          ГЛАВНОЕ СЕЙЧАС · ХОД {state.turn}
+          ГЛАВНОЕ СЕЙЧАС · ХОД {state.turn + 1}
         </div>
         <p className="doc-font" style={{ margin: 0, fontSize: 15, lineHeight: 1.55 }}>
           {state.overview?.headline ?? state.log?.[state.log.length - 1]?.body}
@@ -4163,7 +4163,7 @@ function MapTab({ state }) {
   return (
     <div style={{ background: "#14181f", margin: "-20px -16px -32px", padding: "14px 14px 20px", minHeight: "60vh" }}>
       <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#a8313a", marginBottom: 10 }}>
-        КАРТА МИРА · ХОД {state.turn}
+        КАРТА МИРА · ХОД {state.turn + 1}
       </div>
 
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
