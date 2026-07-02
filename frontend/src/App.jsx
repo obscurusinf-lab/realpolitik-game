@@ -4354,13 +4354,34 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
   const currentValue = state.stats[statKey] ?? 0;
   const historyValues = history ? history.map(h => h.stats_snapshot?.[statKey]).filter(v => v != null) : [];
 
-  // Факторы влияния
-  const FACTORS = {
-    economy:  ["Экономические указы", "Санкции", "Торговые соглашения", "Военные расходы"],
-    military: ["Военные операции", "Оборонные указы", "Разведка", "Союзники"],
-    stability:["Репрессии", "Либерализация", "Военные конфликты", "Экономика"],
-    diplomacy:["Дипломатические контакты", "Санкции", "Союзные договоры", "Конфронтация"],
-    approval: ["Экономическое благополучие", "Военные успехи", "Репрессии", "Мир"],
+  // Механика влияния — конкретные пороги, а не абстрактные теги
+  const MECHANIC_NOTES = {
+    economy: [
+      { text: "Армия > 75 → −1…−3 эк./мес (военный налог: каждые 10 пунктов выше 75 = −1)", warn: (state.stats.military ?? 50) > 75 },
+      { text: "Инфляция > 15% г/г → −1…−3 эк./мес (каждые 10 пп сверх порога = −1 доп.)", warn: (state.stats.inflation ?? 64) > 73 },
+      { text: "Казна < 0 → −2 эк./мес + инфляция +2; Казна < 15 → −1 эк./мес", warn: (state.stats.treasury ?? 52) < 15 },
+      { text: "Казна > 65 → +1 эк./мес (профицит поддерживает инвестиции)", warn: false },
+      { text: "Стимул эк-ки: +экономика, но также +инфляция (долгосрочно вреден при инфляции > 15%)", warn: false },
+      { text: "Жёсткая экономия: +экономика +бóльше чем стимул, −инфляция, но −стабильность/одобрение", warn: false },
+    ],
+    military: [
+      { text: "Если армия > 75 → каждый месяц списывается военный налог с экономики (−1…−3)", warn: (state.stats.military ?? 50) > 75 },
+      { text: "Военная усталость: 3+ наступлений подряд → убывающая отдача (−15% за каждое лишнее)", warn: false },
+      { text: "Перегруппировка → +30…+50 инициативы + бонус на следующую операцию, но следующий мес. заблокирован", warn: false },
+    ],
+    stability: [
+      { text: "Казна < 0 → −1 стаб./мес (дефицит дестабилизирует)", warn: (state.stats.treasury ?? 52) < 0 },
+      { text: "Репрессии: +стабильность краткосрочно, но +коррупция и −одобрение", warn: false },
+      { text: "Соц. напряжённость > 70 → риск кризисных событий", warn: (state.stats.social_tension ?? 38) > 70 },
+    ],
+    diplomacy: [
+      { text: "Изоляция > 70 → санкционное давление усиливается, экономика уязвимее", warn: (state.stats.isolation ?? 68) > 70 },
+      { text: "Дипломатия: −инфляция, −изоляция; конфронтация: −дипломатия, +изоляция", warn: false },
+    ],
+    approval: [
+      { text: "Инфляция > 15% г/г → −1…−2 одобр./мес автоматически", warn: (state.stats.inflation ?? 64) > 73 },
+      { text: "Экономика < 40 → риск потери поддержки через кризисные события", warn: (state.stats.economy ?? 50) < 40 },
+    ],
   };
 
   const substats = (SUBSTAT_META[statKey] || []).map(sm => ({ ...sm, value: state.stats[sm.key] ?? 50 }));
@@ -4433,15 +4454,20 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
             </div>
           )}
 
-          {/* Факторы влияния */}
-          <div style={{ marginBottom: 18 }}>
-            <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>ФАКТОРЫ ВЛИЯНИЯ</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {(FACTORS[statKey] || []).map(f => (
-                <span key={f} style={{ background: "#ece7d8", border: "1px solid #d8d2bf", borderRadius: 3, padding: "3px 8px", fontSize: 11, fontFamily: "'PT Serif',serif", color: "#5c5648" }}>{f}</span>
-              ))}
+          {/* Механика влияния */}
+          {(MECHANIC_NOTES[statKey] || []).length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>МЕХАНИКА · КАК ЭТО РАБОТАЕТ</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {(MECHANIC_NOTES[statKey] || []).map((note, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 10px", background: note.warn ? "#fdf0f0" : "#ece7d8", borderRadius: 4, border: `1px solid ${note.warn ? "#e8c8c8" : "#d8d2bf"}` }}>
+                    {note.warn && <span style={{ fontSize: 11, flexShrink: 0, marginTop: 1 }}>⚠</span>}
+                    <span className="doc-font" style={{ fontSize: 11.5, color: note.warn ? "#7a2020" : "#5c5648", lineHeight: 1.4 }}>{note.text}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Последние события */}
           <div>
@@ -4459,6 +4485,53 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
       </div>
     </div>
   );
+}
+
+// Авто-эффекты каждый месяц: пороги из rules-engine + turns.js/end-month
+function getPassiveEffects(key, stats) {
+  const mil = stats.military ?? 50;
+  const inf = stats.inflation ?? 64;
+  const trs = stats.treasury ?? 52;
+  const eco = stats.economy ?? 50;
+  const effects = [];
+
+  if (key === "economy") {
+    if (mil > 75) {
+      const tax = Math.floor((mil - 75) / 10) + 1;
+      effects.push({ sign: -1, value: tax, text: `Военный налог (Армия ${mil} > 75)` });
+    }
+    if (inf > 73) {
+      const pen = Math.min(3, Math.floor((inf - 73) / 10) + 1);
+      effects.push({ sign: -1, value: pen, text: `Инфляционный шок (${inflationPercent(inf).toFixed(0)}% > 15% г/г)` });
+    }
+    if (trs < 0) {
+      effects.push({ sign: -1, value: 2, text: `Дефицит казны (${trs} < 0)` });
+    } else if (trs < 15) {
+      effects.push({ sign: -1, value: 1, text: `Низкая казна (${trs} < 15)` });
+    } else if (trs > 65 && eco < 82) {
+      effects.push({ sign: +1, value: 1, text: `Профицит казны (${trs} > 65)` });
+    }
+  }
+
+  if (key === "military") {
+    if (mil > 75) {
+      const tax = Math.floor((mil - 75) / 10) + 1;
+      effects.push({ sign: -1, value: tax, text: `→ Экономика −${tax}/мес (армия выше порога 75)` });
+    }
+  }
+
+  if (key === "approval") {
+    if (inf > 73) {
+      const pen = Math.min(2, Math.floor((inf - 73) / 15) + 1);
+      effects.push({ sign: -1, value: pen, text: `Инфляционный шок (${inflationPercent(inf).toFixed(0)}% > 15% г/г)` });
+    }
+  }
+
+  if (key === "stability" && trs < 0) {
+    effects.push({ sign: -1, value: 1, text: `Дефицит казны (${trs} < 0)` });
+  }
+
+  return effects;
 }
 
 function StatsTab({ state, gameId }) {
@@ -4513,6 +4586,9 @@ function StatsTab({ state, gameId }) {
           const expanded = expandedKey === key;
           const events = getStatEvents(key);
 
+          const passiveEffects = getPassiveEffects(key, state.stats);
+          const passiveTotal = passiveEffects.reduce((s, e) => s + e.sign * e.value, 0);
+
           return (
             <div key={key} style={{ borderRadius: 6, background: "#f5f1e6", border: `1px solid ${expanded ? meta.color : "#d8d2bf"}`, transition: "border-color 0.15s", overflow: "hidden" }}>
               {/* Header — click to expand substats */}
@@ -4526,6 +4602,16 @@ function StatsTab({ state, gameId }) {
                   {events.length > 0 && (
                     <span style={{ fontSize: 9, background: "#eee6d0", color: "#8a8472", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>
                       {events.length} событий
+                    </span>
+                  )}
+                  {passiveTotal < 0 && (
+                    <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", fontWeight: 700 }}>
+                      ⚠ {passiveTotal}/мес авто
+                    </span>
+                  )}
+                  {passiveTotal > 0 && (
+                    <span style={{ fontSize: 9, background: "#e8f5e8", color: "#4a6b5c", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", fontWeight: 700 }}>
+                      +{passiveTotal}/мес авто
                     </span>
                   )}
                 </div>
@@ -4587,6 +4673,28 @@ function StatsTab({ state, gameId }) {
                         })}
                       </div>
                     </>
+                  )}
+
+                  {passiveEffects.length > 0 && (
+                    <div style={{ marginTop: events.length > 0 ? 12 : 0, borderTop: events.length > 0 ? "1px solid #e8e2d0" : "none", paddingTop: events.length > 0 ? 10 : 0 }}>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 6 }}>АВТО-ЭФФЕКТЫ · КАЖДЫЙ МЕСЯЦ</div>
+                      {passiveEffects.map((eff, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: eff.sign < 0 ? "#f9f0f0" : "#f0f6f0", borderRadius: 3, borderLeft: `3px solid ${eff.sign < 0 ? "#a8313a" : "#4a6b5c"}`, marginBottom: 4 }}>
+                          <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: eff.sign < 0 ? "#a8313a" : "#4a6b5c", minWidth: 30 }}>
+                            {eff.sign < 0 ? "−" : "+"}{eff.value}
+                          </span>
+                          <span className="doc-font" style={{ fontSize: 11, color: "#5c5648", flex: 1 }}>{eff.text}</span>
+                        </div>
+                      ))}
+                      {passiveEffects.length > 1 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", marginTop: 2 }}>
+                          <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: passiveTotal < 0 ? "#a8313a" : "#4a6b5c", minWidth: 30 }}>
+                            {passiveTotal < 0 ? "−" : "+"}{Math.abs(passiveTotal)}
+                          </span>
+                          <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ИТОГО / МЕС (без учёта твоих ходов)</span>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   <button
