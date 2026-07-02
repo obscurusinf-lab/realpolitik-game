@@ -877,43 +877,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
       }
 
-      // --- ВНУТРЕННИЕ КРИЗИСЫ ---
-      // С вероятностью 7% каждый ход происходит внутренний кризис (снижено с 12%)
-      if (Math.random() < 0.07) {
-        const DOMESTIC_CRISES = [
-          { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
-            text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
-          { source: "Новая газета", stabilityDelta: -5, approvalDelta: -5,
-            text: "В 15 регионах прошли антивоенные акции. Задержаны более 3000 человек. Социологи фиксируют рекордный рост недовольства среди молодёжи и женщин — тех, кто теряет мужей и сыновей." },
-          { source: "РИА Новости", economyDelta: -7, stabilityDelta: -3,
-            text: "Крупный банковский кризис: четыре региональных банка обратились за экстренной ликвидностью. ЦБ объявил о введении временной администрации. Вкладчики выстроились в очереди." },
-          { source: "Интерфакс", approvalDelta: -5, stabilityDelta: -4,
-            text: "Антикоррупционный скандал: в Telegram-каналах опубликованы данные о роскошной жизни окружения президента. Яхты, виллы, тайные счета. Рейтинг падает на фоне военных расходов." },
-          { source: "ТАСС", economyDelta: -5, approvalDelta: -4,
-            text: "Дефицит базовых товаров в ряде регионов: сахар, масло, лекарства исчезли с полок. Губернаторы просят федеральный центр о помощи. Граждане начали делать запасы." },
-          { source: "Фонтанка", stabilityDelta: -6, approvalDelta: -3,
-            text: "Семьи погибших военнослужащих провели демонстрацию у здания Министерства обороны. Требования о выплате компенсаций и возврате тел не выполняются уже полгода. Силовики разгоняют акцию." },
-          { source: "Медиазона", stabilityDelta: -5, economyDelta: -3,
-            text: "Бунт в нескольких исправительных колониях: заключённые отказываются подписывать контракты для отправки на фронт. Информация подтверждается перехватами ФСБ." },
-          { source: "The Bell", economyDelta: -6, approvalDelta: -4,
-            text: "Инфляция вышла из-под контроля — официально 24%, реально, по независимым оценкам, все 40%. Пенсии и зарплаты бюджетников обесценились. Недовольство растёт в базовом электорате." },
-        ];
-        const crisis = DOMESTIC_CRISES[Math.floor(Math.random() * DOMESTIC_CRISES.length)];
-        if (crisis.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + crisis.approvalDelta));
-        if (crisis.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
-        if (crisis.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + crisis.stabilityDelta));
-        applyOilFxTextImpact(crisis.text, newStats);
-        await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [gameId, turnNumber, "news", crisis.source, crisis.text, JSON.stringify([
-            { emoji: "😰", label: "тревога", count: Math.floor(Math.random() * 80) + 30 },
-          ])]
-        );
-        fastify.log.info({ gameId, source: crisis.source }, "Domestic crisis fired");
-      }
-
-      // ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ перенесено в /turns/end-month:
-      // в MULTI_ACTION_TURNS режиме несколько confirm в месяц → нельзя стрелять на каждый confirm.
+      // ВНУТРЕННИЕ КРИЗИСЫ и ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ перенесены в /turns/end-month:
+      // в MULTI_ACTION_TURNS режиме несколько confirm в месяц → стреляли бы при каждом действии.
 
       // --- ВМЕШАТЕЛЬСТВО ТРЕТЬИХ АКТОРОВ ---
       // Когда мирный трек растёт, акторы с интересом в войне мешают.
@@ -1647,6 +1612,40 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         const warTax = Math.floor(((newStats.military ?? 50) - 75) / 10) + 1; // 1-3 pts
         newStats.economy = Math.max(0, (newStats.economy ?? 50) - warTax);
         newStats.approval = Math.max(0, (newStats.approval ?? 50) - 1);
+      }
+
+      // --- ВНУТРЕННИЕ КРИЗИСЫ (раз в месяц, не на каждый confirm) ---
+      if (Math.random() < 0.07) {
+        const DOMESTIC_CRISES = [
+          { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
+            text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
+          { source: "Новая газета", stabilityDelta: -5, approvalDelta: -5,
+            text: "В 15 регионах прошли антивоенные акции. Задержаны более 3000 человек. Социологи фиксируют рекордный рост недовольства среди молодёжи и женщин — тех, кто теряет мужей и сыновей." },
+          { source: "РИА Новости", economyDelta: -7, stabilityDelta: -3,
+            text: "Крупный банковский кризис: четыре региональных банка обратились за экстренной ликвидностью. ЦБ объявил о введении временной администрации. Вкладчики выстроились в очереди." },
+          { source: "Интерфакс", approvalDelta: -5, stabilityDelta: -4,
+            text: "Антикоррупционный скандал: в Telegram-каналах опубликованы данные о роскошной жизни окружения президента. Яхты, виллы, тайные счета. Рейтинг падает на фоне военных расходов." },
+          { source: "ТАСС", economyDelta: -5, approvalDelta: -4,
+            text: "Дефицит базовых товаров в ряде регионов: сахар, масло, лекарства исчезли с полок. Губернаторы просят федеральный центр о помощи. Граждане начали делать запасы." },
+          { source: "Фонтанка", stabilityDelta: -6, approvalDelta: -3,
+            text: "Семьи погибших военнослужащих провели демонстрацию у здания Министерства обороны. Требования о выплате компенсаций и возврате тел не выполняются уже полгода. Силовики разгоняют акцию." },
+          { source: "Медиазона", stabilityDelta: -5, economyDelta: -3,
+            text: "Бунт в нескольких исправительных колониях: заключённые отказываются подписывать контракты для отправки на фронт. Информация подтверждается перехватами ФСБ." },
+          { source: "The Bell", economyDelta: -6, approvalDelta: -4,
+            text: "Инфляция вышла из-под контроля — официально 24%, реально, по независимым оценкам, все 40%. Пенсии и зарплаты бюджетников обесценились. Недовольство растёт в базовом электорате." },
+        ];
+        const crisis = DOMESTIC_CRISES[Math.floor(Math.random() * DOMESTIC_CRISES.length)];
+        if (crisis.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + crisis.approvalDelta));
+        if (crisis.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
+        if (crisis.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + crisis.stabilityDelta));
+        applyOilFxTextImpact(crisis.text, newStats);
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, completedMonth, "news", crisis.source, crisis.text, JSON.stringify([
+            { emoji: "😰", label: "тревога", count: Math.floor(Math.random() * 80) + 30 },
+          ])]
+        );
+        fastify.log.info({ gameId, source: crisis.source }, "Domestic crisis fired (end-month)");
       }
 
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.
