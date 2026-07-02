@@ -912,13 +912,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         fastify.log.info({ gameId, source: crisis.source }, "Domestic crisis fired");
       }
 
-      // --- ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ ---
-      // Военные расходы давят на экономику при military > 75 (порог повышен с 70)
-      if ((newStats.military ?? 50) > 75) {
-        const warTax = Math.floor(((newStats.military ?? 50) - 75) / 10) + 1; // 1-3 pts
-        newStats.economy = Math.max(0, (newStats.economy ?? 50) - warTax);
-        newStats.approval = Math.max(0, (newStats.approval ?? 50) - 1);
-      }
+      // ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ перенесено в /turns/end-month:
+      // в MULTI_ACTION_TURNS режиме несколько confirm в месяц → нельзя стрелять на каждый confirm.
 
       // --- ВМЕШАТЕЛЬСТВО ТРЕТЬИХ АКТОРОВ ---
       // Когда мирный трек растёт, акторы с интересом в войне мешают.
@@ -1644,6 +1639,14 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         if (cbHead === "soft" && newStats.key_rate > 10) {
           newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
         }
+      }
+
+      // --- ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ (раз в месяц, не на каждый confirm) ---
+      // Военные расходы давят на экономику при military > 75
+      if ((newStats.military ?? 50) > 75) {
+        const warTax = Math.floor(((newStats.military ?? 50) - 75) / 10) + 1; // 1-3 pts
+        newStats.economy = Math.max(0, (newStats.economy ?? 50) - warTax);
+        newStats.approval = Math.max(0, (newStats.approval ?? 50) - 1);
       }
 
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.
