@@ -46,14 +46,15 @@ CREATE TABLE turns (
   game_id       UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   turn_n        INT NOT NULL,
   player_input  TEXT NOT NULL,
+  action_mode   TEXT NOT NULL DEFAULT 'decree', -- decree_fast/reform/program, intel, military, diplomacy_op, crisis, regroup, skip
   gm_classification JSONB NOT NULL,         -- сырой валидированный ответ ИИ (без чисел)
   stat_deltas   JSONB NOT NULL,             -- результат rules-engine
   relation_deltas JSONB NOT NULL DEFAULT '[]'::jsonb,
   narrative_text TEXT NOT NULL,
   advisor_objection TEXT,
+  stats_snapshot JSONB,                    -- полный снимок stats после хода — источник для истории/графиков
   world_event   JSONB,                     -- если это был "ход мира", а не игрока
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (game_id, turn_n)
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE newsfeed_items (

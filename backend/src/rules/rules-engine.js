@@ -1,8 +1,9 @@
 /**
  * rules-engine.js
  *
- * Детерминированное применение таблицы правил (docs/01-rules-table.md)
- * к классификации хода, полученной от ИИ-геймместера.
+ * Детерминированное применение таблицы правил (docs/01-rules-table.md,
+ * docs/04-cabinet-and-categories.md) к классификации хода, полученной
+ * от ИИ-геймместера.
  *
  * ВАЖНО: это единственное место, где рождаются числа. ИИ классифицирует,
  * этот модуль считает. Один и тот же (action_type, severity, turn_seed)
@@ -77,7 +78,7 @@ const SUBSTAT_DEFAULTS = {
   treasury: 52,
   // Нефть и валюта — РЕАЛЬНЫЕ единицы (не 0–100): $/баррель Brent и ₽/$.
   // Дрейфуют и реагируют на события помесячно в /turns/end-month, влияют на доход казны.
-  oil_price: 68,
+  oil_price: 85,
   usd_rub: 80,
   // Украина — собственное состояние противника (не 0-100 по смыслу «у игрока»,
   // а реальная сила Украины как актора). Обновляется помесячно в /turns/end-month.
@@ -87,35 +88,79 @@ const SUBSTAT_DEFAULTS = {
 };
 
 // Стоимость действий ДЕНЬГАМИ (из казны), отдельно от инициативы.
-// Война дорогая, дипломатия дешёвая. Может уводить казну в дефицит (мягкое последствие).
+// Используется для указов (decree_*), crisis, regroup. Военные операции, дипломатия
+// и шпионаж имеют СОБСТВЕННУЮ стоимость по конкретной категории — см. CATEGORY_COST.
 const ACTION_BUDGET_COST = {
-  military:        20,
+  military:        20, // фоллбэк, если категория почему-то не нашлась в CATEGORY_COST
   decree_program:  15,
   decree_reform:   8,
   decree_fast:     3,
   decree:          8,
-  diplomacy_op:    5,
-  intel:           5,
+  diplomacy_op:    5,  // фоллбэк
+  intel:           5,  // фоллбэк
   crisis:          4,
   regroup:         2,
 };
 const TREASURY_MIN = -100; // жёсткий пол, чтобы дефицит не уходил в бесконечность
 const TREASURY_PER_TRILLION = 0.8; // 1 пункт казны ≈ ₽0.8 трлн (для отображения)
 
-// Стоимость инициативы по типу действия
-// decree_fast: быстрый указ (1–2 мес.), decree_reform: реформа (3–6 мес.), decree_program: крупная программа (7–12 мес.)
-// intel: разведка — дёшево, military: прямое применение силы — дорого
-// crisis_*: кризисные версии — быстрее и дешевле по инициативе, но меньший эффект
+// Стоимость инициативы по типу действия (фоллбэк для указов/crisis/regroup;
+// военные/дипломатия/шпионаж переопределяются через CATEGORY_COST по конкретной категории)
 const INITIATIVE_COST = {
   decree_fast:    20,
   decree_reform:  35,
   decree_program: 55,
   decree:         35, // совместимость со старым кодом
-  intel:          20,
-  military:       55,
+  intel:          20, // фоллбэк
+  military:       55, // фоллбэк
   crisis:         15,
-  diplomacy_op:   35, // дипломатическая операция
+  diplomacy_op:   35, // фоллбэк
   regroup:         0, // перегруппировка: инициатива не тратится, а восстанавливается
+};
+
+// Стоимость по КОНКРЕТНОЙ категории — военные операции, дипломатия, шпионаж.
+// Указы (econ_*/mil_admin_*/pol_*) сюда не входят — у них цена по тиру (decree_fast/reform/program),
+// категория определяет только какие статы двигаются, не цену. См. docs/04-cabinet-and-categories.md §4.3.
+const CATEGORY_COST = {
+  // Военные операции (§2.1)
+  mil_recon:                 { initiative: 15, treasury: 3 },
+  mil_tactical:               { initiative: 30, treasury: 8 },
+  mil_operational_offensive:  { initiative: 55, treasury: 20 },
+  mil_operational_defensive:  { initiative: 45, treasury: 15 },
+  mil_strategic_offensive:    { initiative: 80, treasury: 35 },
+  mil_strategic_defensive:    { initiative: 60, treasury: 25 },
+  mil_hybrid:                 { initiative: 40, treasury: 12 },
+  // Дипломатия (§2.3)
+  diplo_negotiate:    { initiative: 35, treasury: 5 },
+  diplo_treaty:       { initiative: 50, treasury: 10 },
+  diplo_pressure:     { initiative: 35, treasury: 3 },
+  diplo_multilateral: { initiative: 45, treasury: 8 },
+  diplo_soft_power:   { initiative: 25, treasury: 8 },
+  diplo_peace:        { initiative: 30, treasury: 5 },
+  // Шпионаж (§2.2)
+  covert_disinfo:      { initiative: 20, treasury: 5 },
+  covert_destabilize:  { initiative: 30, treasury: 8 },
+  covert_sabotage:     { initiative: 40, treasury: 15 },
+  covert_elimination:  { initiative: 60, treasury: 25 },
+};
+
+// Группы категорий — заменяют точечные сравнения строк ("=== 'military_offensive'")
+// по всему бэкенду. Один источник правды: если категория переименовывается, достаточно
+// поправить набор здесь, а не искать все места сравнения в коде.
+const CATEGORY_GROUP = {
+  // Наступательные военные операции: стрик/усталость, бонус разведки, толчок мирного трека
+  military_offensive_like: new Set(["mil_tactical", "mil_operational_offensive", "mil_strategic_offensive", "mil_hybrid"]),
+  // Любая боевая операция (без mil_recon) — потребляет разведбонус от mil_recon
+  military_combat: new Set(["mil_tactical", "mil_operational_offensive", "mil_operational_defensive", "mil_strategic_offensive", "mil_strategic_defensive", "mil_hybrid"]),
+  // Оборонительные операции — свой (положительный) эффект на мирный трек
+  military_defensive_like: new Set(["mil_operational_defensive", "mil_strategic_defensive"]),
+  // Все 7 категорий военного домена (включая mil_recon) — месячный лимит "1 военная
+  // операция/мес" в turns.js. НЕ путать с mil_admin_* (указы, другой лимит/цена)
+  military_operations: new Set(["mil_recon", "mil_tactical", "mil_operational_offensive", "mil_operational_defensive", "mil_strategic_offensive", "mil_strategic_defensive", "mil_hybrid"]),
+  // Любая дипломатическая активность — не даёт мирному треку затухать (см. turns.js hadDiplomacyMove)
+  diplomatic_activity: new Set(["diplo_negotiate", "diplo_treaty", "diplo_pressure", "diplo_multilateral", "diplo_soft_power", "diplo_peace"]),
+  // Тайные операции — единственные, где применяется exposure_risk (см. turns.js)
+  covert_ops: new Set(["covert_destabilize", "covert_sabotage", "covert_disinfo", "covert_elimination"]),
 };
 
 // Сроки (в ходах = месяцах) по типу указа
@@ -134,7 +179,7 @@ const TIER_MULTIPLIER = {
   decree_program: 1.45,
 };
 
-// Бонус «разведка готовит почву»: успешная intel-операция усиливает следующее действие.
+// Бонус «разведка готовит почву»: mil_recon усиливает следующую боевую операцию.
 const INTEL_BOOST_FACTOR = 1.3;
 
 // МОДЕЛЬ ХОДА: true — несколько действий за месяц (инициатива = бюджет месяца,
@@ -147,6 +192,10 @@ const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "is
 
 // Убывающая отдача от последовательных военных операций
 const MILITARY_FATIGUE_THRESHOLD = 2; // после N военных ходов подряд — штраф
+
+// Вероятность раскрытия тайной операции (covert_*) по декларируемому ИИ уровню риска.
+// Бросок — seeded (см. seededFraction), не Math.random(), для честного сравнения партий.
+const EXPOSURE_RISK_CHANCE = { low: 0.10, medium: 0.30, high: 0.55 };
 
 // В кризисном режиме 1 ход = 2 недели (коэффициент 0.5 от обычного)
 const CRISIS_TURN_WEEKS = 2;
@@ -165,26 +214,68 @@ const MAX_RELATION_DELTA_SPILLOVER = 3;
 // Субметрики: elite_satisfaction (0=элиты против, 100=за), corruption (0=чисто, 100=коррупция),
 //             middle_class (0=нет среднего класса, 100=большой и довольный),
 //             lower_class_mood (0=народ взбунтовался, 100=доволен)
+//
+// Домены (см. docs/04-cabinet-and-categories.md):
+//   Военные операции (7): mil_recon, mil_tactical, mil_operational_offensive/defensive,
+//     mil_strategic_offensive/defensive, mil_hybrid
+//   Шпионаж (4): covert_destabilize, covert_sabotage, covert_disinfo, covert_elimination
+//   Дипломатия (6): diplo_negotiate, diplo_treaty, diplo_pressure, diplo_multilateral,
+//     diplo_soft_power, diplo_peace
+//   Указы — экономические (5): econ_stimulus, econ_austerity, econ_sanctions_counter,
+//     econ_infrastructure, econ_tech
+//   Указы — военно-административные (3): mil_admin_budget, mil_admin_mobilization, mil_admin_doctrine
+//   Указы — политические (4): pol_repression, pol_liberalization, pol_elite_consolidation, pol_social
+//   Указы — информационные (1): pol_propaganda
+//   Вне сетки: military_regroup, null_action, nuclear_strike (без изменений)
 const RULES_TABLE = {
-  //                        economy   military  stability diplomacy approval  elite_sat corruptn  mid_cls  low_mood | gdp_grw infltn  employ reserves | arm_mor  equip  ready veteran | ally_tr isolatn soft_pw reput | law_ord soc_ten media  region
-  military_offensive:      { economy:[-2,0],  military:[1,5],  stability:[-2,0], diplomacy:[-3,0], approval:[-1,2],  elite_satisfaction:[1,3],  corruption:[0,1],  middle_class:[-2,0], lower_class_mood:[-2,1],  gdp_growth:[-2,0], inflation:[1,3],  employment:[-1,0], reserves:[-2,0], army_morale:[1,4],  equipment:[-1,1], readiness:[2,4],  veterans:[1,3],  ally_trust:[-1,0], isolation:[1,3],  soft_power:[-2,0], reputation:[-3,-1], law_order:[0,2],  social_tension:[1,3],  media_control:[0,1],  regional_unity:[-1,0] },
-  military_defensive:      { economy:[-1,0],  military:[0,3],  stability:[1,3],  diplomacy:[0,1],  approval:[1,3],   elite_satisfaction:[0,2],  corruption:[0,0],  middle_class:[0,1],  lower_class_mood:[1,3],   gdp_growth:[-1,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[2,4],  equipment:[0,2],  readiness:[2,4],  veterans:[0,2],  ally_trust:[0,2],  isolation:[-1,0], soft_power:[0,1],  reputation:[0,2],   law_order:[1,3],  social_tension:[-1,1], media_control:[0,1],  regional_unity:[0,2]  },
-  diplomacy_outreach:      { economy:[0,2],   military:[0,0],  stability:[0,1],  diplomacy:[2,5],  approval:[0,1],   elite_satisfaction:[1,3],  corruption:[-1,0], middle_class:[1,2],  lower_class_mood:[0,1],   gdp_growth:[0,2],  inflation:[-1,0], employment:[0,1],  reserves:[0,1],  army_morale:[0,0],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[2,4],  isolation:[-2,-1],soft_power:[1,3],  reputation:[2,4],   law_order:[0,1],  social_tension:[-1,0], media_control:[0,0],  regional_unity:[0,1]  },
-  diplomacy_confrontation: { economy:[-2,0],  military:[0,0],  stability:[-1,0], diplomacy:[-4,-1],approval:[-1,2],  elite_satisfaction:[-2,1], corruption:[0,1],  middle_class:[-1,0], lower_class_mood:[-1,1],  gdp_growth:[-2,0], inflation:[1,2],  employment:[-1,0], reserves:[-1,0], army_morale:[0,2],  equipment:[0,0],  readiness:[1,2],  veterans:[0,0],  ally_trust:[-2,0], isolation:[2,3],  soft_power:[-2,-1],reputation:[-3,-1], law_order:[0,1],  social_tension:[1,2],  media_control:[1,2],  regional_unity:[-1,0] },
-  economic_stimulus:       { economy:[1,4],   military:[0,0],  stability:[1,2],  diplomacy:[0,0],  approval:[1,3],   elite_satisfaction:[-1,2], corruption:[-2,0], middle_class:[2,4],  lower_class_mood:[2,4],   gdp_growth:[2,5],  inflation:[1,3],  employment:[1,3],  reserves:[-2,-1],army_morale:[0,1],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[0,1],  isolation:[-1,0], soft_power:[0,1],  reputation:[0,1],   law_order:[0,1],  social_tension:[-2,-1],media_control:[0,0],  regional_unity:[1,2]  },
-  economic_austerity:      { economy:[2,5],   military:[0,0],  stability:[-3,-1],diplomacy:[0,0],  approval:[-3,-1], elite_satisfaction:[2,4],  corruption:[-3,-1],middle_class:[-3,-1],lower_class_mood:[-4,-2], gdp_growth:[0,2],  inflation:[-3,-1],employment:[-2,-1],reserves:[2,4],  army_morale:[-1,0], equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[0,1],  isolation:[0,1],  soft_power:[-1,0], reputation:[0,1],   law_order:[0,1],  social_tension:[2,4],  media_control:[0,0],  regional_unity:[-1,0] },
-  domestic_repression:     { economy:[0,0],   military:[0,1],  stability:[1,3],  diplomacy:[-2,0], approval:[-3,-1], elite_satisfaction:[2,4],  corruption:[1,3],  middle_class:[-2,0], lower_class_mood:[-3,-1], gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[1,2],  equipment:[0,0],  readiness:[1,2],  veterans:[0,0],  ally_trust:[-2,-1],isolation:[2,3],  soft_power:[-2,-1],reputation:[-3,-2], law_order:[2,4],  social_tension:[1,3],  media_control:[2,4],  regional_unity:[0,2]  },
-  domestic_liberalization: { economy:[0,1],   military:[0,0],  stability:[-1,2], diplomacy:[1,2],  approval:[-1,3],  elite_satisfaction:[-3,0], corruption:[-2,0], middle_class:[2,4],  lower_class_mood:[2,4],   gdp_growth:[0,2],  inflation:[-1,0], employment:[1,2],  reserves:[0,0],  army_morale:[-1,0], equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[1,3],  isolation:[-2,-1],soft_power:[2,3],  reputation:[2,4],   law_order:[-1,1], social_tension:[-3,-1],media_control:[-3,-1],regional_unity:[0,2]  },
-  info_narrative:          { economy:[0,0],   military:[0,0],  stability:[0,2],  diplomacy:[-1,2], approval:[1,3],   elite_satisfaction:[0,1],  corruption:[0,1],  middle_class:[0,0],  lower_class_mood:[1,3],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[0,2],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[-1,1], isolation:[0,1],  soft_power:[1,3],  reputation:[-1,2],  law_order:[0,1],  social_tension:[-2,-1],media_control:[1,3],  regional_unity:[0,1]  },
-  intelligence_covert:     { economy:[0,0],   military:[1,3],  stability:[0,0],  diplomacy:[-2,0], approval:[0,0],   elite_satisfaction:[0,1],  corruption:[1,2],  middle_class:[0,0],  lower_class_mood:[0,0],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[1,2],  equipment:[0,1],  readiness:[1,2],  veterans:[0,1],  ally_trust:[-1,0], isolation:[0,1],  soft_power:[0,1],  reputation:[-1,0],  law_order:[0,1],  social_tension:[0,1],  media_control:[0,1],  regional_unity:[0,0]  },
-  intel_success:           { economy:[0,2],   military:[2,5],  stability:[0,1],  diplomacy:[-1,1], approval:[1,3],   elite_satisfaction:[1,3],  corruption:[0,1],  middle_class:[0,1],  lower_class_mood:[0,2],   gdp_growth:[0,1],  inflation:[0,0],  employment:[0,1],  reserves:[0,1],  army_morale:[2,4],  equipment:[0,2],  readiness:[2,3],  veterans:[1,2],  ally_trust:[-1,1], isolation:[0,1],  soft_power:[0,2],  reputation:[0,1],   law_order:[0,2],  social_tension:[-1,0], media_control:[0,1],  regional_unity:[0,1]  },
-  intel_critical_success:  { economy:[1,3],   military:[4,6],  stability:[1,2],  diplomacy:[0,2],  approval:[2,4],   elite_satisfaction:[2,4],  corruption:[-1,0], middle_class:[1,2],  lower_class_mood:[1,3],   gdp_growth:[1,2],  inflation:[-1,0], employment:[0,1],  reserves:[0,2],  army_morale:[3,5],  equipment:[1,3],  readiness:[3,5],  veterans:[2,3],  ally_trust:[0,2],  isolation:[-1,0], soft_power:[1,3],  reputation:[1,3],   law_order:[1,3],  social_tension:[-2,-1],media_control:[1,2],  regional_unity:[1,2]  },
-  intel_failure:           { economy:[-1,0],  military:[-1,0], stability:[-2,0], diplomacy:[-4,-2],approval:[-2,0],  elite_satisfaction:[-2,0], corruption:[1,2],  middle_class:[-1,0], lower_class_mood:[-2,0],  gdp_growth:[-1,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[-2,-1],equipment:[0,0],  readiness:[-1,0], veterans:[0,0],  ally_trust:[-2,-1],isolation:[1,2],  soft_power:[-2,-1],reputation:[-2,-1], law_order:[-1,0], social_tension:[1,2],  media_control:[0,0],  regional_unity:[-1,0] },
-  intel_critical_failure:  { economy:[-2,0],  military:[-2,0], stability:[-3,-1],diplomacy:[-5,-3],approval:[-3,-1], elite_satisfaction:[-4,-2],corruption:[2,4],  middle_class:[-2,-1],lower_class_mood:[-3,-1], gdp_growth:[-2,-1],inflation:[1,2],  employment:[-1,0], reserves:[-2,-1],army_morale:[-3,-2],equipment:[-1,0], readiness:[-2,-1],veterans:[0,0],  ally_trust:[-3,-2],isolation:[2,4],  soft_power:[-3,-2],reputation:[-4,-3], law_order:[-2,-1],social_tension:[2,3],  media_control:[-1,0], regional_unity:[-2,-1]},
-  peace_initiative:        { economy:[1,2],   military:[-1,0], stability:[1,2],  diplomacy:[2,4],  approval:[1,3],   elite_satisfaction:[-1,1], corruption:[-1,0], middle_class:[1,3],  lower_class_mood:[2,4],   gdp_growth:[1,3],  inflation:[-1,0], employment:[0,2],  reserves:[0,2],  army_morale:[-2,0], equipment:[-1,0], readiness:[-1,1], veterans:[0,1],  ally_trust:[2,4],  isolation:[-3,-1],soft_power:[2,4],  reputation:[3,5],   law_order:[0,1],  social_tension:[-3,-1],media_control:[0,0],  regional_unity:[1,3]  },
-  military_regroup:        { economy:[0,1],   military:[0,1],  stability:[1,2],  diplomacy:[0,0],  approval:[0,1],   elite_satisfaction:[0,1],  corruption:[0,0],  middle_class:[0,0],  lower_class_mood:[0,1],   gdp_growth:[0,1],  inflation:[-1,0], employment:[0,0],  reserves:[0,1],  army_morale:[3,5],  equipment:[1,3],  readiness:[2,4],  veterans:[1,2],  ally_trust:[0,0],  isolation:[0,0],  soft_power:[0,0],  reputation:[0,0],   law_order:[0,1],  social_tension:[-1,0], media_control:[0,0],  regional_unity:[0,1]  },
-  null_action:             { economy:[-3,-1], military:[-2,-1],stability:[-2,-1],diplomacy:[-1,0], approval:[-3,-1], elite_satisfaction:[-2,-1],corruption:[0,2],  middle_class:[-2,-1],lower_class_mood:[-2,-1], gdp_growth:[-2,-1],inflation:[0,2],  employment:[-2,-1],reserves:[-2,-1],army_morale:[-2,-1],equipment:[-2,-1],readiness:[-2,-1],veterans:[0,0],  ally_trust:[-2,-1],isolation:[0,2],  soft_power:[-2,-1],reputation:[-2,-1], law_order:[-2,-1],social_tension:[0,2],  media_control:[-2,-1],regional_unity:[-2,-1]},
-  nuclear_strike:          { economy:[-25,-20],military:[3,8],stability:[-30,-25],diplomacy:[-40,-35],approval:[-20,-15],elite_satisfaction:[-15,-10],corruption:[5,10],middle_class:[-20,-15],lower_class_mood:[-25,-20], gdp_growth:[-25,-20],inflation:[15,25],employment:[-20,-15],reserves:[-20,-15],army_morale:[5,10],equipment:[-5,-2],readiness:[5,10],veterans:[-5,-2],ally_trust:[-30,-25],isolation:[25,35],soft_power:[-30,-25],reputation:[-40,-35],law_order:[-10,-5],social_tension:[20,30],media_control:[5,10],regional_unity:[-15,-10]},
+  // ---------- ВОЕННЫЕ ОПЕРАЦИИ ----------
+  mil_recon:                  { economy:[0,0],   military:[0,1],  stability:[0,0],  diplomacy:[0,0],  approval:[0,0],   elite_satisfaction:[0,0],  corruption:[0,0],  middle_class:[0,0],  lower_class_mood:[0,0],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[0,1],  equipment:[0,0],  readiness:[1,2],  veterans:[0,0],  ally_trust:[0,0],  isolation:[0,0],  soft_power:[0,0],  reputation:[0,0],   law_order:[0,0],  social_tension:[0,0],   media_control:[0,0],  regional_unity:[0,0]  },
+  mil_tactical:                { economy:[-1,0],  military:[1,3],  stability:[-1,0], diplomacy:[-1,0], approval:[-1,1],  elite_satisfaction:[0,2],  corruption:[0,1],  middle_class:[-1,0], lower_class_mood:[-1,1],  gdp_growth:[-1,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[1,2],  equipment:[0,1],  readiness:[1,2],  veterans:[0,1],  ally_trust:[0,0],  isolation:[0,1],  soft_power:[-1,0], reputation:[-1,0],  law_order:[0,1],  social_tension:[0,1],   media_control:[0,0],  regional_unity:[0,0]  },
+  mil_operational_offensive:   { economy:[-2,0],  military:[1,5],  stability:[-2,0], diplomacy:[-3,0], approval:[-1,2],  elite_satisfaction:[1,3],  corruption:[0,1],  middle_class:[-2,0], lower_class_mood:[-2,1],  gdp_growth:[-2,0], inflation:[1,3],  employment:[-1,0], reserves:[-2,0], army_morale:[1,4],  equipment:[-1,1], readiness:[2,4],  veterans:[1,3],  ally_trust:[-1,0], isolation:[1,3],  soft_power:[-2,0], reputation:[-3,-1], law_order:[0,2],  social_tension:[1,3],   media_control:[0,1],  regional_unity:[-1,0] },
+  mil_operational_defensive:   { economy:[-1,0],  military:[0,3],  stability:[1,3],  diplomacy:[0,1],  approval:[1,3],   elite_satisfaction:[0,2],  corruption:[0,0],  middle_class:[0,1],  lower_class_mood:[1,3],   gdp_growth:[-1,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[2,4],  equipment:[0,2],  readiness:[2,4],  veterans:[0,2],  ally_trust:[0,2],  isolation:[-1,0], soft_power:[0,1],  reputation:[0,2],   law_order:[1,3],  social_tension:[-1,1],  media_control:[0,1],  regional_unity:[0,2]  },
+  mil_strategic_offensive:     { economy:[-3,-1], military:[3,6],  stability:[-3,-1],diplomacy:[-4,-2],approval:[-2,3],  elite_satisfaction:[1,4],  corruption:[0,2],  middle_class:[-3,-1],lower_class_mood:[-3,1],  gdp_growth:[-3,-1],inflation:[2,4],  employment:[-2,-1],reserves:[-3,-1],army_morale:[1,5],  equipment:[-2,1], readiness:[3,5],  veterans:[2,4],  ally_trust:[-2,-1],isolation:[2,4],  soft_power:[-3,-1],reputation:[-4,-2], law_order:[0,3],  social_tension:[2,4],   media_control:[0,2],  regional_unity:[-2,-1]},
+  mil_strategic_defensive:     { economy:[-2,-1], military:[2,5],  stability:[2,4],  diplomacy:[0,2],  approval:[1,4],   elite_satisfaction:[1,3],  corruption:[0,0],  middle_class:[0,2],  lower_class_mood:[1,4],   gdp_growth:[-1,0], inflation:[0,2],  employment:[0,1],  reserves:[-2,-1],army_morale:[2,5],  equipment:[1,3],  readiness:[3,5],  veterans:[1,3],  ally_trust:[1,3],  isolation:[-1,0], soft_power:[0,2],  reputation:[0,3],   law_order:[1,4],  social_tension:[-1,1],  media_control:[0,1],  regional_unity:[0,3]  },
+  mil_hybrid:                  { economy:[-1,0],  military:[1,3],  stability:[0,1],  diplomacy:[-2,0], approval:[0,1],   elite_satisfaction:[0,1],  corruption:[1,2],  middle_class:[0,0],  lower_class_mood:[0,1],   gdp_growth:[0,0],  inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[1,3],  equipment:[0,1],  readiness:[1,2],  veterans:[0,1],  ally_trust:[-1,0], isolation:[1,3],  soft_power:[-2,-1],reputation:[-2,-1], law_order:[0,1],  social_tension:[0,1],   media_control:[0,1],  regional_unity:[0,0]  },
+
+  // ---------- ШПИОНАЖ ----------
+  covert_disinfo:              { economy:[0,0],   military:[0,0],  stability:[0,1],  diplomacy:[-1,1], approval:[0,1],   elite_satisfaction:[0,1],  corruption:[0,1],  middle_class:[0,0],  lower_class_mood:[0,1],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[0,0],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[-1,0], isolation:[0,1],  soft_power:[1,2],  reputation:[-1,1],  law_order:[0,0],  social_tension:[0,1],   media_control:[1,2],  regional_unity:[0,0]  },
+  covert_destabilize:          { economy:[0,0],   military:[0,1],  stability:[0,1],  diplomacy:[-3,0], approval:[0,1],   elite_satisfaction:[0,1],  corruption:[0,2],  middle_class:[0,0],  lower_class_mood:[0,0],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[-1,0], army_morale:[0,1],  equipment:[0,0],  readiness:[0,1],  veterans:[0,0],  ally_trust:[-1,0], isolation:[1,2],  soft_power:[-1,0], reputation:[-2,0],  law_order:[0,0],  social_tension:[0,1],   media_control:[0,1],  regional_unity:[0,0]  },
+  covert_sabotage:              { economy:[0,1],   military:[1,3],  stability:[0,0],  diplomacy:[-3,-1],approval:[0,1],   elite_satisfaction:[0,1],  corruption:[0,1],  middle_class:[0,0],  lower_class_mood:[0,0],   gdp_growth:[0,0],  inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[1,2],  equipment:[0,1],  readiness:[0,1],  veterans:[0,0],  ally_trust:[-2,-1],isolation:[2,3],  soft_power:[-2,-1],reputation:[-3,-1], law_order:[0,1],  social_tension:[0,1],   media_control:[0,1],  regional_unity:[0,0]  },
+  covert_elimination:          { economy:[0,0],   military:[1,2],  stability:[-1,1], diplomacy:[-5,-2],approval:[-2,2],  elite_satisfaction:[0,2],  corruption:[0,1],  middle_class:[0,0],  lower_class_mood:[-1,1],  gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[1,3],  equipment:[0,0],  readiness:[0,1],  veterans:[0,0],  ally_trust:[-2,-1],isolation:[3,5],  soft_power:[-3,-1],reputation:[-5,-2], law_order:[0,1],  social_tension:[0,2],   media_control:[0,1],  regional_unity:[0,0]  },
+
+  // ---------- ДИПЛОМАТИЯ ----------
+  diplo_negotiate:             { economy:[0,2],   military:[0,0],  stability:[0,1],  diplomacy:[2,5],  approval:[0,1],   elite_satisfaction:[1,3],  corruption:[-1,0], middle_class:[1,2],  lower_class_mood:[0,1],   gdp_growth:[0,2],  inflation:[-1,0], employment:[0,1],  reserves:[0,1],  army_morale:[0,0],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[2,4],  isolation:[-2,-1],soft_power:[1,3],  reputation:[2,4],   law_order:[0,1],  social_tension:[-1,0],  media_control:[0,0],  regional_unity:[0,1]  },
+  diplo_treaty:                 { economy:[1,3],   military:[0,1],  stability:[1,2],  diplomacy:[3,6],  approval:[1,2],   elite_satisfaction:[1,3],  corruption:[-1,0], middle_class:[1,3],  lower_class_mood:[1,2],   gdp_growth:[1,3],  inflation:[-1,0], employment:[1,2],  reserves:[1,2],  army_morale:[0,0],  equipment:[0,1],  readiness:[0,0],  veterans:[0,0],  ally_trust:[3,5],  isolation:[-3,-1],soft_power:[2,4],  reputation:[3,5],   law_order:[0,1],  social_tension:[-1,0],  media_control:[0,0],  regional_unity:[0,1]  },
+  diplo_pressure:               { economy:[-2,0],  military:[0,0],  stability:[-1,0], diplomacy:[-4,-1],approval:[-1,2],  elite_satisfaction:[-2,1], corruption:[0,1],  middle_class:[-1,0], lower_class_mood:[-1,1],  gdp_growth:[-2,0], inflation:[1,2],  employment:[-1,0], reserves:[-1,0], army_morale:[0,2],  equipment:[0,0],  readiness:[1,2],  veterans:[0,0],  ally_trust:[-2,0], isolation:[2,3],  soft_power:[-2,-1],reputation:[-3,-1], law_order:[0,1],  social_tension:[1,2],   media_control:[1,2],  regional_unity:[-1,0] },
+  diplo_multilateral:           { economy:[0,2],   military:[0,0],  stability:[0,1],  diplomacy:[3,5],  approval:[0,2],   elite_satisfaction:[0,2],  corruption:[0,0],  middle_class:[0,1],  lower_class_mood:[0,1],   gdp_growth:[0,1],  inflation:[0,0],  employment:[0,1],  reserves:[0,1],  army_morale:[0,0],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[2,4],  isolation:[-2,-1],soft_power:[2,3],  reputation:[2,3],   law_order:[0,0],  social_tension:[0,0],   media_control:[0,0],  regional_unity:[0,1]  },
+  diplo_soft_power:             { economy:[0,1],   military:[0,0],  stability:[0,1],  diplomacy:[1,3],  approval:[1,2],   elite_satisfaction:[0,1],  corruption:[0,0],  middle_class:[0,1],  lower_class_mood:[1,2],   gdp_growth:[0,1],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[0,0],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[1,2],  isolation:[-1,0], soft_power:[2,4],  reputation:[1,3],   law_order:[0,0],  social_tension:[-1,0],  media_control:[0,0],  regional_unity:[0,1]  },
+  diplo_peace:                   { economy:[1,2],   military:[-1,0], stability:[1,2],  diplomacy:[2,4],  approval:[1,3],   elite_satisfaction:[-1,1], corruption:[-1,0], middle_class:[1,3],  lower_class_mood:[2,4],   gdp_growth:[1,3],  inflation:[-1,0], employment:[0,2],  reserves:[0,2],  army_morale:[-2,0], equipment:[-1,0], readiness:[-1,1], veterans:[0,1],  ally_trust:[2,4],  isolation:[-3,-1],soft_power:[2,4],  reputation:[3,5],   law_order:[0,1],  social_tension:[-3,-1], media_control:[0,0],  regional_unity:[1,3]  },
+
+  // ---------- УКАЗЫ: ЭКОНОМИЧЕСКИЕ ----------
+  econ_stimulus:                { economy:[1,4],   military:[0,0],  stability:[1,2],  diplomacy:[0,0],  approval:[1,3],   elite_satisfaction:[-1,2], corruption:[-2,0], middle_class:[2,4],  lower_class_mood:[2,4],   gdp_growth:[2,5],  inflation:[1,3],  employment:[1,3],  reserves:[-2,-1],army_morale:[0,1],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[0,1],  isolation:[-1,0], soft_power:[0,1],  reputation:[0,1],   law_order:[0,1],  social_tension:[-2,-1], media_control:[0,0],  regional_unity:[1,2]  },
+  econ_austerity:                { economy:[2,5],   military:[0,0],  stability:[-3,-1],diplomacy:[0,0],  approval:[-3,-1], elite_satisfaction:[2,4],  corruption:[-3,-1],middle_class:[-3,-1],lower_class_mood:[-4,-2], gdp_growth:[0,2],  inflation:[-3,-1],employment:[-2,-1],reserves:[2,4],  army_morale:[-1,0], equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[0,1],  isolation:[0,1],  soft_power:[-1,0], reputation:[0,1],   law_order:[0,1],  social_tension:[2,4],   media_control:[0,0],  regional_unity:[-1,0] },
+  econ_sanctions_counter:       { economy:[0,2],   military:[0,0],  stability:[0,1],  diplomacy:[-2,0], approval:[0,1],   elite_satisfaction:[1,2],  corruption:[1,2],  middle_class:[0,1],  lower_class_mood:[0,1],   gdp_growth:[0,2],  inflation:[0,1],  employment:[0,1],  reserves:[0,1],  army_morale:[0,0],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[-1,0], isolation:[1,2],  soft_power:[-1,0], reputation:[-1,0],  law_order:[0,0],  social_tension:[-1,0],  media_control:[0,0],  regional_unity:[0,1]  },
+  econ_infrastructure:          { economy:[-1,1],  military:[0,1],  stability:[1,2],  diplomacy:[0,1],  approval:[1,2],   elite_satisfaction:[0,1],  corruption:[0,1],  middle_class:[1,2],  lower_class_mood:[1,2],   gdp_growth:[1,2],  inflation:[0,1],  employment:[1,2],  reserves:[-1,0], army_morale:[0,0],  equipment:[0,1],  readiness:[0,0],  veterans:[0,0],  ally_trust:[0,0],  isolation:[0,0],  soft_power:[0,1],  reputation:[0,1],   law_order:[0,0],  social_tension:[-1,0],  media_control:[0,0],  regional_unity:[1,2]  },
+  econ_tech:                     { economy:[-1,0],  military:[0,1],  stability:[0,1],  diplomacy:[0,1],  approval:[0,2],   elite_satisfaction:[0,1],  corruption:[0,0],  middle_class:[0,1],  lower_class_mood:[0,1],   gdp_growth:[2,4],  inflation:[0,0],  employment:[0,1],  reserves:[-1,0], army_morale:[0,0],  equipment:[0,1],  readiness:[0,0],  veterans:[0,0],  ally_trust:[0,1],  isolation:[0,0],  soft_power:[1,2],  reputation:[1,2],   law_order:[0,0],  social_tension:[0,0],   media_control:[0,0],  regional_unity:[0,0]  },
+
+  // ---------- УКАЗЫ: ВОЕННО-АДМИНИСТРАТИВНЫЕ (бюджет/мобилизация/доктрина — НЕ боевые операции) ----------
+  mil_admin_budget:             { economy:[-1,0],  military:[1,2],  stability:[0,1],  diplomacy:[0,0],  approval:[-1,1],  elite_satisfaction:[1,2],  corruption:[0,1],  middle_class:[0,0],  lower_class_mood:[0,0],   gdp_growth:[0,0],  inflation:[0,1],  employment:[0,1],  reserves:[-1,0], army_morale:[0,1],  equipment:[1,3],  readiness:[0,1],  veterans:[0,0],  ally_trust:[0,0],  isolation:[0,1],  soft_power:[0,0],  reputation:[0,0],   law_order:[0,0],  social_tension:[0,0],   media_control:[0,0],  regional_unity:[0,0]  },
+  mil_admin_mobilization:       { economy:[-1,0],  military:[2,4],  stability:[-2,0], diplomacy:[0,0],  approval:[-3,-1], elite_satisfaction:[0,1],  corruption:[0,0],  middle_class:[-1,0], lower_class_mood:[-3,-1], gdp_growth:[-1,0], inflation:[0,1],  employment:[-1,0], reserves:[0,0],  army_morale:[0,1],  equipment:[1,2],  readiness:[1,3],  veterans:[0,1],  ally_trust:[0,0],  isolation:[0,1],  soft_power:[-1,0], reputation:[0,0],   law_order:[0,1],  social_tension:[1,3],   media_control:[0,0],  regional_unity:[0,0]  },
+  mil_admin_doctrine:           { economy:[0,0],   military:[1,2],  stability:[0,1],  diplomacy:[-1,0], approval:[0,1],   elite_satisfaction:[0,1],  corruption:[0,0],  middle_class:[0,0],  lower_class_mood:[0,0],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[1,2],  equipment:[0,1],  readiness:[1,2],  veterans:[0,1],  ally_trust:[0,0],  isolation:[0,1],  soft_power:[0,0],  reputation:[0,0],   law_order:[0,1],  social_tension:[0,0],   media_control:[0,0],  regional_unity:[0,0]  },
+
+  // ---------- УКАЗЫ: ПОЛИТИЧЕСКИЕ ----------
+  pol_repression:                { economy:[0,0],   military:[0,1],  stability:[1,3],  diplomacy:[-2,0], approval:[-3,-1], elite_satisfaction:[2,4],  corruption:[1,3],  middle_class:[-2,0], lower_class_mood:[-3,-1], gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[1,2],  equipment:[0,0],  readiness:[1,2],  veterans:[0,0],  ally_trust:[-2,-1],isolation:[2,3],  soft_power:[-2,-1],reputation:[-3,-2], law_order:[2,4],  social_tension:[1,3],   media_control:[2,4],  regional_unity:[0,2]  },
+  pol_liberalization:            { economy:[0,1],   military:[0,0],  stability:[-1,2], diplomacy:[1,2],  approval:[-1,3],  elite_satisfaction:[-3,0], corruption:[-2,0], middle_class:[2,4],  lower_class_mood:[2,4],   gdp_growth:[0,2],  inflation:[-1,0], employment:[1,2],  reserves:[0,0],  army_morale:[-1,0], equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[1,3],  isolation:[-2,-1],soft_power:[2,3],  reputation:[2,4],   law_order:[-1,1], social_tension:[-3,-1], media_control:[-3,-1],regional_unity:[0,2]  },
+  pol_elite_consolidation:       { economy:[0,0],   military:[0,1],  stability:[1,2],  diplomacy:[0,0],  approval:[-1,2],  elite_satisfaction:[2,4],  corruption:[0,1],  middle_class:[0,0],  lower_class_mood:[-1,0],  gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[0,1],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[0,0],  isolation:[0,0],  soft_power:[0,0],  reputation:[0,0],   law_order:[0,1],  social_tension:[0,1],   media_control:[0,0],  regional_unity:[0,1]  },
+  pol_social:                    { economy:[-1,1],  military:[0,0],  stability:[1,3],  diplomacy:[0,0],  approval:[2,4],   elite_satisfaction:[-1,1], corruption:[0,0],  middle_class:[1,3],  lower_class_mood:[2,4],   gdp_growth:[0,1],  inflation:[0,1],  employment:[0,1],  reserves:[-1,0], army_morale:[0,0],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[0,0],  isolation:[0,0],  soft_power:[0,1],  reputation:[0,1],   law_order:[0,0],  social_tension:[-2,-1],media_control:[0,0],  regional_unity:[0,1]  },
+
+  // ---------- УКАЗЫ: ИНФОРМАЦИОННЫЕ ----------
+  pol_propaganda:                 { economy:[0,0],   military:[0,0],  stability:[0,2],  diplomacy:[-1,2], approval:[1,3],   elite_satisfaction:[0,1],  corruption:[0,1],  middle_class:[0,0],  lower_class_mood:[1,3],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[0,2],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[-1,1], isolation:[0,1],  soft_power:[1,3],  reputation:[-1,2],  law_order:[0,1],  social_tension:[-2,-1], media_control:[1,3],  regional_unity:[0,1]  },
+
+  // ---------- ВНЕ ДОМЕННОЙ СЕТКИ (без изменений) ----------
+  military_regroup:            { economy:[0,1],   military:[0,1],  stability:[1,2],  diplomacy:[0,0],  approval:[0,1],   elite_satisfaction:[0,1],  corruption:[0,0],  middle_class:[0,0],  lower_class_mood:[0,1],   gdp_growth:[0,1],  inflation:[-1,0], employment:[0,0],  reserves:[0,1],  army_morale:[3,5],  equipment:[1,3],  readiness:[2,4],  veterans:[1,2],  ally_trust:[0,0],  isolation:[0,0],  soft_power:[0,0],  reputation:[0,0],   law_order:[0,1],  social_tension:[-1,0],  media_control:[0,0],  regional_unity:[0,1]  },
+  null_action:                  { economy:[-3,-1], military:[-2,-1],stability:[-2,-1],diplomacy:[-1,0], approval:[-3,-1], elite_satisfaction:[-2,-1],corruption:[0,2],  middle_class:[-2,-1],lower_class_mood:[-2,-1], gdp_growth:[-2,-1],inflation:[0,2],  employment:[-2,-1],reserves:[-2,-1],army_morale:[-2,-1],equipment:[-2,-1],readiness:[-2,-1],veterans:[0,0],  ally_trust:[-2,-1],isolation:[0,2],  soft_power:[-2,-1],reputation:[-2,-1], law_order:[-2,-1],social_tension:[0,2],   media_control:[-2,-1],regional_unity:[-2,-1]},
+  nuclear_strike:               { economy:[-25,-20],military:[3,8],stability:[-30,-25],diplomacy:[-40,-35],approval:[-20,-15],elite_satisfaction:[-15,-10],corruption:[5,10],middle_class:[-20,-15],lower_class_mood:[-25,-20], gdp_growth:[-25,-20],inflation:[15,25],employment:[-20,-15],reserves:[-20,-15],army_morale:[5,10],equipment:[-5,-2],readiness:[5,10],veterans:[-5,-2],ally_trust:[-30,-25],isolation:[25,35],soft_power:[-30,-25],reputation:[-40,-35],law_order:[-10,-5],social_tension:[20,30],media_control:[5,10],regional_unity:[-15,-10]},
 };
 
 // Множители severity (середина диапазона — детерминированно, без рандома)
@@ -236,6 +327,16 @@ function applyClamped(currentValue, delta) {
 }
 
 /**
+ * Бросок раскрытия тайной операции (covert_*). Seeded — детерминированный,
+ * НЕ Math.random(). Возвращает true, если операция раскрыта.
+ */
+function rollExposure({ exposureRisk, gameId, turnNumber, actionType }) {
+  const chance = EXPOSURE_RISK_CHANCE[exposureRisk] ?? EXPOSURE_RISK_CHANCE.medium;
+  const seed = `${gameId}:${turnNumber}:${actionType}:exposure`;
+  return seededFraction(seed) < chance;
+}
+
+/**
  * Вычисляет изменение peace_progress на основе типа действия и состояния армии.
  * Военные эскалации могут УСКОРИТЬ мир — если армия сильная (>70).
  */
@@ -245,24 +346,24 @@ function computePeaceProgressDelta({ action_type, severity, armyValue, seed }) {
   const jitter = (seededFraction(seed + "peace") - 0.5) * 0.3;
   const eff = Math.min(1, Math.max(0, sevMultiplier + jitter));
 
-  switch (action_type) {
-    case "peace_initiative":       return Math.round((10 + 10 * eff));  // +10..+20
-    case "diplomacy_outreach":     return Math.round(4 + 4 * eff);      // +4..+8
-    case "military_offensive":     return armyStrong ? Math.round(4 + 6 * eff) : Math.round(-(5 + 7 * eff)); // +4..+10 / -5..-12
-    case "military_defensive":     return Math.round(1 + 2 * eff);      // +1..+3
-    case "diplomacy_confrontation":return Math.round(-(3 + 4 * eff));   // -3..-7
-    case "domestic_repression":    return Math.round(-(2 + 3 * eff));   // -2..-5
-    case "nuclear_strike":         return -40;
-    case "null_action":            return -2;
-    default:                       return 0;
+  if (action_type === "diplo_peace") return Math.round(10 + 10 * eff); // +10..+20
+  if (action_type === "diplo_negotiate") return Math.round(4 + 4 * eff); // +4..+8
+  if (CATEGORY_GROUP.military_offensive_like.has(action_type)) {
+    return armyStrong ? Math.round(4 + 6 * eff) : Math.round(-(5 + 7 * eff)); // +4..+10 / -5..-12
   }
+  if (CATEGORY_GROUP.military_defensive_like.has(action_type)) return Math.round(1 + 2 * eff); // +1..+3
+  if (action_type === "diplo_pressure") return Math.round(-(3 + 4 * eff)); // -3..-7
+  if (action_type === "pol_repression") return Math.round(-(2 + 3 * eff)); // -2..-5
+  if (action_type === "nuclear_strike") return -40;
+  if (action_type === "null_action") return -2;
+  return 0;
 }
 
 /**
  * Основная функция: берёт текущий state, классификацию от ИИ,
  * возвращает новый state + объект дельт (для отображения игроку).
  */
-function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "decree", crisisMode = false, regenInitiative = true }) {
+function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "decree", crisisMode = false, regenInitiative = true, revealCovertOutcome = true }) {
   const { action_type, severity } = gmClassification;
   const seed = `${gameId}:${turnNumber}:${action_type}`;
 
@@ -278,13 +379,16 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   // Carryover-бонус может поднять инициативу выше 100 (до 130) — не срезаем её при regen=0.
   // Срезаем только при рефилле (regen > 0) чтобы не превысить INITIATIVE_MAX в одиночном режиме.
   const regenedInitiative = regen > 0 ? Math.min(INITIATIVE_MAX, currentInitiative + regen) : currentInitiative;
-  const cost = INITIATIVE_COST[actionMode] ?? INITIATIVE_COST.decree;
+  // Стоимость по конкретной категории (военные/дипломатия/шпионаж) приоритетнее стоимости по режиму
+  // (указы/crisis/regroup) — см. CATEGORY_COST.
+  const categoryCost = CATEGORY_COST[action_type];
+  const cost = categoryCost ? categoryCost.initiative : (INITIATIVE_COST[actionMode] ?? INITIATIVE_COST.decree);
   newStats.initiative = Math.max(0, regenedInitiative - cost);
   statDeltas.initiative = newStats.initiative - currentInitiative;
 
   // Казна: списываем стоимость действия деньгами (может уходить в дефицит).
   // + КОРРУПЦИОННАЯ УТЕЧКА: часть средств разворовывается пропорционально уровню коррупции.
-  const budgetCost = ACTION_BUDGET_COST[actionMode] ?? 0;
+  const budgetCost = categoryCost ? categoryCost.treasury : (ACTION_BUDGET_COST[actionMode] ?? 0);
   let corruptionLeakAmount = 0;
   if (budgetCost) {
     const currentTreasury = typeof newStats.treasury === "number" ? newStats.treasury : 52;
@@ -297,18 +401,18 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
     statDeltas.treasury = newStats.treasury - currentTreasury;
   }
 
-  // ВОЕННЫЙ СТРИК: убывающая отдача от повторных военных операций
-  const isMilitaryOffensive = action_type === "military_offensive";
+  // ВОЕННЫЙ СТРИК: убывающая отдача от повторных наступательных операций
+  const isMilitaryOffensiveLike = CATEGORY_GROUP.military_offensive_like.has(action_type);
   const prevStreak = typeof newStats.military_streak === "number" ? newStats.military_streak : 0;
-  if (isMilitaryOffensive) {
+  if (isMilitaryOffensiveLike) {
     newStats.military_streak = prevStreak + 1;
   } else if (action_type !== "military_regroup") {
-    // Любое не-военное действие (кроме перегруппировки) сбрасывает стрик
+    // Любое не-наступательное действие (кроме перегруппировки) сбрасывает стрик
     newStats.military_streak = 0;
   }
-  // Штраф за усталость: начиная со 2-й военной операции подряд
+  // Штраф за усталость: начиная со 2-й наступательной операции подряд
   let militaryFatiguePenalty = 0;
-  if (isMilitaryOffensive && prevStreak >= MILITARY_FATIGUE_THRESHOLD) {
+  if (isMilitaryOffensiveLike && prevStreak >= MILITARY_FATIGUE_THRESHOLD) {
     militaryFatiguePenalty = prevStreak - MILITARY_FATIGUE_THRESHOLD + 1; // +1 за каждую лишнюю
   }
 
@@ -322,10 +426,11 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
 
   // Множитель силы по тиру указа (fast<reform<program); для прочих режимов = 1.
   const tierMult = TIER_MULTIPLIER[actionMode] ?? 1.0;
-  // Разведбонус: если прошлая intel-операция была успешной — усиливаем ПОЛОЖИТЕЛЬНЫЕ
-  // эффекты текущего (не-разведывательного) хода. Бонус разовый — расходуется здесь.
-  const isIntelAction = typeof action_type === "string" && action_type.startsWith("intel");
-  const intelBoostActive = (state.stats.next_action_boost ?? 0) > 0 && !isIntelAction;
+  // Разведбонус: mil_recon усиливает ПОЛОЖИТЕЛЬНЫЕ эффекты следующей боевой операции
+  // (не любого хода вообще — конкретно военной). Бонус разовый — расходуется здесь.
+  const isMilRecon = action_type === "mil_recon";
+  const isMilitaryCombat = CATEGORY_GROUP.military_combat.has(action_type);
+  const intelBoostActive = (state.stats.next_action_boost ?? 0) > 0 && isMilitaryCombat;
   const effMult = (delta) => {
     let d = delta * tierMult;
     if (intelBoostActive && delta > 0) d *= INTEL_BOOST_FACTOR;
@@ -349,25 +454,49 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
       const baseDelta = computeStatDelta({ category: action_type, stat, severity, seed });
       let delta = (tierMult !== 1.0 || intelBoostActive) ? effMult(baseDelta) : baseDelta;
 
-      // Штраф военной усталости: уменьшает положительные эффекты военных операций
-      if (isMilitaryOffensive && militaryFatiguePenalty > 0 && delta > 0) {
+      // Штраф военной усталости: уменьшает положительные эффекты наступательных операций
+      if (isMilitaryOffensiveLike && militaryFatiguePenalty > 0 && delta > 0) {
         const fatigueReduction = Math.min(0.45, militaryFatiguePenalty * 0.15); // -15% за каждую лишнюю операцию, макс -45%
         delta = Math.round(delta * (1 - fatigueReduction));
       }
       // Усталость сверх порога: армия получает прямые штрафы
-      if (isMilitaryOffensive && prevStreak >= MILITARY_FATIGUE_THRESHOLD + 1) {
+      if (isMilitaryOffensiveLike && prevStreak >= MILITARY_FATIGUE_THRESHOLD + 1) {
         if (stat === "army_morale") delta = Math.min(delta, -3);
         if (stat === "readiness") delta = Math.min(delta, -2);
       }
 
       // Коррупция снижает позитивные эффекты указов/реформ (не военных)
-      if (!isMilitaryOffensive && delta > 0 && corruptionPenalty > 0 &&
+      if (!isMilitaryOffensiveLike && delta > 0 && corruptionPenalty > 0 &&
           ["decree_fast","decree_reform","decree_program","diplomacy_op"].includes(actionMode)) {
         delta = Math.round(delta * (1 - corruptionPenalty));
       }
 
       statDeltas[stat] = delta;
       newStats[stat] = applyClamped(state.stats[stat], delta);
+    }
+  }
+
+  // ШПИОНАЖ: exposure_risk — раскрытие тайной операции (covert_*). Обычные дельты выше
+  // уже применены как «операция состоялась» — здесь добавляется ШТРАФ ПОВЕРХ них,
+  // если бросок (seeded) попал в диапазон риска, заявленного ИИ.
+  // revealCovertOutcome=false в preview: игрок НЕ должен видеть исход раскрытия ДО подписи
+  // приказа — иначе можно отменить ход и переформулировать, зная заранее, что операцию
+  // «спалят» (та же дыра, что была у старого intel_success/failure — он писал исход
+  // прямо в narrative preview, это был читерский reroll). Раскрытие считается и
+  // применяется ТОЛЬКО при confirm, один раз, без возможности отмены после решения.
+  if (CATEGORY_GROUP.covert_ops.has(action_type) && revealCovertOutcome) {
+    const exposed = rollExposure({
+      exposureRisk: gmClassification.exposure_risk || "medium",
+      gameId, turnNumber, actionType: action_type,
+    });
+    statDeltas.exposed = exposed;
+    if (exposed) {
+      const diploPenalty = -3;
+      const stabPenalty = -1;
+      newStats.diplomacy = applyClamped(newStats.diplomacy, diploPenalty);
+      newStats.stability = applyClamped(newStats.stability, stabPenalty);
+      statDeltas.diplomacy = (statDeltas.diplomacy ?? 0) + diploPenalty;
+      statDeltas.stability = (statDeltas.stability ?? 0) + stabPenalty;
     }
   }
 
@@ -386,9 +515,10 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
     newStats.anti_corruption_this_month = true;
   }
 
-  // Учёт разведбонуса: успешная разведка ставит бонус на следующий ход; обычный ход — расходует.
-  if (action_type === "intel_success" || action_type === "intel_critical_success") {
-    newStats.next_action_boost = action_type === "intel_critical_success" ? 2 : 1;
+  // Учёт разведбонуса: mil_recon ставит бонус на следующую боевую операцию; сама боевая
+  // операция (не recon) — расходует.
+  if (isMilRecon) {
+    newStats.next_action_boost = 1;
   } else if (intelBoostActive) {
     newStats.next_action_boost = 0; // бонус израсходован
   }
@@ -441,7 +571,11 @@ function computeDelayedEffectDelta({ category, stat, gameId, turnNumber, effectI
 
 module.exports = {
   RULES_TABLE,
+  CATEGORY_GROUP,
+  CATEGORY_COST,
+  EXPOSURE_RISK_CHANCE,
   computePeaceProgressDelta,
+  rollExposure,
   MAX_DELTA_PER_TURN,
   SUBSTAT_DEFAULTS,
   INITIATIVE_COST,

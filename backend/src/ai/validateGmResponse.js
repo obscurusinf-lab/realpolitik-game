@@ -6,22 +6,55 @@
  * и отсутствие "самодеятельности" с числами.
  */
 
+// Полный список — см. docs/04-cabinet-and-categories.md. Заменяет старый 14-категорийный
+// список целиком (не сосуществует со старым — см. §1 плана).
 const ALLOWED_CATEGORIES = [
-  "military_offensive",
-  "military_defensive",
+  // Военные операции (§2.1)
+  "mil_recon",
+  "mil_tactical",
+  "mil_operational_offensive",
+  "mil_operational_defensive",
+  "mil_strategic_offensive",
+  "mil_strategic_defensive",
+  "mil_hybrid",
+  // Шпионаж (§2.2)
+  "covert_destabilize",
+  "covert_sabotage",
+  "covert_disinfo",
+  "covert_elimination",
+  // Дипломатия (§2.3)
+  "diplo_negotiate",
+  "diplo_treaty",
+  "diplo_pressure",
+  "diplo_multilateral",
+  "diplo_soft_power",
+  "diplo_peace",
+  // Указы — экономические (§2.4)
+  "econ_stimulus",
+  "econ_austerity",
+  "econ_sanctions_counter",
+  "econ_infrastructure",
+  "econ_tech",
+  // Указы — военно-административные (§2.4)
+  "mil_admin_budget",
+  "mil_admin_mobilization",
+  "mil_admin_doctrine",
+  // Указы — политические (§2.4)
+  "pol_repression",
+  "pol_liberalization",
+  "pol_elite_consolidation",
+  "pol_social",
+  // Указы — информационные (§2.4)
+  "pol_propaganda",
+  // Вне доменной сетки — без изменений
   "military_regroup",
-  "diplomacy_outreach",
-  "diplomacy_confrontation",
-  "economic_stimulus",
-  "economic_austerity",
-  "domestic_repression",
-  "domestic_liberalization",
-  "info_narrative",
-  "intelligence_covert",
-  "peace_initiative",
   "nuclear_strike",
   "null_action",
 ];
+
+const ALLOWED_EXPOSURE_RISKS = ["low", "medium", "high"];
+// Только эти категории вправе присылать exposure_risk (см. rules-engine.js CATEGORY_GROUP.covert_ops)
+const COVERT_CATEGORIES = new Set(["covert_destabilize", "covert_sabotage", "covert_disinfo", "covert_elimination"]);
 
 const ALLOWED_DIRECTIONS = ["improve", "worsen", "neutral"];
 const ALLOWED_TONES = ["pos", "neutral", "neg"];
@@ -41,6 +74,16 @@ function validateGmResponse(raw) {
 
   if (![1, 2, 3].includes(raw.severity)) {
     throw new Error(`Invalid severity: ${raw.severity} (must be 1, 2, or 3)`);
+  }
+
+  // Тайные операции (covert_*) обязаны декларировать риск раскрытия — от него зависит
+  // seeded-бросок в rules-engine.js (rollExposure). Остальным категориям поле не нужно.
+  if (COVERT_CATEGORIES.has(raw.action_type)) {
+    if (!ALLOWED_EXPOSURE_RISKS.includes(raw.exposure_risk)) {
+      throw new Error(`exposure_risk обязателен для ${raw.action_type} и должен быть одним из: ${ALLOWED_EXPOSURE_RISKS.join("|")} (получено: ${raw.exposure_risk})`);
+    }
+  } else if (raw.exposure_risk && !ALLOWED_EXPOSURE_RISKS.includes(raw.exposure_risk)) {
+    throw new Error(`Invalid exposure_risk: ${raw.exposure_risk}`);
   }
 
   if (!Array.isArray(raw.affected_relations)) {
@@ -99,4 +142,4 @@ function validateGmResponse(raw) {
   return true;
 }
 
-module.exports = { validateGmResponse, ALLOWED_CATEGORIES, ALLOWED_DIRECTIONS, ALLOWED_TONES };
+module.exports = { validateGmResponse, ALLOWED_CATEGORIES, ALLOWED_DIRECTIONS, ALLOWED_TONES, ALLOWED_EXPOSURE_RISKS, COVERT_CATEGORIES };

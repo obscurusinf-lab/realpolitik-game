@@ -100,7 +100,7 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
 
   return null;
 }
-const { applyTurn, computeDelayedEffectDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS } = require("../rules/rules-engine");
+const { applyTurn, computeDelayedEffectDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
 // Вычисляет новую дату игры (+1 месяц в обычном режиме, +2 недели в кризисном)
@@ -463,10 +463,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
     }
 
-    // diplomacy_op → передаём AI как diplomacy_outreach (классификация та же, инициатива другая)
     const effectiveActionMode = /ядерн|термоядер|nuclear|атомн.*удар/i.test(playerInput)
       ? "military"
-      : actionMode === "diplomacy_op" ? "diplomacy_outreach"
       : actionMode;
 
     const gmClassification = await classifyTurn({
@@ -484,37 +482,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       callClaudeApi,
     });
 
-    // Intel RNG: случайный исход разведывательной операции
-    if (gmClassification.action_type === "intelligence_covert" || effectiveActionMode === "intel") {
-      const roll = Math.random();
-      let intelOutcome, outcomeLabel;
-      if (roll < 0.08) {
-        intelOutcome = "intel_critical_failure";
-        outcomeLabel = "ПРОВАЛ — агент задержан";
-      } else if (roll < 0.25) {
-        intelOutcome = "intel_failure";
-        outcomeLabel = "Операция провалена";
-      } else if (roll < 0.80) {
-        intelOutcome = "intelligence_covert"; // норма
-        outcomeLabel = null;
-      } else if (roll < 0.95) {
-        intelOutcome = "intel_success";
-        outcomeLabel = "Операция успешна";
-      } else {
-        intelOutcome = "intel_critical_success";
-        outcomeLabel = "БЛЕСТЯЩАЯ ОПЕРАЦИЯ";
-      }
-      if (intelOutcome !== "intelligence_covert") {
-        gmClassification.action_type = intelOutcome;
-        if (outcomeLabel) {
-          gmClassification.narrative = `[${outcomeLabel}] ${gmClassification.narrative || ""}`.trim();
-        }
-        if (intelOutcome === "intel_failure" || intelOutcome === "intel_critical_failure") {
-          gmClassification.advisor_objection = gmClassification.advisor_objection ||
-            "Директор СВР: Операция скомпрометирована. Необходимо немедленно отозвать агентурную сеть во избежание дальнейших потерь.";
-        }
-      }
-    }
+    // Раскрытие тайных операций (covert_*) считается внутри applyTurn (rules-engine.js) —
+    // seeded-бросок по exposure_risk, который декларирует ИИ. Старый Math.random()-бросок
+    // с подменой action_type на intel_success/intel_failure/... убран целиком (см.
+    // docs/04-cabinet-and-categories.md §4.1) — операция всегда «состоялась» по своей
+    // строке RULES_TABLE, раскрытие добавляет отдельный штраф поверх.
 
     // Защита: если AI вернул null_action при явном упоминании ядерного оружия — форсируем nuclear_strike
     const NUCLEAR_RE = /ядерн|термоядер|nuclear|атомн.*удар/i;
@@ -529,13 +501,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     }
 
     // Считаем превью дельт ТЕМ ЖЕ rules-engine — то, что увидит игрок,
-    // должно совпадать 1:1 с тем, что применится при confirm (тот же seed).
+    // должно совпадать 1:1 с тем, что применится при confirm (тот же seed) —
+    // ЗА ИСКЛЮЧЕНИЕМ исхода тайных операций (exposure_risk): его нельзя показывать
+    // до подписи приказа, иначе игрок отменит ход и обойдёт риск раскрытия «читом».
+    // См. revealCovertOutcome в applyTurn.
+    // regenInitiative ДОЛЖЕН совпадать с тем, что использует confirm (!multiAction) —
+    // без этого preview в мульти-режиме показывал заниженную (на величину regen) цену
+    // хода, расходясь с тем, что реально спишется при confirm. Найдено при тестировании.
+    const { MULTI_ACTION_TURNS: previewMultiAction } = require("../rules/rules-engine");
     const { statDeltas, relationDeltas } = applyTurn({
       state: { stats: statsAfterDelayed, relations: game.relations },
       gmClassification,
       gameId,
       turnNumber: nextTurnNumber,
       actionMode,
+      revealCovertOutcome: false,
+      regenInitiative: !previewMultiAction,
     });
 
     await pendingTurnStore.save(gameId, {
@@ -597,7 +578,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       // Военный лимит: повторная проверка (защита от race condition)
       const confirmAt = gmClassification.action_type;
-      const isConfirmMilitary = confirmAt === "military_offensive" || confirmAt === "military_defensive";
+      const isConfirmMilitary = CATEGORY_GROUP.military_operations.has(confirmAt);
       if (isConfirmMilitary) {
         if (game.stats?.military_blocked_this_month) {
           await client.query("ROLLBACK");
@@ -621,6 +602,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         actionMode: pendingActionMode,
         crisisMode,
         regenInitiative: !multiAction, // в мульти-режиме инициатива = бюджет месяца (регенерация в конце месяца)
+        revealCovertOutcome: true, // раскрытие тайной операции считается только здесь, один раз, после подписи
       });
 
       // Снапшот после декрета — для расчёта changelog в конце хода
@@ -638,14 +620,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ---
-      // military_offensive продвигает фронт, peace/diplomacy могут фиксировать или уступать территории
+      // Наступательные операции продвигают фронт, peace/diplomacy могут фиксировать или уступать территории
       {
         const TERRITORY_KEYS = ["donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"];
         const TERRITORY_HARDNESS = { donetsk: 1.0, luhansk: 0.6, zaporizhzhia: 1.2, kherson: 1.3, kharkiv: 1.5 };
         const at = gmClassification.action_type;
         const sev = gmClassification.severity || 2;
+        const isOffensiveLike = CATEGORY_GROUP.military_offensive_like.has(at);
+        const isDefensiveLike = CATEGORY_GROUP.military_defensive_like.has(at);
+        const isDiplomaticLike = CATEGORY_GROUP.diplomatic_activity.has(at) || pendingActionMode === "diplomacy_op";
 
-        if (at === "military_offensive") {
+        if (isOffensiveLike) {
           // Прогресс зависит от армии и severity
           const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50) + (newStats.equipment ?? 50)) / 3;
           const baseGain = sev * 3 + Math.max(0, (armyQuality - 60) / 5); // 3-12 pts
@@ -660,7 +645,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               newStats[key] = Math.min(100, current + Math.max(1, gain));
             }
           }
-        } else if (at === "military_defensive") {
+        } else if (isDefensiveLike) {
           // Оборона — удержание. Небольшое восстановление потерянных позиций
           for (const key of TERRITORY_KEYS) {
             const current = newStats[key] ?? 50;
@@ -668,7 +653,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               newStats[key] = Math.min(60, current + 2);
             }
           }
-        } else if (at === "peace_initiative" || at === "diplomacy_outreach" || pendingActionMode === "diplomacy_op") {
+        } else if (isDiplomaticLike) {
           // Мирный/дипломатический трек — небольшие уступки на спорных территориях
           const concession = sev === 3 ? 4 : sev === 2 ? 2 : 1;
           for (const key of ["kharkiv_control", "kherson_control"]) {
@@ -678,7 +663,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               newStats[key] = Math.max(5, current - concession);
             }
           }
-        } else if (at === "diplomacy_confrontation") {
+        } else if (at === "diplo_pressure") {
           // Жёсткая риторика — обострение, мелкие тактические потери
           const kh = "kharkiv_control";
           const current = newStats[kh] ?? 12;
@@ -694,7 +679,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
         // --- Украинское сопротивление при наступлении ---
         // Каждый offensive — ВСУ и союзники контратакуют: случайный откат 1-3 территорий
-        if (at === "military_offensive") {
+        if (isOffensiveLike) {
           const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50)) / 2;
           // Интенсивность ответа зависит от западной поддержки (diplomacy_vs_west прокси = relations с США/ЕС)
           const resistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
@@ -826,22 +811,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Если игрок не делает дипломатию/мирные инициативы — мир сам по себе распадается.
       // В мульти-режиме пассивный распад переносится в конец месяца (/turns/end-month).
       if (!multiAction) {
-        const peaceDiplomacyActions = new Set(["diplomacy_outreach", "peace_initiative", "diplomacy_confrontation"]);
-        const isActiveDiplomacy = peaceDiplomacyActions.has(gmClassification.action_type);
+        const isActiveDiplomacy = CATEGORY_GROUP.diplomatic_activity.has(gmClassification.action_type);
+        const isOffensiveLikeForDecay = CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type);
         if (!isActiveDiplomacy && (newStats.peace_progress ?? 0) > 5) {
           const p = newStats.peace_progress ?? 0;
           // Установленный мир (>=40, порог принуждения к миру) распадается заметно медленнее:
           // игрок, выстроивший мирный трек, может давить военным путём, не теряя его —
           // «дипломатия с позиции силы». Низкий мир по-прежнему тает быстро.
-          let decay = gmClassification.action_type === "military_offensive" ? 7 : 4;
-          if (p >= 40) decay = gmClassification.action_type === "military_offensive" ? 3 : 1;
+          let decay = isOffensiveLikeForDecay ? 7 : 4;
+          if (p >= 40) decay = isOffensiveLikeForDecay ? 3 : 1;
           newStats.peace_progress = Math.max(0, p - decay);
         }
       }
 
       // --- ВОЕННЫЙ БЛОУЭФФЕКТ ---
-      // Военные наступления с вероятностью 35% вызывают эскалацию и международное осуждение
-      if (gmClassification.action_type === "military_offensive" && Math.random() < 0.20) {
+      // Наступательные операции с вероятностью 35% вызывают эскалацию и международное осуждение
+      if (CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type) && Math.random() < 0.20) {
         const BLOWBACK_EVENTS = [
           { source: "AP", penalty: 8, diplomacyDelta: -5, approvalDelta: -4,
             text: "Международный суд ООН открыл расследование в связи с последними военными операциями. Верховный комиссар по правам человека ООН Гомес потребовал немедленного прекращения огня." },
@@ -870,55 +855,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           ])]
         );
         fastify.log.info({ gameId, source: blowback.source }, "Military blowback fired");
-      } else if (gmClassification.action_type !== "military_offensive") {
+      } else if (!CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type)) {
         // Снижаем счётчик если не воюем
         if ((newStats.war_escalation_counter ?? 0) > 0) {
           newStats.war_escalation_counter = Math.max(0, (newStats.war_escalation_counter ?? 0) - 1);
         }
       }
 
-      // --- ВНУТРЕННИЕ КРИЗИСЫ ---
-      // С вероятностью 7% каждый ход происходит внутренний кризис (снижено с 12%)
-      if (Math.random() < 0.07) {
-        const DOMESTIC_CRISES = [
-          { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
-            text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
-          { source: "Новая газета", stabilityDelta: -5, approvalDelta: -5,
-            text: "В 15 регионах прошли антивоенные акции. Задержаны более 3000 человек. Социологи фиксируют рекордный рост недовольства среди молодёжи и женщин — тех, кто теряет мужей и сыновей." },
-          { source: "РИА Новости", economyDelta: -7, stabilityDelta: -3,
-            text: "Крупный банковский кризис: четыре региональных банка обратились за экстренной ликвидностью. ЦБ объявил о введении временной администрации. Вкладчики выстроились в очереди." },
-          { source: "Интерфакс", approvalDelta: -5, stabilityDelta: -4,
-            text: "Антикоррупционный скандал: в Telegram-каналах опубликованы данные о роскошной жизни окружения президента. Яхты, виллы, тайные счета. Рейтинг падает на фоне военных расходов." },
-          { source: "ТАСС", economyDelta: -5, approvalDelta: -4,
-            text: "Дефицит базовых товаров в ряде регионов: сахар, масло, лекарства исчезли с полок. Губернаторы просят федеральный центр о помощи. Граждане начали делать запасы." },
-          { source: "Фонтанка", stabilityDelta: -6, approvalDelta: -3,
-            text: "Семьи погибших военнослужащих провели демонстрацию у здания Министерства обороны. Требования о выплате компенсаций и возврате тел не выполняются уже полгода. Силовики разгоняют акцию." },
-          { source: "Медиазона", stabilityDelta: -5, economyDelta: -3,
-            text: "Бунт в нескольких исправительных колониях: заключённые отказываются подписывать контракты для отправки на фронт. Информация подтверждается перехватами ФСБ." },
-          { source: "The Bell", economyDelta: -6, approvalDelta: -4,
-            text: "Инфляция вышла из-под контроля — официально 24%, реально, по независимым оценкам, все 40%. Пенсии и зарплаты бюджетников обесценились. Недовольство растёт в базовом электорате." },
-        ];
-        const crisis = DOMESTIC_CRISES[Math.floor(Math.random() * DOMESTIC_CRISES.length)];
-        if (crisis.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + crisis.approvalDelta));
-        if (crisis.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
-        if (crisis.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + crisis.stabilityDelta));
-        applyOilFxTextImpact(crisis.text, newStats);
-        await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [gameId, turnNumber, "news", crisis.source, crisis.text, JSON.stringify([
-            { emoji: "😰", label: "тревога", count: Math.floor(Math.random() * 80) + 30 },
-          ])]
-        );
-        fastify.log.info({ gameId, source: crisis.source }, "Domestic crisis fired");
-      }
-
-      // --- ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ ---
-      // Военные расходы давят на экономику при military > 75 (порог повышен с 70)
-      if ((newStats.military ?? 50) > 75) {
-        const warTax = Math.floor(((newStats.military ?? 50) - 75) / 10) + 1; // 1-3 pts
-        newStats.economy = Math.max(0, (newStats.economy ?? 50) - warTax);
-        newStats.approval = Math.max(0, (newStats.approval ?? 50) - 1);
-      }
+      // ВНУТРЕННИЕ КРИЗИСЫ и ВОЕННО-ЭКОНОМИЧЕСКОЕ ДАВЛЕНИЕ перенесены в /turns/end-month:
+      // в MULTI_ACTION_TURNS режиме несколько confirm в месяц → стреляли бы при каждом действии.
 
       // --- ВМЕШАТЕЛЬСТВО ТРЕТЬИХ АКТОРОВ ---
       // Когда мирный трек растёт, акторы с интересом в войне мешают.
@@ -1443,6 +1388,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         month: turnNumber,
         statChangelog,
         prevStats: Object.fromEntries(CHANGELOG_KEYS.map(k => [k, statsAfterDelayed[k] ?? 50])),
+        // Исход раскрытия тайной операции (covert_*) — известен ТОЛЬКО здесь, после подписи
+        // приказа (см. revealCovertOutcome в applyTurn). undefined для остальных категорий —
+        // фронт показывает отдельный «реванш»-попап только когда поле присутствует.
+        covertExposed: typeof statDeltas.exposed === "boolean" ? statDeltas.exposed : undefined,
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -1504,10 +1453,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         `SELECT action_mode, gm_classification FROM turns WHERE game_id = $1 AND turn_n = $2`,
         [gameId, completedMonth]
       );
-      const peaceDiplomacyActions = new Set(["diplomacy_outreach", "peace_initiative", "diplomacy_confrontation"]);
       const hadDiplomacy = turnsThisMonth.rows.some(r => {
         const at = (typeof r.gm_classification === "string" ? JSON.parse(r.gm_classification) : r.gm_classification)?.action_type;
-        return peaceDiplomacyActions.has(at) || r.action_mode === "diplomacy_op";
+        return CATEGORY_GROUP.diplomatic_activity.has(at) || r.action_mode === "diplomacy_op";
       });
       if (!hadDiplomacy && (newStats.peace_progress ?? 0) > 5) {
         const p = newStats.peace_progress ?? 0;
@@ -1521,7 +1469,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // причин цена/курс со временем стягиваются обратно к норме, а не «убегают» навсегда
       // к границам диапазона. Плюс ~15% шанс геополитического события, которое толкает
       // нефть/курс резко в плюс или в минус (Иран и т.п. — отдельный, более сильный сдвиг).
-      const OIL_BASELINE = 68;
+      // База нефти поднята с 68 до 85: фоновый конфликт США-Иран держит рынок нервным,
+      // реальные котировки Brent в такой обстановке чаще находятся в диапазоне $80-120,
+      // а не у довоенных $60-70.
+      const OIL_BASELINE = 85;
       const FX_BASELINE = 80;
       const oilBefore = typeof newStats.oil_price === "number" ? newStats.oil_price : OIL_BASELINE;
       const fxBefore = typeof newStats.usd_rub === "number" ? newStats.usd_rub : FX_BASELINE;
@@ -1539,6 +1490,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           { source: "Коммерсантъ", fxDelta: 7, text: "Новый пакет санкций ударил по экспортным расчётам — рубль ослаб на фоне дефицита валютной ликвидности." },
           { source: "РБК", fxDelta: -6, text: "Сильный экспортный квартал и удержание капитала в стране укрепили рубль." },
           { source: "Forbes", fxDelta: 8, text: "Отток капитала ускорился: крупный бизнес выводит резервы за рубеж на фоне неопределённости. Рубль слабеет." },
+          { source: "Al Jazeera", oilDelta: 11, text: "Иран пригрозил закрыть Ормузский пролив в ответ на новые удары США по своей территории. Через пролив идёт пятая часть мировой нефти — рынок в панике." },
+          { source: "CNBC", oilDelta: -6, text: "Саудовская Аравия и ОАЭ нарастили добычу сверх квот ОПЕК+, компенсируя выпадающие иранские поставки. Цены на нефть скорректировались вниз." },
+          { source: "OilPrice.com", oilDelta: 6, text: "ОПЕК+ продлила соглашение об ограничении добычи ещё на квартал — участники картеля настаивают на защите цен несмотря на рост предложения вне картеля." },
         ];
         const ev = MARKET_EVENTS[Math.floor(Math.random() * MARKET_EVENTS.length)];
         if (ev.oilDelta) oilNow = Math.max(35, Math.min(120, oilNow + ev.oilDelta));
@@ -1566,48 +1520,81 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const oilIncome = Math.round((newStats.oil_price - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
       const fxIncome = Math.round((newStats.usd_rub - FX_BASELINE) * 0.4);
       if (newStats.usd_rub > FX_BASELINE + 10) {
-        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.5);
       }
 
-      // --- РЕЗЕРВЫ: помесячный дрейф + уязвимость при низком уровне ---
+      // --- РЕЗЕРВЫ: помесячный дрейф + излишек нефтедоходов + уязвимость при низком уровне ---
       // Профицит торгового баланса (дорогая нефть + выгодный курс) понемногу пополняет ЗВР,
       // дефицит — расходует. Высокая изоляция размывает резервы (заморозка активов за рубежом,
       // ограничения на расчёты). Резервы ниже 20 означают, что ЦБ нечем защищать рубль —
       // это усиливает инфляцию (см. также демпфер валютных шоков выше).
+      // Излишек нефтегазовых доходов сверх порога 15/мес не сгорает бесследно, а частично уходит
+      // в резервы — как бюджетное правило Минфина РФ (доходы выше цены отсечения — в ФНБ).
       const tradeBalance = oilIncome + fxIncome;
-      let reservesDelta = tradeBalance > 5 ? 1 : tradeBalance < -5 ? -1 : 0;
+      const tradeSurplus = Math.max(0, tradeBalance - 15);
+      let reservesDelta = (tradeBalance > 5 ? 1 : tradeBalance < -5 ? -1 : 0) + Math.round(tradeSurplus * 0.3);
       if (isolationVal > 75) reservesDelta -= 1;
       newStats.reserves = Math.max(0, Math.min(100, (newStats.reserves ?? 48) + reservesDelta));
       if (newStats.reserves < 20) {
-        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.5);
       }
 
       // --- КАЗНА: месячный доход и расход ---
       const { TREASURY_MIN } = require("../rules/rules-engine");
-      const { OFZ_MONTHLY_COST } = require("./treasury");
+      const { ofzTotalMonthlyCost } = require("./treasury");
       const activePolicies = (game.policies || []).filter(p => p.status !== "cancelled");
-      const taxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
+      const rawTaxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
       const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
-      // ОФЗ: обслуживание долга (вычитается из казны каждый месяц)
+      // ОФЗ: обслуживание долга (вычитается из казны каждый месяц). Стоимость 1 выпуска
+      // компаундится вместе с ключевой ставкой ЦБ — см. treasury.js/ofzMonthlyCostPerBond.
       const ofzCount = newStats.ofz_count ?? 0;
-      const ofzDebtService = ofzCount * OFZ_MONTHLY_COST;
+      const ofzDebtService = ofzTotalMonthlyCost(ofzCount, newStats.key_rate);
       // Налоговый доход: при экономике > 50 — растёт, ниже 50 — падает, ниже 35 — минимум
       const eco = newStats.economy ?? 50;
-      const economyIncome = eco >= 50
+      const rawEconomyIncome = eco >= 50
         ? Math.round(20 + (eco - 50) * 0.6)  // 50→20, 60→26, 80→38, 100→50
         : eco >= 35
           ? Math.round(eco * 0.4)              // 35→14, 49→19 — почти стагнация
           : Math.round(Math.max(5, eco * 0.2)); // ниже 35 — минимальные поступления
+      // БЕЗРАБОТИЦА → НАЛОГОВАЯ БАЗА: занятость (employment) двигает множитель дохода вокруг
+      // стартового уровня 74 (сид партии) — так игра не штрафует экономику с 1-го хода из-за
+      // абсолютного значения подстаты, только за реальное отклонение от базы.
+      const employmentNow = newStats.employment ?? 74;
+      const employmentFactor = Math.max(0.6, Math.min(1.3, 1 + (employmentNow - 74) * 0.004));
+      const economyIncome = Math.round(rawEconomyIncome * employmentFactor);
+      const taxIncome = Math.round(rawTaxIncome * employmentFactor);
       // Коррупционная утечка: часть бюджета разворовывается каждый месяц, пропорционально уровню коррупции.
       // 0-50 коррупции — утечки нет; 50-100 — растёт нелинейно (схемы крупнее при высокой коррупции).
+      // Подстата живёт в группе «Одобрение» (коррупция — про элиты), но эффект чисто экономический.
       const corrLevel = newStats.corruption ?? 55;
       const corruptionDrain = corrLevel > 50 ? Math.round(Math.pow((corrLevel - 50) / 50, 1.3) * 12) : 0;
       const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome - corruptionDrain;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
-      // ОФЗ инфляционное давление: +1 инфляции за каждый активный выпуск в месяц
+      // ОФЗ инфляционное давление: +0.3 инфляции за каждый активный выпуск в месяц (было +1 —
+      // слишком резко для фонового, а не разового эффекта)
       if (ofzCount > 0) {
-        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + ofzCount);
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + ofzCount * 0.3);
+      }
+      // РОСТ ВВП → ЭКОНОМИКА: gdp_growth — подстата, которая раньше двигалась от действий, но
+      // никак не влияла на саму economy. Теперь отклонение от стартового уровня (36 на сиде)
+      // понемногу компаундится в economy — устойчивый рост ВВП постепенно поднимает всю
+      // экономику, устойчивый спад — подтачивает её, а не просто существует "для галочки".
+      const gdpGrowthNow = newStats.gdp_growth ?? 36;
+      const gdpEconomyEffect = Math.round((gdpGrowthNow - 36) / 25);
+      if (gdpEconomyEffect) {
+        newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + gdpEconomyEffect));
+      }
+      // НАРОДНОЕ НАСТРОЕНИЕ → ОДОБРЕНИЕ: middle_class и lower_class_mood были декоративными
+      // подстатами (двигались от действий, ни на что не влияли) — та же ситуация, что была
+      // с gdp_growth. Теперь отклонение от стартового уровня (сид: 44 и 41) понемногу
+      // компаундится в approval, каждая половина отдельно и мягче, чем ВВП→экономика,
+      // потому что тут два источника бьют по одной и той же стате.
+      const middleClassNow = newStats.middle_class ?? 44;
+      const lowerClassNow = newStats.lower_class_mood ?? 41;
+      const moodApprovalEffect = Math.round((middleClassNow - 44) / 30) + Math.round((lowerClassNow - 41) / 30);
+      if (moodApprovalEffect) {
+        newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + moodApprovalEffect));
       }
       // Сбрасываем флаг выпуска ОФЗ за месяц
       delete newStats.ofz_used_this_month;
@@ -1615,6 +1602,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       delete newStats.cb_pressure_used;
       // Сбрасываем флаг антикоррупционной кампании
       delete newStats.anticorruption_used;
+      // Сбрасываем флаг конвертации резервов
+      delete newStats.reserves_converted_this_month;
 
       // --- КЛЮЧЕВАЯ СТАВКА ЦБ (автономная логика) ---
       // ЦБ медленно тянет ставку к целевому значению, зависящему от инфляции.
@@ -1644,6 +1633,107 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         if (cbHead === "soft" && newStats.key_rate > 10) {
           newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
         }
+      }
+
+      // --- ВОЕННОЕ БРЕМЯ (раз в месяц, не на каждый confirm) ---
+      // Объединяет два смежных по смыслу механизма: цена армии (по размеру, military > 80)
+      // и усталость общества от затянувшейся войны (по длительности непрерывных военных
+      // ходов, military_streak). Оба — про одну и ту же вещь: война стоит денег и поддержки,
+      // раньше это были два несвязанных блока с раздельными новостями.
+      {
+        const milNow = newStats.military ?? 50;
+        const warStreak = newStats.military_streak ?? 0;
+        let burdenEconomy = 0, burdenApproval = 0, burdenStability = 0;
+        const burdenParts = [];
+
+        if (milNow > 80) {
+          const sizeTax = Math.floor((milNow - 80) / 10) + 1; // 1-3 pts
+          burdenEconomy += sizeTax;
+          burdenApproval += 1;
+          burdenParts.push(`содержание армии (${milNow} > 80): экономика −${sizeTax}, рейтинг −1`);
+        }
+        if (warStreak >= 4) {
+          const wearinessHit = Math.min(5, Math.floor((warStreak - 3) * 1.5)); // 1-5 pts
+          burdenApproval += wearinessHit;
+          burdenStability += Math.ceil(wearinessHit / 2);
+          burdenParts.push(`${warStreak}-й месяц непрерывной войны: рейтинг −${wearinessHit}, стабильность −${Math.ceil(wearinessHit / 2)}`);
+        }
+
+        if (burdenEconomy || burdenApproval || burdenStability) {
+          if (burdenEconomy) newStats.economy = Math.max(0, (newStats.economy ?? 50) - burdenEconomy);
+          if (burdenApproval) newStats.approval = Math.max(0, (newStats.approval ?? 50) - burdenApproval);
+          if (burdenStability) newStats.stability = Math.max(0, (newStats.stability ?? 50) - burdenStability);
+          await client.query(
+            `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+            [gameId, completedMonth, "ВЦИОМ", `Военное бремя. ${burdenParts.join("; ")}.`]
+          );
+          fastify.log.info({ gameId, burdenEconomy, burdenApproval, burdenStability }, "War burden fired (end-month)");
+        }
+      }
+
+      // --- ВНУТРЕННИЕ КРИЗИСЫ (раз в месяц, не на каждый confirm) ---
+      if (Math.random() < 0.07) {
+        const DOMESTIC_CRISES = [
+          { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
+            text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
+          { source: "Новая газета", stabilityDelta: -5, approvalDelta: -5,
+            text: "В 15 регионах прошли антивоенные акции. Задержаны более 3000 человек. Социологи фиксируют рекордный рост недовольства среди молодёжи и женщин — тех, кто теряет мужей и сыновей." },
+          { source: "РИА Новости", economyDelta: -7, stabilityDelta: -3,
+            text: "Крупный банковский кризис: четыре региональных банка обратились за экстренной ликвидностью. ЦБ объявил о введении временной администрации. Вкладчики выстроились в очереди." },
+          { source: "Интерфакс", approvalDelta: -5, stabilityDelta: -4,
+            text: "Антикоррупционный скандал: в Telegram-каналах опубликованы данные о роскошной жизни окружения президента. Яхты, виллы, тайные счета. Рейтинг падает на фоне военных расходов." },
+          { source: "ТАСС", economyDelta: -5, approvalDelta: -4,
+            text: "Дефицит базовых товаров в ряде регионов: сахар, масло, лекарства исчезли с полок. Губернаторы просят федеральный центр о помощи. Граждане начали делать запасы." },
+          { source: "Фонтанка", stabilityDelta: -6, approvalDelta: -3,
+            text: "Семьи погибших военнослужащих провели демонстрацию у здания Министерства обороны. Требования о выплате компенсаций и возврате тел не выполняются уже полгода. Силовики разгоняют акцию." },
+          { source: "Медиазона", stabilityDelta: -5, economyDelta: -3,
+            text: "Бунт в нескольких исправительных колониях: заключённые отказываются подписывать контракты для отправки на фронт. Информация подтверждается перехватами ФСБ." },
+          { source: "The Bell", economyDelta: -6, approvalDelta: -4,
+            text: "Инфляция вышла из-под контроля — официально 24%, реально, по независимым оценкам, все 40%. Пенсии и зарплаты бюджетников обесценились. Недовольство растёт в базовом электорате." },
+        ];
+        const crisis = DOMESTIC_CRISES[Math.floor(Math.random() * DOMESTIC_CRISES.length)];
+        if (crisis.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + crisis.approvalDelta));
+        if (crisis.economyDelta) newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
+        if (crisis.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + crisis.stabilityDelta));
+        applyOilFxTextImpact(crisis.text, newStats);
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, completedMonth, "news", crisis.source, crisis.text, JSON.stringify([
+            { emoji: "😰", label: "тревога", count: Math.floor(Math.random() * 80) + 30 },
+          ])]
+        );
+        fastify.log.info({ gameId, source: crisis.source }, "Domestic crisis fired (end-month)");
+      }
+
+      // --- МЯТЕЖ ЭЛИТ (раз в месяц, не на каждый confirm) ---
+      // Пригожинский сценарий: если elite_satisfaction проседает надолго, часть силового
+      // блока/ЧВК может выступить против центра. Это НЕ поражение само по себе — тревожный
+      // звоночек с реальным ударом по статам. Подавление не гарантированно быстрое: второй
+      // бросок решает, обошлось малой кровью или переросло в тяжёлый внутренний кризис.
+      const eliteSatNow = newStats.elite_satisfaction ?? 62;
+      if (eliteSatNow < 35 && Math.random() < 0.15) {
+        const escalates = Math.random() < 0.55; // не так просто подавить — почти монетка не в пользу игрока
+        if (escalates) {
+          newStats.stability = Math.max(0, (newStats.stability ?? 50) - 9);
+          newStats.approval = Math.max(0, (newStats.approval ?? 50) - 4);
+          newStats.military = Math.max(0, (newStats.military ?? 50) - 3);
+          newStats.army_morale = Math.max(0, (newStats.army_morale ?? 62) - 5);
+        } else {
+          newStats.stability = Math.max(0, (newStats.stability ?? 50) - 4);
+          newStats.army_morale = Math.max(0, (newStats.army_morale ?? 62) - 2);
+        }
+        // Мятежная фракция устранена/куплена — оставшиеся элиты консолидируются вокруг центра
+        newStats.elite_satisfaction = Math.min(100, Math.max(0, eliteSatNow - (escalates ? 12 : 8) + 8));
+        const mutinyText = escalates
+          ? "Марш на столицу: колонна силовых формирований, недовольных курсом Кремля, двинулась к центру. Несколько часов страна была на грани — переговоры и переброска верных частей остановили колонну в последний момент. Часть военного руководства отправлена в отставку, но осадок в армии и обществе останется надолго."
+          : "Попытка мятежа в одном из силовых формирований подавлена в течение суток — командиры не поддержали выступление, зачинщики задержаны. Инцидент замяли, но слухи о расколе элит уже разошлись по Telegram-каналам.";
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, completedMonth, "news", "Медуза", mutinyText, JSON.stringify([
+            { emoji: "😱", label: "шок", count: Math.floor(Math.random() * 150) + 80 },
+          ])]
+        );
+        fastify.log.info({ gameId, escalates }, "Elite mutiny fired (end-month)");
       }
 
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.
@@ -1677,21 +1767,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Казна ограничена 100 сверху: профицит выше 100 не накапливается
       newStats.treasury = Math.min(100, treasuryAfter);
 
-      // --- УСТАЛОСТЬ ОТ ВОЙНЫ (помесячная) ---
-      // Если игрок провёл 4+ военных хода подряд — общество устаёт.
-      // Штраф: approval −2, stability −1 раз в месяц при стрике ≥ 4.
-      const warStreak = newStats.military_streak ?? 0;
-      if (warStreak >= 4) {
-        const wearinessHit = Math.min(5, Math.floor((warStreak - 3) * 1.5)); // 1-5 pts
-        newStats.approval = Math.max(0, (newStats.approval ?? 50) - wearinessHit);
-        newStats.stability = Math.max(0, (newStats.stability ?? 50) - Math.ceil(wearinessHit / 2));
-        await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
-          [gameId, completedMonth,
-           "ВЦИОМ",
-           `Усталость от войны. ${warStreak}-й месяц непрерывных боевых действий — общество устало. Рейтинг президента упал на ${wearinessHit} пункт${wearinessHit > 1 ? "а" : ""}. Требования прекратить огонь звучат всё громче.`]
-        );
-      }
+      // Усталость от войны объединена с военным налогом — см. блок «ВОЕННОЕ БРЕМЯ» выше.
 
       // --- ИСТЕЧЕНИЕ СРОКА ПОЛИТИК ---
       // Политики с target_turn <= completedMonth удаляются (реформа отработала срок).

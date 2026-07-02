@@ -57,6 +57,10 @@ async function buildServer() {
 
   // Миграции
   await db.query(`ALTER TABLE turns ADD COLUMN IF NOT EXISTS action_mode TEXT NOT NULL DEFAULT 'decree'`);
+  // stats_snapshot отсутствовал в исходном schema.sql (был добавлен на проде вручную,
+  // без миграции) — turns.js уже полагается на него (INSERT + stat-history SELECT).
+  // Найдено при локальном end-to-end тестировании новых категорий действий.
+  await db.query(`ALTER TABLE turns ADD COLUMN IF NOT EXISTS stats_snapshot JSONB`);
   await db.query(`ALTER TABLE game_state ADD COLUMN IF NOT EXISTS initiative INT NOT NULL DEFAULT 100`);
   await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT`);
   await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`);
