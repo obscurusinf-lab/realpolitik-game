@@ -1,0 +1,14 @@
+{
+  "name": "telegram-bridge",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Telegram-мост для удалённого общения с домашним Клодом",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
