@@ -3954,6 +3954,29 @@ function EndMonthForecastPanel({ stats }) {
   // Build list of all mechanisms, active or not
   const mechanisms = [];
 
+  // 0.5. Оборонзаказ (ВПК): умеренная армия (50-80) стимулирует экономику через военные
+  // заказы — реальный эффект военной экономики. Выше 80 это уже не стимул, а бремя (см. ниже).
+  {
+    const defenseBoost = (mil >= 50 && mil <= 80) ? Math.floor((mil - 50) / 15) : 0;
+    if (defenseBoost > 0) {
+      mechanisms.push({
+        active: true, severity: "good",
+        name: "Оборонзаказ (ВПК)",
+        trigger: `Армия ${mil} в диапазоне 50-80 — военные заказы стимулируют промышленность`,
+        impacts: [{ label: "Экономика", delta: defenseBoost }],
+        fix: "Выше 80 баллов армии стимул сменяется бременем (содержание становится дороже, чем отдача от заказов).",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Оборонзаказ (ВПК)",
+        trigger: mil > 80 ? `Армия ${mil} > 80 — уже не стимул, а бремя` : `Армия ${mil} < 50 — недостаточно для оборонзаказа`,
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
   // 1. Военное бремя: размер армии (military > 80) + усталость от затянувшейся войны (streak >= 4).
   // Объединены в один механизм — оба про одно и то же: война стоит денег и поддержки.
   {
@@ -4116,20 +4139,28 @@ function EndMonthForecastPanel({ stats }) {
     }
   }
 
-  // 7. Рост ВВП → экономика (компаундинг относительно старта партии)
+  // 7. Рост ВВП → экономика (компаундинг относительно старта партии) + перегрев → инфляция
   {
     const gdp = stats.gdp_growth ?? 36;
     const gdpEffect = Math.round((gdp - 36) / 25);
+    const gdpOverheat = gdp > 60 ? Math.round((gdp - 60) / 20) : 0;
     const gdpPct = gdpGrowthPercent(gdp);
     const gdpPctStr = `${gdpPct >= 0 ? "+" : ""}${gdpPct.toFixed(1)}%`;
-    if (gdpEffect !== 0) {
+    if (gdpEffect !== 0 || gdpOverheat !== 0) {
+      const impacts = [];
+      if (gdpEffect) impacts.push({ label: "Экономика", delta: gdpEffect });
+      if (gdpOverheat) impacts.push({ label: "Инфляция (перегрев)", delta: gdpOverheat });
       mechanisms.push({
-        active: true, severity: gdpEffect > 0 ? "good" : "bad",
+        active: true, severity: gdpOverheat > 0 ? "bad" : gdpEffect > 0 ? "good" : "bad",
         name: "Рост ВВП",
-        trigger: `Рост ВВП ${gdpPctStr} г/г (старт партии: +1%) — отклонение компаундится в экономику`,
-        impacts: [{ label: "Экономика", delta: gdpEffect }],
+        trigger: gdpOverheat > 0
+          ? `Рост ВВП ${gdpPctStr} г/г — перегрев экономики выше потенциала разгоняет инфляцию`
+          : `Рост ВВП ${gdpPctStr} г/г (старт партии: +1%) — отклонение компаундится в экономику`,
+        impacts,
         fix: gdpEffect < 0
           ? "Устойчивый спад ВВП подтачивает экономику каждый месяц. Реформы и стимулирующие указы поднимают gdp_growth."
+          : gdpOverheat > 0
+          ? "Рост ВВП выше 60 баллов даёт всё те же плюсы к экономике, но дополнительно разгоняет инфляцию — как перегрев спроса без роста предложения в реальности."
           : "Устойчивый рост ВВП постепенно усиливает экономику — держите курс.",
       });
     } else {
@@ -4249,14 +4280,19 @@ function EndMonthForecastPanel({ stats }) {
     }
   }
 
-  // 11. Domestic crisis (always probabilistic)
-  mechanisms.push({
-    active: "random", severity: "random",
-    name: "Внутренний кризис",
-    trigger: "7% шанс каждый месяц — случайное событие",
-    impacts: [{ label: "≈ −4…−7 к одной из стат", delta: null }],
-    fix: "Нельзя устранить. Высокая Стабильность и Одобрение создают «подушку» перед ударом.",
-  });
+  // 11. Domestic crisis (always probabilistic) — стабильность реально гасит удар (до 50% при 100)
+  {
+    const crisisMitigationPct = stab > 60 ? Math.round(Math.min(0.5, (stab - 60) / 80) * 100) : 0;
+    mechanisms.push({
+      active: "random", severity: "random",
+      name: "Внутренний кризис",
+      trigger: crisisMitigationPct > 0
+        ? `7% шанс каждый месяц — но стабильность ${stab} гасит удар на ${crisisMitigationPct}%`
+        : "7% шанс каждый месяц — случайное событие",
+      impacts: [{ label: crisisMitigationPct > 0 ? `≈ −4…−7 к одной из стат (смягчено на ${crisisMitigationPct}%)` : "≈ −4…−7 к одной из стат", delta: null }],
+      fix: "Нельзя устранить полностью. Стабильность выше 60 гасит удар (до 50% при стабильности 100) — крепкий тыл реально снижает потери, а не просто ограничивает их сверху.",
+    });
+  }
 
   const activeCount = mechanisms.filter(m => m.active === true).length;
   const totalDrain = mechanisms
@@ -4369,6 +4405,12 @@ function getPassiveEffects(key, stats) {
 
   if (key === "economy") {
     let hadNegative = false;
+    if (mil >= 50 && mil <= 80) {
+      const defenseBoost = Math.floor((mil - 50) / 15);
+      if (defenseBoost > 0) {
+        effects.push({ sign: +1, value: defenseBoost, text: `Оборонзаказ (ВПК): армия ${mil} в диапазоне 50-80` });
+      }
+    }
     if (mil > 80) {
       const tax = Math.floor((mil - 80) / 10) + 1;
       effects.push({ sign: -1, value: tax, text: `Военное бремя: содержание армии (${mil} > 80)` });
@@ -6105,7 +6147,14 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const corrLevelT = stats.corruption ?? 55;
   const corruptionDrainT = corrLevelT > 50 ? Math.round(Math.pow((corrLevelT - 50) / 50, 1.3) * 12) : 0;
   const anticorruptionUsed = !!stats.anticorruption_used;
-  const projectedNet = economyIncome + taxIncome - programUpkeep - ofzDebt + oilIncomeT + fxIncomeT - corruptionDrainT;
+  // Содержание отвоёванных территорий: та же формула, что в backend end-month — считается
+  // только сверх стартового контроля (сид партии), не с самого захваченного трофея.
+  const TERRITORY_BASELINE_T = { donetsk_control: 78, luhansk_control: 96, zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12 };
+  const territoryGainPtsT = Object.entries(TERRITORY_BASELINE_T).reduce(
+    (s, [k, base]) => s + Math.max(0, (stats[k] ?? base) - base), 0
+  );
+  const territoryUpkeepT = Math.round(territoryGainPtsT / 15);
+  const projectedNet = economyIncome + taxIncome - programUpkeep - ofzDebt + oilIncomeT + fxIncomeT - corruptionDrainT - territoryUpkeepT;
   const projectedTreasury = Math.max(-100, Math.min(100, treasury + projectedNet));
 
   const T = TREASURY_PER_TRILLION;
@@ -6286,6 +6335,12 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
               <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Коррупционные потери (уровень {Math.round(corrLevelT)})</span>
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{corruptionDrainT}</span>
+            </div>
+          )}
+          {territoryUpkeepT > 0 && (
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Содержание отвоёванных территорий</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{territoryUpkeepT}</span>
             </div>
           )}
           <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -7063,9 +7118,12 @@ function WikiTab({ dark = false }) {
       <div style={S.p}><span style={S.b}>Нефть Brent</span> — бюджет свёрстан по цене отсечения $65/барр. (как и в реальном бюджетном правиле РФ): при любой цене выше $65 казна получает реальный доход, просто меньше при более низкой цене. Старт партии — $85 (военная надбавка на фоне ирано-американской эскалации): цена растёт первые 5-6 ходов, затем происходит временная сделка США-Иран — иранская нефть возвращается на рынок, и цена резко падает к довоенному уровню ~$68. Геополитика и ОПЕК+ двигают цену и после этого. Текущая цена и курс доллара/евро всегда видны сверху — не только в Казне, но и на вкладке Новости.</div>
       <div style={S.p}><span style={S.b}>Курс USD/RUB</span> — слабый рубль (выше ₽80) увеличивает рублёвые доходы от экспорта, но разгоняет инфляцию через импорт.</div>
       <div style={S.p}><span style={S.b}>Инфляция</span> — когда индекс выше 73, каждый месяц давит на экономику. Снижается от ключевой ставки и стабилизации курса. Растёт от дефицита, военных трат, слабого рубля. Рынок труда тоже слегка влияет: перегретая занятость (выше стартовых 95%) немного разгоняет инфляцию через рост зарплат, а высокая безработица — наоборот, охлаждает её (эффект намеренно мягкий).</div>
-      <div style={S.p}><span style={S.b}>Рост ВВП и занятость</span> — оба показателя переведены в реальные единицы вместо абстрактных баллов: рост ВВП — в % год к году (старт партии ≈1%), занятость — в % рабочей силы (старт ≈95%, с запасом для роста). Экономика в целом также отображается в номинальном ВВП (₽ трлн / $ трлн), пересчитанном по текущему курсу — всё это видно на вкладке Казна с разбивкой, что именно двигает показатель в последний месяц.</div>
+      <div style={S.p}><span style={S.b}>Рост ВВП и занятость</span> — оба показателя переведены в реальные единицы вместо абстрактных баллов: рост ВВП — в % год к году (старт партии ≈1%), занятость — в % рабочей силы (старт ≈95%, с запасом для роста). Экономика в целом также отображается в номинальном ВВП (₽ трлн / $ трлн), пересчитанном по текущему курсу — всё это видно на вкладке Казна с разбивкой, что именно двигает показатель в последний месяц. Рост ВВП не откатывается назад, в отличие от нефти или курса — устойчивое вложение в экономику копится навсегда. Но выше 60 баллов рост входит в «перегрев»: экономика физически не может производить больше своего потенциала, и дальнейший рост просто разгоняет инфляцию вместо новых товаров — это не блокирует рост, но даёт ему реальную цену.</div>
       <div style={S.p}><span style={S.b}>Потолок месячной эрозии экономики</span> — все автоматические потери за один месяц (высокая ключевая ставка, военное бремя, инфляционный шок, дефицит казны, случайные кризисы) суммарно ограничены −6 пунктов. Резкий обвал экономики за один ход больше не случится: если суммарные потери превышают потолок, разница возвращается экономике. В конце месяца новость от «Минэкономразвития» показывает точную разбивку: что именно и сколько списало экономику.</div>
       <div style={S.p}><span style={S.b}>Организационный рост</span> — если экономика, стабильность, дипломатия и рейтинг одновременно выше 55, и в этом месяце не сработал ни один автоматический минус на экономику (ставка ЦБ, военное бремя, инфляция, дефицит казны) — экономика получает +1 пункт сама по себе, +2, если все четыре показателя выше 70. Устойчивое здоровое правление должно давать отдачу, а не просто «не терять очки».</div>
+      <div style={S.p}><span style={S.b}>Оборонзаказ (ВПК)</span> — армия не только стоит денег. В диапазоне 50-80 баллов военные заказы стимулируют промышленность и дают небольшой плюс к экономике — реальный эффект военной экономики. Выше 80 баллов содержание такой армии перевешивает отдачу от заказов, и стимул сменяется бременем.</div>
+      <div style={S.p}><span style={S.b}>Внутренние кризисы и стабильность</span> — случайное внутреннее потрясение (7% шанс в месяц) бьёт по одной-двум статам, но крепкий тыл реально смягчает удар: стабильность выше 60 гасит до половины последствий при стабильности 100. Если смягчение оказалось заметным, об этом отдельно сообщают в ленте — устойчивое общество не просто «держит удар», оно снижает сам удар.</div>
+      <div style={S.p}><span style={S.b}>Содержание отвоёванных территорий</span> — взятая территория не бесплатный трофей: администрирование и восстановление регионов, отвоёванных сверх стартовой линии контроля, каждый месяц немного тянет казну вниз. Регионы, которые были под контролем изначально (сид партии), ничего не стоят — платится только за реальную военную экспансию.</div>
       <div style={S.p}><span style={S.b}>Советник Силин</span> всегда называет конкретные цифры и объясняет, какие инструменты доступны прямо сейчас.</div>
 
       <div style={S.h}>ПРОЗРАЧНОСТЬ ПОКАЗАТЕЛЕЙ</div>

@@ -1631,7 +1631,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Подстата живёт в группе «Одобрение» (коррупция — про элиты), но эффект чисто экономический.
       const corrLevel = newStats.corruption ?? 55;
       const corruptionDrain = corrLevel > 50 ? Math.round(Math.pow((corrLevel - 50) / 50, 1.3) * 12) : 0;
-      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome - corruptionDrain;
+      // СОДЕРЖАНИЕ ОТВОЁВАННЫХ ТЕРРИТОРИЙ: администрирование и восстановление занятых регионов
+      // стоит денег каждый месяц — не бесплатный трофей. Считается только сверх стартового
+      // контроля (сид партии): то, что было под контролем изначально, ничего не стоит — платится
+      // только за реальную экспансию силой.
+      const TERRITORY_BASELINE = { donetsk_control: 78, luhansk_control: 96, zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12 };
+      const territoryGainPts = Object.entries(TERRITORY_BASELINE).reduce(
+        (s, [k, base]) => s + Math.max(0, (newStats[k] ?? base) - base), 0
+      );
+      const territoryUpkeep = Math.round(territoryGainPts / 15);
+      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome - corruptionDrain - territoryUpkeep;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
       // ОФЗ инфляционное давление: +0.3 инфляции за каждый активный выпуск в месяц (было +1 —
@@ -1648,6 +1657,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       if (gdpEconomyEffect) {
         newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + gdpEconomyEffect));
         economyAutoEffects.push({ label: "Рост ВВП", delta: gdpEconomyEffect });
+      }
+      // ПЕРЕГРЕВ ВВП → ИНФЛЯЦИЯ: gdp_growth не откатывается назад (в отличие от нефти/курса) —
+      // устойчивый экономический рост реален и должен накапливаться. Но рост выше потенциального
+      // объёма производства в реальности не даёт больше товаров — он просто разгоняет спрос без
+      // роста предложения (перегрев). Тот же принцип, что и у кривой Филлипса для занятости:
+      // выше 60 баллов gdp_growth каждый месяц добавляет немного инфляционного давления —
+      // компаундинг в экономику остаётся бесплатным до этого уровня, выше — уже не бесплатен.
+      const gdpOverheatEffect = gdpGrowthNow > 60 ? Math.round((gdpGrowthNow - 60) / 20) : 0;
+      if (gdpOverheatEffect) {
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + gdpOverheatEffect);
       }
       // НАРОДНОЕ НАСТРОЕНИЕ → ОДОБРЕНИЕ: middle_class и lower_class_mood были декоративными
       // подстатами (двигались от действий, ни на что не влияли) — та же ситуация, что была
@@ -1698,6 +1717,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         // Мягкий глава дополнительно давит ставку вниз: инфляционный риск
         if (cbHead === "soft" && newStats.key_rate > 10) {
           newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
+        }
+      }
+
+      // --- ОБОРОНЗАКАЗ (ВПК) ---
+      // Раньше армия только СТОИЛА экономике (бремя выше 80) — реального "пушки кормят завод"
+      // канала не было, хотя военные расходы на практике двигают промышленность. Умеренная
+      // армия (50-80) даёт небольшой плюс к экономике через оборонный заказ; выше 80 — это уже
+      // не стимул, а бремя (см. блок ниже) — ровно тот же принцип "гвозди vs масло".
+      {
+        const milForDefense = newStats.military ?? 50;
+        if (milForDefense >= 50 && milForDefense <= 80) {
+          const defenseBoost = Math.floor((milForDefense - 50) / 15); // 50→0, 65→1, 80→2
+          if (defenseBoost > 0) {
+            newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + defenseBoost));
+            economyAutoEffects.push({ label: "Оборонзаказ (ВПК)", delta: defenseBoost });
+          }
         }
       }
 
@@ -1761,12 +1796,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             text: "Инфляция вышла из-под контроля — официально 24%, реально, по независимым оценкам, все 40%. Пенсии и зарплаты бюджетников обесценились. Недовольство растёт в базовом электорате." },
         ];
         const crisis = DOMESTIC_CRISES[Math.floor(Math.random() * DOMESTIC_CRISES.length)];
-        if (crisis.approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + crisis.approvalDelta));
-        if (crisis.economyDelta) {
-          newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + crisis.economyDelta));
-          economyAutoEffects.push({ label: `Кризис (${crisis.source})`, delta: crisis.economyDelta });
+        // СМЯГЧЕНИЕ СТАБИЛЬНОСТЬЮ: устойчивое общество лучше переносит шоки — при стабильности
+        // выше 60 часть удара гасится (до 50% при стабильности 100), тот же принцип, что и
+        // доверие союзников для санкций. Раньше кризис бил одинаково независимо от того, как
+        // играл президент — хотя fix-текст в интерфейсе уже обещал этот "амортизатор".
+        const stabForMitigation = newStats.stability ?? 50;
+        const crisisMitigation = stabForMitigation > 60 ? Math.min(0.5, (stabForMitigation - 60) / 80) : 0;
+        const mitigate = (d) => (d == null ? d : Math.round(d * (1 - crisisMitigation)));
+        const approvalDelta = mitigate(crisis.approvalDelta);
+        const economyDelta = mitigate(crisis.economyDelta);
+        const stabilityDelta = mitigate(crisis.stabilityDelta);
+        if (approvalDelta) newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + approvalDelta));
+        if (economyDelta) {
+          newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + economyDelta));
+          economyAutoEffects.push({ label: `Кризис (${crisis.source})`, delta: economyDelta });
         }
-        if (crisis.stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + crisis.stabilityDelta));
+        if (stabilityDelta) newStats.stability = Math.max(0, Math.min(100, (newStats.stability ?? 50) + stabilityDelta));
         applyOilFxTextImpact(crisis.text, newStats);
         await client.query(
           `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -1774,7 +1819,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             { emoji: "😰", label: "тревога", count: Math.floor(Math.random() * 80) + 30 },
           ])]
         );
-        fastify.log.info({ gameId, source: crisis.source }, "Domestic crisis fired (end-month)");
+        if (crisisMitigation >= 0.2) {
+          await client.query(
+            `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+            [gameId, completedMonth, "news", "ВЦИОМ",
+             `Высокая устойчивость общества (стабильность ${Math.round(stabForMitigation)}) смягчила последствия кризиса — потери оказались заметно меньше, чем могли бы быть. Крепкий тыл окупается.`,
+             JSON.stringify([{ emoji: "💪", label: "устойчивость", count: Math.floor(Math.random() * 90) + 40 }])]
+          );
+        }
+        fastify.log.info({ gameId, source: crisis.source, crisisMitigation }, "Domestic crisis fired (end-month)");
       }
 
       // --- МЯТЕЖ ЭЛИТ (раз в месяц, не на каждый confirm) ---
@@ -1959,6 +2012,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         ? `, нефть/валюта ${oilIncome + fxIncome >= 0 ? "+" : ""}${oilIncome + fxIncome} (нефть $${newStats.oil_price}/барр., курс ₽${newStats.usd_rub}/$)`
         : "";
       const corruptionLine = corruptionDrain > 0 ? `, коррупционные потери −${corruptionDrain}` : "";
+      const territoryUpkeepLine = territoryUpkeep > 0 ? `, содержание отвоёванных территорий −${territoryUpkeep}` : "";
       const inflationLine = inflationEconomyPenalty > 0
         ? ` Инфляционный шок (${inflationPercent(inflationNow).toFixed(1)}% г/г): экономика −${inflationEconomyPenalty}, одобрение −${inflationApprovalPenalty}.`
         : "";
@@ -1968,7 +2022,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, completedMonth, "Минфин",
-         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}${oilFxLine}${corruptionLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
+         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}${oilFxLine}${corruptionLine}${territoryUpkeepLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
          (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
           economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
           economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "") +
