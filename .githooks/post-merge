@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Автоматическая проверка прод↔main после каждого мержа (git merge, git pull).
+# См. .githooks/check-prod.sh и HANDOFF.md → «Деплой-дисциплина».
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$DIR/check-prod.sh"

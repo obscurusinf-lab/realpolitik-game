@@ -3,16 +3,42 @@ import { spawn } from "child_process";
 import { config } from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { existsSync, readdirSync } from "fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__dirname, ".env") });
 
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const ALLOWED_CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID);
-const REPO_PATH = process.env.REPO_PATH || process.env.HOME + "/realpolitik-game";
+const isWindows = process.platform === "win32";
+const HOME = process.env.HOME || process.env.USERPROFILE;
 
-if (!TOKEN || !ALLOWED_CHAT_ID) {
-  console.error("TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID обязательны в .env");
+const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+// chat_id опционален: без него бот стартует в режиме обнаружения — отвечает
+// только на /chatid, чтобы можно было узнать свой id и вписать в .env.
+const ALLOWED_CHAT_ID = process.env.TELEGRAM_CHAT_ID ? Number(process.env.TELEGRAM_CHAT_ID) : null;
+const REPO_PATH = process.env.REPO_PATH || join(HOME, "Documents", "geopolitics-game", "geopolitics-game");
+
+// Путь к claude CLI. На Windows он не в PATH — задаётся через CLAUDE_BIN в .env
+// или ищется в стандартном месте установки десктоп-приложения.
+function resolveClaudeBin() {
+  if (process.env.CLAUDE_BIN && existsSync(process.env.CLAUDE_BIN)) return process.env.CLAUDE_BIN;
+  if (isWindows) {
+    const base = join(process.env.APPDATA || join(HOME, "AppData", "Roaming"), "Claude", "claude-code");
+    // Перебираем установленные версии, берём самую свежую.
+    try {
+      const versions = readdirSync(base).sort().reverse();
+      for (const v of versions) {
+        const p = join(base, v, "claude.exe");
+        if (existsSync(p)) return p;
+      }
+    } catch {}
+  }
+  return "claude"; // рассчитываем, что в PATH (Unix)
+}
+
+const CLAUDE_BIN = resolveClaudeBin();
+
+if (!TOKEN) {
+  console.error("TELEGRAM_BOT_TOKEN обязателен в .env");
   process.exit(1);
 }
 
@@ -22,6 +48,7 @@ let isRunning = false;
 let currentProcess = null;
 
 function isAllowed(msg) {
+  if (ALLOWED_CHAT_ID === null) return false; // режим обнаружения — команды заблокированы
   return msg.chat.id === ALLOWED_CHAT_ID;
 }
 
@@ -54,9 +81,15 @@ async function runClaude(chatId, message) {
     "-p", message,
   ];
 
-  currentProcess = spawn("claude", args, {
+  // CLAUDE_BIN — прямой путь к claude.exe, поэтому shell не нужен: аргументы
+  // (включая произвольный текст сообщения) передаются массивом и не подвержены
+  // shell-инъекции/поломке на спецсимволах. shell:true использовался бы только
+  // если бы CLAUDE_BIN был .cmd-обёрткой без полного пути.
+  const needsShell = isWindows && /\.(cmd|bat)$/i.test(CLAUDE_BIN);
+  currentProcess = spawn(CLAUDE_BIN, args, {
     cwd: REPO_PATH,
-    env: { ...process.env, HOME: process.env.HOME },
+    env: { ...process.env, HOME },
+    shell: needsShell,
   });
 
   currentProcess.stdout.on("data", (data) => {
@@ -79,7 +112,7 @@ async function runClaude(chatId, message) {
   currentProcess.on("error", async (err) => {
     isRunning = false;
     currentProcess = null;
-    await bot.sendMessage(chatId, `❌ Ошибка запуска: ${err.message}\n\nПроверь, что \`claude\` CLI установлен и доступен в PATH.`);
+    await bot.sendMessage(chatId, `❌ Ошибка запуска: ${err.message}\n\nПроверь CLAUDE_BIN в .env (сейчас: ${CLAUDE_BIN}).`);
   });
 }
 
@@ -118,6 +151,14 @@ bot.onText(/\/stop/, async (msg) => {
 });
 
 bot.on("message", async (msg) => {
+  if (ALLOWED_CHAT_ID === null) {
+    // Режим обнаружения: подсказываем chat_id, ничего не запускаем.
+    if (!(msg.text && msg.text.startsWith("/chatid"))) {
+      await bot.sendMessage(msg.chat.id, `⚙️ Режим настройки. Твой chat ID: \`${msg.chat.id}\`\nВпиши его в .env как TELEGRAM_CHAT_ID и перезапусти бота.`, { parse_mode: "Markdown" });
+    }
+    console.warn(`Режим обнаружения: chat_id=${msg.chat.id}`);
+    return;
+  }
   if (!isAllowed(msg)) {
     console.warn(`Заблокировано: chat_id=${msg.chat.id}`);
     return;
@@ -130,4 +171,5 @@ bot.on("message", async (msg) => {
   await runClaude(msg.chat.id, msg.text);
 });
 
-console.log(`Бот запущен. Разрешённый chat_id: ${ALLOWED_CHAT_ID}, repo: ${REPO_PATH}`);
+console.log(`Бот запущен. Разрешённый chat_id: ${ALLOWED_CHAT_ID ?? "(режим обнаружения)"}, repo: ${REPO_PATH}`);
+console.log(`claude bin: ${CLAUDE_BIN}`);
