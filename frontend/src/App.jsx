@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, fetchSuggestions, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 
 // ---------- EndTurnScreen ----------
@@ -2028,8 +2028,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const actionModeRef = useRef("decree_fast");
   const consultingRef = useRef(false);
 
-  const [suggestions, setSuggestions] = useState(null);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showTreasuryTip, setShowTreasuryTip] = useState(false);
 
   const loadState = useCallback(async () => {
@@ -2298,19 +2296,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     }
   }
 
-  async function handleLoadSuggestions() {
-    if (loadingSuggestions) return;
-    setLoadingSuggestions(true);
-    try {
-      const result = await fetchSuggestions(gameId, actionMode);
-      setSuggestions(result.suggestions || []);
-    } catch {
-      setSuggestions([]);
-    } finally {
-      setLoadingSuggestions(false);
-    }
-  }
-
   async function handleConsult() {
     if (consultingRef.current) return;
     consultingRef.current = true;
@@ -2380,13 +2365,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const tabs = [
     { id: "overview", label: "Обстановка", icon: Globe2 },
     { id: "kremlin", label: "🏛 Кремль", icon: Landmark },
+    { id: "treasury", label: "💰 Казна", icon: Landmark },
     { id: "map", label: "Карта", icon: Globe2 },
     { id: "stats", label: "Показатели", icon: Shield },
     { id: "world", label: "Мир", icon: Globe2 },
     { id: "advisors", label: "Кабинет министров", icon: ChevronRight },
     { id: "policies", label: "Политики", icon: ChevronRight },
     { id: "relations", label: "Отношения", icon: Landmark },
-    { id: "treasury", label: "💰 Казна", icon: Landmark },
     { id: "newsfeed", label: "Лента", icon: ScrollText },
     { id: "log", label: "Журнал", icon: ScrollText },
     ...(assistMode !== "hardcore" ? [{ id: "wiki", label: "📖 Ликбез", icon: ChevronRight }] : []),
@@ -2649,48 +2634,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </div>
           )}
 
-          {/* Подсказки */}
-          {suggestions && suggestions.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>
-                {{ decree_reform: "ВАРИАНТЫ РЕФОРМ", decree_program: "ВАРИАНТЫ ПРОГРАММ", intel: "ВАРИАНТЫ ОПЕРАЦИЙ", military: "ВАРИАНТЫ ОПЕРАЦИЙ" }[actionMode] || "ВАРИАНТЫ УКАЗОВ"} — нажмите чтобы выбрать:
-              </div>
-              {(() => {
-                const info = ACTION_MODE_INFO[actionMode] || ACTION_MODE_INFO.decree_fast;
-                return (
-                  <div style={{ background: "#141b24", border: "1px solid #2a3545", borderRadius: 4, padding: "6px 9px", marginBottom: 7 }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginBottom: 3 }}>
-                      <span className="mono-font" style={{ fontSize: 9, color: "#9c8347" }}>⚡ {info.cost} инициативы</span>
-                      {info.money != null && <span className="mono-font" style={{ fontSize: 9, color: "#c8b87a" }}>💰 {info.money} казны (~₽{(info.money*0.8).toFixed(1)} трлн)</span>}
-                      <span className="mono-font" style={{ fontSize: 9, color: "#7a8898" }}>⏳ {info.duration}</span>
-                      <span className="mono-font" style={{ fontSize: 9, color: info.riskColor }}>⚠ {info.risk}</span>
-                    </div>
-                    <div className="doc-font" style={{ fontSize: 11, color: "#8a96a6", lineHeight: 1.35 }}>{info.desc}</div>
-                    <div className="doc-font" style={{ fontSize: 10.5, color: "#5a6a7a", fontStyle: "italic", marginTop: 2 }}>Точные изменения статов покажет «Рассмотреть».</div>
-                  </div>
-                );
-              })()}
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {suggestions.map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => { setDraftInput(s); setSuggestions(null); }}
-                    style={{
-                      background: "#1f2733", color: "#ece7d8", border: "1px solid #3a4156",
-                      borderRadius: 4, padding: "7px 10px", fontFamily: "'PT Serif',serif",
-                      fontSize: 12.5, cursor: "pointer", textAlign: "left", lineHeight: 1.4,
-                    }}
-                  >
-                    {s}
-                  </button>
-                ))}
-                <button onClick={() => setSuggestions(null)} style={{ background: "transparent", border: "none", color: "#5a6070", fontFamily: "monospace", fontSize: 10, cursor: "pointer", textAlign: "left", padding: "2px 0" }}>
-                  скрыть
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Разведбонус — следующее действие усилено успешной операцией */}
           {(state?.stats?.next_action_boost ?? 0) > 0 && (
             <div style={{ background: "#1a1426", border: "1px solid #6a4aa0", borderRadius: 4, padding: "7px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
@@ -2805,7 +2748,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           {!!(state?.overview?.crisis_mode) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
               <button
-                onClick={() => { setActionMode("crisis"); setSuggestions(null); }}
+                onClick={() => setActionMode("crisis")}
                 title="Экстренный указ. Дёшево, быстро, краткосрочно."
                 style={{
                   background: actionMode === "crisis" ? "#1f2733" : "transparent",
@@ -2848,13 +2791,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               >
                 <Send size={13} />
                 {previewing ? "Анализ…" : "Рассмотреть →"}
-              </button>
-              <button
-                onClick={handleLoadSuggestions}
-                disabled={loadingSuggestions}
-                style={{ ...btnStyle("#2a3040", "#a8a294"), padding: "6px 14px", opacity: loadingSuggestions ? 0.6 : 1, fontSize: 11.5 }}
-              >
-                {loadingSuggestions ? "Загрузка…" : "💡 Подсказки"}
               </button>
             </div>
           </div>
@@ -5806,6 +5742,7 @@ function KremlinTab({ state, onSelectCategory }) {
   const [domainId, setDomainId] = useState("military");
   const [tier, setTier] = useState("decree_fast");
   const [expandedCardId, setExpandedCardId] = useState(null);
+  const [expandedSubDomain, setExpandedSubDomain] = useState(null);
   const [selectedVariant, setSelectedVariant] = useState(null);
   const [customText, setCustomText] = useState("");
   const domain = KREMLIN_DOMAINS.find(d => d.id === domainId);
@@ -5814,10 +5751,25 @@ function KremlinTab({ state, onSelectCategory }) {
   const rec = computeKremlinRecommendation(stats, (state.turn ?? 0) + 1);
   const recDomain = rec ? domainOfCategory(rec.category) : null;
 
+  // Указы (13 категорий) группируются гармошкой по под-домену (Экономика/
+  // Военно-административные/Политика/Информационные) — иначе список слишком длинный.
+  const decreeGroups = domainId === "decrees"
+    ? cards.reduce((groups, card) => {
+        let g = groups.find(g => g.domain === card.domain);
+        if (!g) { g = { domain: card.domain, items: [] }; groups.push(g); }
+        g.items.push(card);
+        return groups;
+      }, [])
+    : null;
+
   const goToRecommendation = () => {
     if (!rec) return;
     setDomainId(recDomain);
     if (recDomain === "decrees" && rec.tier) setTier(rec.tier);
+    if (recDomain === "decrees") {
+      const card = KREMLIN_CATEGORIES.decrees.find(c => c.id === rec.category);
+      setExpandedSubDomain(card?.domain || null);
+    }
     setExpandedCardId(rec.category);
     setSelectedVariant(0);
     setCustomText("");
@@ -5911,8 +5863,8 @@ function KremlinTab({ state, onSelectCategory }) {
       )}
 
       {/* Карточки */}
-      <div style={{ display: "grid", gap: 8 }}>
-        {cards.map(card => {
+      {(() => {
+        const renderCard = (card) => {
           const isExpanded = expandedCardId === card.id;
           const isRecommended = rec?.category === card.id && (recDomain !== "decrees" || !rec.tier || rec.tier === tier);
           return (
@@ -5927,9 +5879,6 @@ function KremlinTab({ state, onSelectCategory }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: "#ece7d8" }}>{card.title}</span>
-                    {card.domain && (
-                      <span className="mono-font" style={{ fontSize: 8, background: "#2a2416", color: "#c8a857", borderRadius: 3, padding: "1px 5px" }}>{card.domain}</span>
-                    )}
                     {isRecommended && (
                       <span className="mono-font" style={{ fontSize: 8, background: "#3a8a5a", color: "#fff", borderRadius: 3, padding: "1px 5px", fontWeight: 700 }} title="Рекомендация советника — математически рассчитанный оптимальный ход">📐 СОВЕТ</span>
                     )}
@@ -5993,8 +5942,47 @@ function KremlinTab({ state, onSelectCategory }) {
               )}
             </div>
           );
-        })}
-      </div>
+        };
+
+        if (domainId === "decrees") {
+          return (
+            <div style={{ display: "grid", gap: 8 }}>
+              {decreeGroups.map(group => {
+                const isOpen = expandedSubDomain === group.domain;
+                const hasRecommended = recDomain === "decrees" && (!rec.tier || rec.tier === tier) && group.items.some(c => c.id === rec.category);
+                return (
+                  <div key={group.domain}>
+                    <div
+                      onClick={() => setExpandedSubDomain(isOpen ? null : group.domain)}
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", background: "#1c2230", border: `1px solid ${isOpen ? "#9c8347" : "#2a3040"}`, borderRadius: 5, padding: "10px 13px" }}
+                    >
+                      <span className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#c8a857" }}>{group.domain}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {hasRecommended && !isOpen && (
+                          <span className="mono-font" style={{ fontSize: 8, background: "#3a8a5a", color: "#fff", borderRadius: 3, padding: "1px 5px", fontWeight: 700 }}>📐 СОВЕТ</span>
+                        )}
+                        <span className="mono-font" style={{ fontSize: 10, color: "#7a8294" }}>{group.items.length}</span>
+                        <span style={{ color: "#c8a857", fontSize: 13, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+                      </div>
+                    </div>
+                    {isOpen && (
+                      <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                        {group.items.map(card => renderCard(card))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ display: "grid", gap: 8 }}>
+            {cards.map(card => renderCard(card))}
+          </div>
+        );
+      })()}
       <div className="mono-font" style={{ fontSize: 9.5, color: "#7a8294", marginTop: 12, lineHeight: 1.5 }}>
         Раскройте карточку, выберите готовую формулировку или напишите свою. Текст подставится в форму подписи внизу экрана — она видна на любой вкладке. Прокрутите вниз: там же появится предпросмотр с точными изменениями статов и кнопка подписи.
       </div>
