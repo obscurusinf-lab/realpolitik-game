@@ -5739,6 +5739,69 @@ function buildCardVariants(card, tier) {
   ];
 }
 
+// Домен карточки по её id (для навигации советника к нужной карточке).
+function domainOfCategory(catId) {
+  if (catId.startsWith("mil_admin") || catId.startsWith("econ_") || catId.startsWith("pol_")) return "decrees";
+  if (catId.startsWith("mil_")) return "military";
+  if (catId.startsWith("covert_")) return "espionage";
+  if (catId.startsWith("diplo_")) return "diplomacy";
+  return "decrees";
+}
+
+// Детерминированный расчёт рекомендованного хода — зеркало computeOptimalMove в
+// backend/src/ai/advisors.js. Держать в синхроне при изменении балансовых порогов.
+// Возвращает { category, tier, title, reason } или null.
+function computeKremlinRecommendation(stats, turnNumber = 1) {
+  const s = (k, d = 50) => (typeof stats[k] === "number" ? stats[k] : d);
+  const economy = s("economy"), approval = s("approval"), stability = s("stability"),
+    diplomacy = s("diplomacy"), treasury = s("treasury", 52), inflation = s("inflation", 64),
+    military = s("military"), peace = s("peace_track", 0);
+
+  const dangers = [
+    { key: "economy", margin: economy - 30 },
+    { key: "approval", margin: approval - 30 },
+    { key: "stability", margin: stability - 25 },
+    { key: "diplomacy", margin: diplomacy - 15 },
+  ].sort((a, b) => a.margin - b.margin);
+  const worst = dangers[0];
+
+  if (worst.margin < 10) {
+    if (worst.key === "economy") {
+      if (treasury < 10) return { category: "econ_austerity", tier: "decree_fast", title: "Бюджетная консолидация",
+        reason: `Экономика ${economy} — до коллапса (<30) ${worst.margin} п. Казна ${treasury} пуста: стимул сейчас съест дефицитная спираль, сначала закройте дефицит. Военные операции в этом месяце опасны.` };
+      return { category: "econ_stimulus", tier: "decree_fast", title: "Стимулирование экономики",
+        reason: `Экономика ${economy} — до коллапса (<30) ${worst.margin} п. Стимул даёт +1..+3; воздержитесь от дорогих военных операций в этом месяце.` };
+    }
+    if (worst.key === "approval") return { category: "pol_social", tier: "decree_fast", title: "Социальная программа",
+      reason: `Рейтинг ${approval} — до переворота (<30) ${worst.margin} п. Социальные меры — самый прямой рычаг одобрения. Мобилизация и жёсткая экономия сейчас недопустимы.` };
+    if (worst.key === "stability") return { category: "pol_propaganda", tier: "decree_fast", title: "Информационная кампания",
+      reason: `Стабильность ${stability} — до волнений (<25) ${worst.margin} п. Инфокампания поднимает стабильность без удара по казне (подавление обвалило бы рейтинг).` };
+    return { category: "diplo_negotiate", title: "Дипломатические переговоры",
+      reason: `Дипломатия ${diplomacy} — до изоляции (<15) ${worst.margin} п. Переговоры — единственный прямой рычаг; эскалация и тайные операции усугубят изоляцию.` };
+  }
+
+  if (treasury < 0) return { category: "econ_austerity", tier: "decree_fast", title: "Закрыть дефицит казны",
+    reason: `Казна ${treasury} — дефицит каждый месяц давит экономику (${economy}) и разгоняет инфляцию. Дорогие операции углубляют спираль.` };
+
+  if (inflation > 73 && economy < 55) return { category: "econ_austerity", tier: "decree_reform", title: "Сбить инфляцию",
+    reason: `Инфляция ${inflation} (порог 73) — каждый месяц −1..−3 экономике и рейтингу. Консолидация снижает дефицитное давление.` };
+
+  const donetsk = s("donetsk_control", 0), luhansk = s("luhansk_control", 0),
+    zap = s("zaporizhzhia_control", 0), kher = s("kherson_control", 0), khar = s("kharkiv_control", 0);
+  const secondary = [zap >= 85, kher >= 65, khar >= 50].filter(Boolean).length;
+  if (donetsk >= 80 && luhansk >= 90 && military >= 75 && economy >= 45 && treasury >= 35) {
+    const target = donetsk < 100 ? "Донецком" : luhansk < 100 ? "Луганском" : secondary < 2 ? "Запорожском" : null;
+    if (target) return { category: "mil_operational_offensive", title: `Наступление (${target} направление)`,
+      reason: `Военная победа близко (Донецк ${donetsk}, Луганск ${luhansk}, доп. регионы ${secondary}/2). Экономика ${economy} и казна ${treasury} выдержат военное бремя.` };
+  }
+
+  if (peace >= 40 || turnNumber >= 10) return { category: "diplo_peace", title: "Мирная инициатива",
+    reason: `Мирный трек ${peace} — самая дешёвая дипоперация и главный двигатель к дипломатической победе (нужен трек 100 и экономика/рейтинг/стабильность ≥65; сейчас ${economy}/${approval}/${stability}).` };
+
+  return { category: "econ_stimulus", tier: "decree_reform", title: "Укреплять экономику",
+    reason: `Острых угроз нет. Экономика ${economy} — фундамент обоих путей к победе. Запас прочности против месячной эрозии (до −6) окупается всегда.` };
+}
+
 function KremlinTab({ state, onSelectCategory }) {
   const [domainId, setDomainId] = useState("military");
   const [tier, setTier] = useState("decree_fast");
@@ -5748,6 +5811,17 @@ function KremlinTab({ state, onSelectCategory }) {
   const domain = KREMLIN_DOMAINS.find(d => d.id === domainId);
   const cards = KREMLIN_CATEGORIES[domainId] || [];
   const stats = state.stats || {};
+  const rec = computeKremlinRecommendation(stats, (state.turn ?? 0) + 1);
+  const recDomain = rec ? domainOfCategory(rec.category) : null;
+
+  const goToRecommendation = () => {
+    if (!rec) return;
+    setDomainId(recDomain);
+    if (recDomain === "decrees" && rec.tier) setTier(rec.tier);
+    setExpandedCardId(rec.category);
+    setSelectedVariant(0);
+    setCustomText("");
+  };
 
   const toggleCard = (card) => {
     if (expandedCardId === card.id) {
@@ -5774,6 +5848,27 @@ function KremlinTab({ state, onSelectCategory }) {
           <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: "#9c8347" }}>{stats.initiative ?? 100}</span>
         </div>
       </div>
+
+      {/* Советник: математически рассчитанный оптимальный ход */}
+      {rec && (
+        <div style={{ background: "#eef5ef", border: "1px solid #b8d4bf", borderLeft: "4px solid #3a8a5a", borderRadius: 6, padding: "10px 13px", marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#2f6f47", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 3 }}>
+                📐 СОВЕТНИК · РЕКОМЕНДАЦИЯ АППАРАТА
+              </div>
+              <div className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#1e3a2a", marginBottom: 3 }}>{rec.title}</div>
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#3a4a40", lineHeight: 1.45 }}>{rec.reason}</div>
+            </div>
+            <button
+              onClick={goToRecommendation}
+              style={{ flexShrink: 0, background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+            >
+              Открыть →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Домены */}
       <div className="scroll-hide" style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
@@ -5819,11 +5914,12 @@ function KremlinTab({ state, onSelectCategory }) {
       <div style={{ display: "grid", gap: 8 }}>
         {cards.map(card => {
           const isExpanded = expandedCardId === card.id;
+          const isRecommended = rec?.category === card.id && (recDomain !== "decrees" || !rec.tier || rec.tier === tier);
           const variants = isExpanded ? buildCardVariants(card, tier) : [];
           return (
             <div
               key={card.id}
-              style={{ background: "#f5f1e6", border: `1px solid ${isExpanded ? "#9c8347" : "#d8d2bf"}`, borderRadius: 5, padding: "11px 13px", transition: "border-color 0.15s" }}
+              style={{ background: isRecommended ? "#eef5ef" : "#f5f1e6", border: `1px solid ${isExpanded ? "#9c8347" : isRecommended ? "#3a8a5a" : "#d8d2bf"}`, borderRadius: 5, padding: "11px 13px", transition: "border-color 0.15s" }}
             >
               <div
                 onClick={() => toggleCard(card)}
@@ -5834,6 +5930,9 @@ function KremlinTab({ state, onSelectCategory }) {
                     <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{card.title}</span>
                     {card.domain && (
                       <span className="mono-font" style={{ fontSize: 8, background: "#eee6d0", color: "#8a6b3a", borderRadius: 3, padding: "1px 5px" }}>{card.domain}</span>
+                    )}
+                    {isRecommended && (
+                      <span className="mono-font" style={{ fontSize: 8, background: "#3a8a5a", color: "#fff", borderRadius: 3, padding: "1px 5px", fontWeight: 700 }} title="Рекомендация советника — математически рассчитанный оптимальный ход">📐 СОВЕТ</span>
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
