@@ -917,6 +917,50 @@ const INFLATION_PCT_MAX = 100 - INFLATION_PCT_OFFSET; // 42% — потолок 
 function inflationBarFraction(score) {
   return Math.min(100, (inflationPercent(score) / INFLATION_PCT_MAX) * 100);
 }
+
+// Рост ВВП — внутренний балл 0-100 (старт 36) переводим в правдоподобный % г/г.
+// В отличие от инфляции (1 балл = 1 п.п.) наклон смягчён до 0.3 п.п./балл — иначе
+// один указ (обычно двигает gdp_growth на 2-4 балла) взрывал бы % в 3-4 раза за ход.
+// Старт партии (36) откалиброван на текст карточки статы ("0,6-1% г/г"). НЕ клэмпим
+// снизу нулём — отрицательный рост (рецессия) реалистичен и должен быть виден как есть.
+const GDP_GROWTH_PCT_BASE = 1;     // % при балле 36 (старт партии)
+const GDP_GROWTH_PCT_SLOPE = 0.3;  // п.п. за 1 балл отклонения от старта
+function gdpGrowthPercent(score) {
+  const s = Math.max(0, Math.min(100, score ?? 36));
+  return GDP_GROWTH_PCT_BASE + (s - 36) * GDP_GROWTH_PCT_SLOPE;
+}
+
+// Занятость хранится как внутренний балл "здоровья рынка труда" 0-100 (старт 74).
+// Игроку понятнее классическая безработица в % — конвертируем инвертированно
+// (выше балл занятости → ниже безработица) с тем же смягчённым наклоном 0.3 п.п./балл,
+// откалиброванным на текст карточки статы ("безработица рекордно низкая", ~2-2.5%).
+const UNEMPLOYMENT_PCT_BASE = 2.5;   // % при балле 74 (старт партии)
+const UNEMPLOYMENT_PCT_SLOPE = 0.3;  // п.п. за 1 балл отклонения (в обратную сторону)
+function unemploymentPercent(score) {
+  const s = Math.max(0, Math.min(100, score ?? 74));
+  return Math.max(0.5, UNEMPLOYMENT_PCT_BASE - (s - 74) * UNEMPLOYMENT_PCT_SLOPE);
+}
+
+// Номинальный ВВП — производная величина для отображения (не хранится как стата).
+// Привязана к экономике (баллы 0-100) и якорится на реальном ВВП РФ 2024-2026
+// (≈₽190 трлн / ≈$2.2 трлн при курсе ≈₽80/$ и экономике-балле 50).
+const GDP_NOMINAL_BASE_RUB_TRILLION = 190;
+const GDP_NOMINAL_RUB_PER_POINT = 2.2;
+function nominalGdpRubTrillion(economyScore) {
+  const s = Math.max(0, Math.min(100, economyScore ?? 50));
+  return Math.max(20, GDP_NOMINAL_BASE_RUB_TRILLION + (s - 50) * GDP_NOMINAL_RUB_PER_POINT);
+}
+function nominalGdpUsdTrillion(rubTrillion, usdRubRate) {
+  return rubTrillion / (usdRubRate || 80);
+}
+// Общий форматтер для substat-карточек (инфляция/ВВП/занятость показываются в %,
+// остальное — сырым баллом 0-100). Используется во всех местах, где рендерятся substats.
+function formatSubstatValue(key, value) {
+  if (key === "inflation") return `${inflationPercent(value).toFixed(1)}% г/г`;
+  if (key === "gdp_growth") { const p = gdpGrowthPercent(value); return `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`; }
+  if (key === "employment") return `${unemploymentPercent(value).toFixed(1)}%`;
+  return value;
+}
 function deltaColor(stat, delta) {
   if (delta === 0) return "#5a6070";
   const bad = INVERTED_STATS.has(stat) ? delta > 0 : delta < 0;
@@ -2657,7 +2701,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                               <div key={s.key}>
                                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                                   <span className="doc-font" style={{ fontSize: 11, color: "#8a9aaa" }}>{s.label}</span>
-                                  <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{s.key === "inflation" ? `${inflationPercent(s.value).toFixed(1)}% г/г` : s.value}</span>
+                                  <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{formatSubstatValue(s.key, s.value)}</span>
                                 </div>
                                 <div style={{ height: 3, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
                                   <div style={{ width: `${displayVal}%`, height: "100%", background: clr }} />
@@ -3782,7 +3826,7 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
                           <span className="doc-font" style={{ fontSize: 11, color: "#8a8472", marginLeft: 6 }}>{s.desc}</span>
                         </div>
                         <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color }}>
-                          {isInflation ? `${inflationPercent(s.value).toFixed(1)}% г/г` : s.value}
+                          {isInflation ? `${inflationPercent(s.value).toFixed(1)}% г/г` : formatSubstatValue(s.key, s.value)}
                         </span>
                       </div>
                       <Bar
@@ -4019,11 +4063,13 @@ function EndMonthForecastPanel({ stats }) {
   {
     const gdp = stats.gdp_growth ?? 36;
     const gdpEffect = Math.round((gdp - 36) / 25);
+    const gdpPct = gdpGrowthPercent(gdp);
+    const gdpPctStr = `${gdpPct >= 0 ? "+" : ""}${gdpPct.toFixed(1)}%`;
     if (gdpEffect !== 0) {
       mechanisms.push({
         active: true, severity: gdpEffect > 0 ? "good" : "bad",
         name: "Рост ВВП",
-        trigger: `ВВП ${gdp} vs старт партии 36 — отклонение компаундится в экономику`,
+        trigger: `Рост ВВП ${gdpPctStr} г/г (старт партии: +1%) — отклонение компаундится в экономику`,
         impacts: [{ label: "Экономика", delta: gdpEffect }],
         fix: gdpEffect < 0
           ? "Устойчивый спад ВВП подтачивает экономику каждый месяц. Реформы и стимулирующие указы поднимают gdp_growth."
@@ -4033,7 +4079,7 @@ function EndMonthForecastPanel({ stats }) {
       mechanisms.push({
         active: false,
         name: "Рост ВВП",
-        trigger: `ВВП ${gdp} ≈ стартовый уровень — заметного эффекта на экономику нет`,
+        trigger: `Рост ВВП ${gdpPctStr} г/г ≈ стартовый уровень — заметного эффекта на экономику нет`,
         impacts: [],
         fix: null,
       });
@@ -4045,11 +4091,12 @@ function EndMonthForecastPanel({ stats }) {
     const empl = stats.employment ?? 74;
     const factor = Math.max(0.6, Math.min(1.3, 1 + (empl - 74) * 0.004));
     const pctShift = Math.round((factor - 1) * 100);
+    const unemplPct = unemploymentPercent(empl);
     if (pctShift !== 0) {
       mechanisms.push({
         active: true, severity: pctShift > 0 ? "good" : "bad",
         name: "Занятость / безработица",
-        trigger: `Занятость ${empl} vs старт партии 74 — двигает налоговую базу`,
+        trigger: `Безработица ${unemplPct.toFixed(1)}% (старт партии: 2,5%) — двигает налоговую базу`,
         impacts: [{ label: `Доход казны ${pctShift > 0 ? "+" : ""}${pctShift}%`, delta: null }],
         fix: pctShift < 0
           ? "Высокая безработица режет налоговые поступления и доход от экономики. Указы «Стимул экономики» и либерализация поднимают занятость."
@@ -4059,7 +4106,7 @@ function EndMonthForecastPanel({ stats }) {
       mechanisms.push({
         active: false,
         name: "Занятость / безработица",
-        trigger: `Занятость ${empl} ≈ стартовый уровень — налоговая база не искажена`,
+        trigger: `Безработица ${unemplPct.toFixed(1)}% ≈ стартовый уровень — налоговая база не искажена`,
         impacts: [],
         fix: null,
       });
@@ -4287,6 +4334,79 @@ function getPassiveEffects(key, stats) {
   return effects;
 }
 
+// Вынесено на уровень модуля — переиспользуется и в StatsTab, и в TreasuryTab
+// (обе вкладки показывают, какие указы/операции реально подвинули конкретный стат).
+const ACTION_TYPE_LABEL = {
+  // Новые категории (см. docs/04-cabinet-and-categories.md)
+  mil_recon: "Военная разведка",
+  mil_tactical: "Тактический удар",
+  mil_operational_offensive: "Наступление",
+  mil_operational_defensive: "Оборона",
+  mil_strategic_offensive: "Стратегическое наступление",
+  mil_strategic_defensive: "Стратегическая оборона",
+  mil_hybrid: "Гибридная война",
+  covert_destabilize: "Дестабилизация",
+  covert_sabotage: "Диверсия",
+  covert_disinfo: "Дезинформация",
+  covert_elimination: "Ликвидация",
+  diplo_negotiate: "Переговоры",
+  diplo_treaty: "Договор",
+  diplo_pressure: "Давление",
+  diplo_multilateral: "Коалиция",
+  diplo_soft_power: "Мягкая сила",
+  diplo_peace: "Мирная инициатива",
+  econ_stimulus: "Стимул эк-ки",
+  econ_austerity: "Жёсткая экономия",
+  econ_sanctions_counter: "Контрсанкции",
+  econ_infrastructure: "Инфраструктура",
+  econ_tech: "Технологии",
+  mil_admin_budget: "Оборонный бюджет",
+  mil_admin_mobilization: "Мобилизация",
+  mil_admin_doctrine: "Военная доктрина",
+  pol_repression: "Подавление",
+  pol_liberalization: "Либерализация",
+  pol_elite_consolidation: "Консолидация элит",
+  pol_social: "Соцпрограмма",
+  pol_propaganda: "Пропаганда",
+  military_regroup: "Перегруппировка",
+  null_action: "Бездействие",
+  nuclear_strike: "Ядерный удар",
+  // Старые категории — оставлены для истории партий, начатых до расширения категорий
+  military_offensive: "Наступление",
+  military_defensive: "Оборона",
+  diplomacy_outreach: "Дипломатия",
+  diplomacy_confrontation: "Конфронтация",
+  economic_stimulus: "Стимул эк-ки",
+  economic_austerity: "Жёсткая экономия",
+  domestic_repression: "Подавление",
+  domestic_liberalization: "Либерализация",
+  info_narrative: "Нарратив",
+  intelligence_covert: "Разведка",
+  peace_initiative: "Мирная инициатива",
+  intel_success: "Разведка (успех)",
+  intel_critical_success: "Разведка (блестящий успех)",
+  intel_failure: "Разведка (провал)",
+  intel_critical_failure: "Разведка (крит. провал)",
+};
+
+// Для заданного стата — последние 4 хода из истории партии, где он значимо
+// изменился (|delta| >= 2), с указанием какая категория действия это сделала.
+function getStatEvents(statHistory, key) {
+  if (!statHistory) return [];
+  return statHistory
+    .filter(h => {
+      const d = h.stat_deltas?.[key];
+      return typeof d === "number" && Math.abs(d) >= 2;
+    })
+    .slice(-4)
+    .reverse()
+    .map(h => ({
+      turn: h.turn_n,
+      delta: h.stat_deltas[key],
+      actionType: h.action_type,
+    }));
+}
+
 function StatsTab({ state, gameId }) {
   const [openStat, setOpenStat] = useState(null);
   const [expandedKey, setExpandedKey] = useState(null);
@@ -4295,76 +4415,6 @@ function StatsTab({ state, gameId }) {
   useEffect(() => {
     fetchStatHistory(gameId).then(d => setStatHistory(d.history || [])).catch(() => {});
   }, [gameId]);
-
-  // Для каждого стата — последние 3 хода где он значимо изменился (|delta| >= 2)
-  function getStatEvents(key) {
-    if (!statHistory) return [];
-    return statHistory
-      .filter(h => {
-        const d = h.stat_deltas?.[key];
-        return typeof d === "number" && Math.abs(d) >= 2;
-      })
-      .slice(-4)
-      .reverse()
-      .map(h => ({
-        turn: h.turn_n,
-        delta: h.stat_deltas[key],
-        actionType: h.action_type,
-      }));
-  }
-
-  const ACTION_TYPE_LABEL = {
-    // Новые категории (см. docs/04-cabinet-and-categories.md)
-    mil_recon: "Военная разведка",
-    mil_tactical: "Тактический удар",
-    mil_operational_offensive: "Наступление",
-    mil_operational_defensive: "Оборона",
-    mil_strategic_offensive: "Стратегическое наступление",
-    mil_strategic_defensive: "Стратегическая оборона",
-    mil_hybrid: "Гибридная война",
-    covert_destabilize: "Дестабилизация",
-    covert_sabotage: "Диверсия",
-    covert_disinfo: "Дезинформация",
-    covert_elimination: "Ликвидация",
-    diplo_negotiate: "Переговоры",
-    diplo_treaty: "Договор",
-    diplo_pressure: "Давление",
-    diplo_multilateral: "Коалиция",
-    diplo_soft_power: "Мягкая сила",
-    diplo_peace: "Мирная инициатива",
-    econ_stimulus: "Стимул эк-ки",
-    econ_austerity: "Жёсткая экономия",
-    econ_sanctions_counter: "Контрсанкции",
-    econ_infrastructure: "Инфраструктура",
-    econ_tech: "Технологии",
-    mil_admin_budget: "Оборонный бюджет",
-    mil_admin_mobilization: "Мобилизация",
-    mil_admin_doctrine: "Военная доктрина",
-    pol_repression: "Подавление",
-    pol_liberalization: "Либерализация",
-    pol_elite_consolidation: "Консолидация элит",
-    pol_social: "Соцпрограмма",
-    pol_propaganda: "Пропаганда",
-    military_regroup: "Перегруппировка",
-    null_action: "Бездействие",
-    nuclear_strike: "Ядерный удар",
-    // Старые категории — оставлены для истории партий, начатых до расширения категорий
-    military_offensive: "Наступление",
-    military_defensive: "Оборона",
-    diplomacy_outreach: "Дипломатия",
-    diplomacy_confrontation: "Конфронтация",
-    economic_stimulus: "Стимул эк-ки",
-    economic_austerity: "Жёсткая экономия",
-    domestic_repression: "Подавление",
-    domestic_liberalization: "Либерализация",
-    info_narrative: "Нарратив",
-    intelligence_covert: "Разведка",
-    peace_initiative: "Мирная инициатива",
-    intel_success: "Разведка (успех)",
-    intel_critical_success: "Разведка (блестящий успех)",
-    intel_failure: "Разведка (провал)",
-    intel_critical_failure: "Разведка (крит. провал)",
-  };
 
   return (
     <>
@@ -4375,7 +4425,7 @@ function StatsTab({ state, gameId }) {
           const Icon = meta.icon;
           const substats = (SUBSTAT_META[key] || []).map(sm => ({ ...sm, value: state.stats[sm.key] ?? 50 }));
           const expanded = expandedKey === key;
-          const events = getStatEvents(key);
+          const events = getStatEvents(statHistory, key);
 
           const passiveEffects = getPassiveEffects(key, state.stats);
           const passiveTotal = passiveEffects.reduce((s, e) => s + e.sign * e.value, 0);
@@ -4430,7 +4480,7 @@ function StatsTab({ state, gameId }) {
                             <div key={s.key}>
                               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                                 <span className="doc-font" style={{ fontSize: 11, color: "#5c5648" }}>{s.label}</span>
-                                <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{s.key === "inflation" ? `${inflationPercent(s.value).toFixed(1)}% г/г` : s.value}</span>
+                                <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{formatSubstatValue(s.key, s.value)}</span>
                               </div>
                               <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden" }}>
                                 <div style={{ width: `${displayVal}%`, height: "100%", background: clr }} />
@@ -5886,6 +5936,11 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const stats = state.stats || {};
   const [loading, setLoading] = useState(null);
   const [error, setError] = useState(null);
+  const [statHistory, setStatHistory] = useState(null);
+
+  useEffect(() => {
+    fetchStatHistory(gameId).then(d => setStatHistory(d.history || [])).catch(() => {});
+  }, [gameId]);
 
   const treasury = typeof stats.treasury === "number" ? stats.treasury : 52;
   const eco = stats.economy ?? 50;
@@ -5907,6 +5962,9 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const OIL_BASELINE_T = 85, FX_BASELINE_T = 80;
   const oilPriceT = stats.oil_price ?? OIL_BASELINE_T;
   const usdRubT = stats.usd_rub ?? FX_BASELINE_T;
+  const nominalGdpRubT = nominalGdpRubTrillion(eco);
+  const nominalGdpUsdT = nominalGdpUsdTrillion(nominalGdpRubT, usdRubT);
+  const gdpGrowthEvents = getStatEvents(statHistory, "gdp_growth");
   const isolationT = stats.isolation ?? 68;
   const rawSanctionDiscountT = isolationT <= 50 ? 0 : isolationT <= 80 ? (isolationT - 50) / 100 : 0.30 + (isolationT - 80) / 200;
   const allyTrustT = stats.ally_trust ?? 42;
@@ -6010,23 +6068,51 @@ function TreasuryTab({ state, gameId, onRefresh }) {
       </div>
 
       {/* Экономика: сама стата + два её драйвера (ВВП, занятость) — почему растёт/падает,
-          объясняет EndMonthForecastPanel ниже (та же логика, что и на вкладке Показатели). */}
+          объясняет EndMonthForecastPanel ниже (та же логика, что и на вкладке Показатели).
+          Показываем в реалистичных единицах (₽/$/%%), а не в сырых баллах 0-100 —
+          балл остаётся внутри для баланса, но игроку он ничего не говорит. */}
       <div style={sectionStyle}>
         <div style={labelStyle}>ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ</div>
-        <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 16 }}>
-          {[
-            { label: "Экономика", val: eco, good: eco >= 55, bad: eco < 35 },
-            { label: "Рост ВВП", val: gdpGrowthT, good: gdpGrowthT > 36, bad: gdpGrowthT < 36 },
-            { label: "Занятость", val: employmentT, good: employmentT > 74, bad: employmentT < 74 },
-          ].map(({ label, val, good, bad }) => (
-            <div key={label} style={{ flex: 1 }}>
-              <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>{label}</div>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: bad ? "#c05030" : good ? "#3a7a5a" : "#8a7a40" }}>
-                {Math.round(val)}
-              </div>
+        <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 90px" }}>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Экономика</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: eco < 35 ? "#c05030" : eco >= 55 ? "#3a7a5a" : "#8a7a40" }}>
+              {Math.round(eco)}
             </div>
-          ))}
+          </div>
+          <div style={{ flex: "1 1 120px" }}>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Номинальный ВВП</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: "#5a5040" }}>
+              ₽{nominalGdpRubT.toFixed(0)} трлн
+            </div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#8a8472" }}>${nominalGdpUsdT.toFixed(2)} трлн</div>
+          </div>
+          <div style={{ flex: "1 1 90px" }}>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Рост ВВП</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: gdpGrowthT < 36 ? "#c05030" : gdpGrowthT > 36 ? "#3a7a5a" : "#8a7a40" }}>
+              {formatSubstatValue("gdp_growth", gdpGrowthT)} <span style={{ fontSize: 10, fontWeight: 400 }}>г/г</span>
+            </div>
+          </div>
+          <div style={{ flex: "1 1 90px" }}>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Безработица</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: employmentT < 74 ? "#c05030" : employmentT > 74 ? "#3a7a5a" : "#8a7a40" }}>
+              {formatSubstatValue("employment", employmentT)}
+            </div>
+          </div>
         </div>
+        {gdpGrowthEvents.length > 0 && (
+          <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "10px 14px", marginBottom: 10 }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a7a60", marginBottom: 6 }}>ПОСЛЕДНИЙ ВКЛАД В РОСТ ВВП</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {gdpGrowthEvents.map((ev, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
+                  <span style={{ color: "#5a5040" }}>Ход {ev.turn} · {ACTION_TYPE_LABEL[ev.actionType] || ev.actionType}</span>
+                  <span style={{ color: ev.delta >= 0 ? "#3a7a5a" : "#c05030", fontWeight: 700 }}>{ev.delta >= 0 ? "+" : ""}{ev.delta}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <EndMonthForecastPanel stats={stats} />
       </div>
 
