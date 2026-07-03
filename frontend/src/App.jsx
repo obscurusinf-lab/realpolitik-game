@@ -931,14 +931,18 @@ function gdpGrowthPercent(score) {
 }
 
 // Занятость хранится как внутренний балл "здоровья рынка труда" 0-100 (старт 74).
-// Игроку понятнее классическая безработица в % — конвертируем инвертированно
-// (выше балл занятости → ниже безработица) с тем же смягчённым наклоном 0.3 п.п./балл,
-// откалиброванным на текст карточки статы ("безработица рекордно низкая", ~2-2.5%).
-const UNEMPLOYMENT_PCT_BASE = 2.5;   // % при балле 74 (старт партии)
-const UNEMPLOYMENT_PCT_SLOPE = 0.3;  // п.п. за 1 балл отклонения (в обратную сторону)
-function unemploymentPercent(score) {
+// Показываем как % занятых (не безработицу) — старт партии откалиброван на 95%,
+// а не на фактические реальные ~97,5% РФ: если стартовать почти у потолка (100%),
+// игроку сразу некуда расти визуально, хотя реальная польза для казны (налоговый
+// множитель) растёт вплоть до балла 100. Небольшой запас "вверх" даёт ощущение
+// прогресса без вранья про то, куда указы реально ведут экономику.
+const EMPLOYMENT_PCT_BASE = 95;     // % при балле 74 (старт партии)
+const EMPLOYMENT_PCT_SLOPE = 0.15;  // п.п. за 1 балл отклонения — мягче остальных (0.3),
+                                     // чтобы весь диапазон 0-100 давал плавный %, не упираясь
+                                     // в потолок 99% уже на середине шкалы
+function employmentRatePercent(score) {
   const s = Math.max(0, Math.min(100, score ?? 74));
-  return Math.max(0.5, UNEMPLOYMENT_PCT_BASE - (s - 74) * UNEMPLOYMENT_PCT_SLOPE);
+  return Math.max(70, Math.min(99, EMPLOYMENT_PCT_BASE + (s - 74) * EMPLOYMENT_PCT_SLOPE));
 }
 
 // Номинальный ВВП — производная величина для отображения (не хранится как стата).
@@ -958,7 +962,7 @@ function nominalGdpUsdTrillion(rubTrillion, usdRubRate) {
 function formatSubstatValue(key, value) {
   if (key === "inflation") return `${inflationPercent(value).toFixed(1)}% г/г`;
   if (key === "gdp_growth") { const p = gdpGrowthPercent(value); return `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`; }
-  if (key === "employment") return `${unemploymentPercent(value).toFixed(1)}%`;
+  if (key === "employment") return `${employmentRatePercent(value).toFixed(1)}%`;
   return value;
 }
 function deltaColor(stat, delta) {
@@ -4091,22 +4095,22 @@ function EndMonthForecastPanel({ stats }) {
     const empl = stats.employment ?? 74;
     const factor = Math.max(0.6, Math.min(1.3, 1 + (empl - 74) * 0.004));
     const pctShift = Math.round((factor - 1) * 100);
-    const unemplPct = unemploymentPercent(empl);
+    const emplPct = employmentRatePercent(empl);
     if (pctShift !== 0) {
       mechanisms.push({
         active: true, severity: pctShift > 0 ? "good" : "bad",
-        name: "Занятость / безработица",
-        trigger: `Безработица ${unemplPct.toFixed(1)}% (старт партии: 2,5%) — двигает налоговую базу`,
+        name: "Занятость",
+        trigger: `Занятость ${emplPct.toFixed(1)}% (старт партии: 95%) — двигает налоговую базу`,
         impacts: [{ label: `Доход казны ${pctShift > 0 ? "+" : ""}${pctShift}%`, delta: null }],
         fix: pctShift < 0
-          ? "Высокая безработица режет налоговые поступления и доход от экономики. Указы «Стимул экономики» и либерализация поднимают занятость."
-          : "Низкая безработица расширяет налоговую базу — доход казны выше обычного.",
+          ? "Низкая занятость режет налоговые поступления и доход от экономики. Указы «Стимул экономики» и либерализация поднимают занятость."
+          : "Высокая занятость расширяет налоговую базу — доход казны выше обычного. Дальнейший рост занятости продолжает увеличивать доход, даже когда % на глаз выглядит почти максимальным.",
       });
     } else {
       mechanisms.push({
         active: false,
-        name: "Занятость / безработица",
-        trigger: `Безработица ${unemplPct.toFixed(1)}% ≈ стартовый уровень — налоговая база не искажена`,
+        name: "Занятость",
+        trigger: `Занятость ${emplPct.toFixed(1)}% ≈ стартовый уровень — налоговая база не искажена`,
         impacts: [],
         fix: null,
       });
@@ -5953,7 +5957,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const rawEconomyIncomeT = eco >= 50
     ? Math.round(20 + (eco - 50) * 0.6)
     : eco >= 35 ? Math.round(eco * 0.4) : Math.round(Math.max(5, eco * 0.2));
-  // Безработица → налоговая база: тот же коэффициент, что и в backend end-month
+  // Занятость → налоговая база: тот же коэффициент, что и в backend end-month
   const employmentT = stats.employment ?? 74;
   const employmentFactorT = Math.max(0.6, Math.min(1.3, 1 + (employmentT - 74) * 0.004));
   const economyIncome = Math.round(rawEconomyIncomeT * employmentFactorT);
@@ -6094,7 +6098,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             </div>
           </div>
           <div style={{ flex: "1 1 90px" }}>
-            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Безработица</div>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Занятость</div>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: employmentT < 74 ? "#c05030" : employmentT > 74 ? "#3a7a5a" : "#8a7a40" }}>
               {formatSubstatValue("employment", employmentT)}
             </div>
