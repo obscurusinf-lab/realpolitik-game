@@ -1896,6 +1896,44 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Казна ограничена 100 сверху: профицит выше 100 не накапливается
       newStats.treasury = Math.min(100, treasuryAfter);
 
+      // --- АВТОНОМНЫЕ СОБЫТИЯ (мир живёт без тебя) ---
+      // Перенесено сюда (было в самом конце обработчика, после потолка эрозии и проверки
+      // победы/поражения) — санкционная ветка этого пула может бить по экономике до −3, но
+      // раньше это происходило ПОСЛЕ того, как потолок эрозии и Организационный рост уже
+      // посчитаны, и ПОСЛЕ проверки победы/поражения. Из-за этого эффект был невидим в разбивке
+      // "Итоги месяца" и не учитывался ни потолком, ни условием "не было кризисов" у
+      // Организационного роста, а обвал экономики этим каналом ниже порога поражения
+      // засчитывался только на СЛЕДУЮЩИЙ месяц. Теперь событие резолвится раньше и его эффект
+      // на экономику полноценно учтён везде, где учитываются остальные автоэффекты.
+      const autonomousEvents = generateAutonomousEvents(newStats, completedMonth, gameId);
+      for (const ev of autonomousEvents) {
+        const economyDeltaFromEvent = ev.statDelta?.economy;
+        for (const [k, d] of Object.entries(ev.statDelta || {})) {
+          newStats[k] = Math.max(0, Math.min(100, (newStats[k] ?? 50) + d));
+        }
+        if (economyDeltaFromEvent) {
+          economyAutoEffects.push({ label: `Мир живёт без вас (${ev.source})`, delta: economyDeltaFromEvent });
+        }
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'world_reaction',$3,$4,'[]')`,
+          [gameId, completedMonth, ev.source, ev.text]
+        );
+      }
+
+      // --- ДИПЛОМАТИЧЕСКИЙ РАСПАД ПРИ ИЗОЛЯЦИИ ---
+      // Если дипломатия ниже 25 и нет дипломатических ходов этот месяц — ещё −1 экономике.
+      // Перенесено сюда по той же причине, что и автономные события выше — раньше срабатывало
+      // уже после потолка эрозии и проверки победы/поражения, теперь учтено везде.
+      {
+        const hadDiplomacyMove = turnsThisMonth.rows.some(r => r.action_mode === "diplomacy_op");
+        const dip = newStats.diplomacy ?? 50;
+        if (!hadDiplomacyMove && dip < 25) {
+          newStats.diplomacy = Math.max(0, dip - 2);
+          newStats.economy = Math.max(0, (newStats.economy ?? 50) - 1);
+          economyAutoEffects.push({ label: "Дипломатическая изоляция", delta: -1 });
+        }
+      }
+
       // --- МИРНЫЙ ДИВИДЕНД ---
       // Раньше «всё зелёное» не гарантировало НИКАКОГО пассивного роста экономики — только
       // казна>65, сильное отклонение ВВП (эффект режется /25) или низкая ставка ЦБ. Штрафы же
@@ -1966,17 +2004,6 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             const growth = corr < 40 ? 2 : 1; // быстрее растёт пока низкая
             newStats.corruption = Math.min(100, corr + growth);
           }
-        }
-      }
-
-      // --- ДИПЛОМАТИЧЕСКИЙ РАСПАД ПРИ ИЗОЛЯЦИИ ---
-      // Если дипломатия ниже 25 и нет дипломатических ходов этот месяц — ещё −2.
-      {
-        const hadDiplomacyMove = turnsThisMonth.rows.some(r => r.action_mode === "diplomacy_op");
-        const dip = newStats.diplomacy ?? 50;
-        if (!hadDiplomacyMove && dip < 25) {
-          newStats.diplomacy = Math.max(0, dip - 2);
-          newStats.economy = Math.max(0, (newStats.economy ?? 50) - 1);
         }
       }
 
@@ -2058,23 +2085,6 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         );
       }
       if (finalEvents.some(e => Object.keys(e.statDelta || {}).length > 0)) {
-        await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
-      }
-
-      // --- АВТОНОМНЫЕ СОБЫТИЯ (мир живёт без тебя) ---
-      const autonomousEvents = generateAutonomousEvents(newStats, completedMonth, gameId);
-      for (const ev of autonomousEvents) {
-        // Применяем стат-эффект события
-        for (const [k, d] of Object.entries(ev.statDelta || {})) {
-          newStats[k] = Math.max(0, Math.min(100, (newStats[k] ?? 50) + d));
-        }
-        await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'world_reaction',$3,$4,'[]')`,
-          [gameId, completedMonth, ev.source, ev.text]
-        );
-      }
-      // Обновляем stats если были автономные события с эффектом
-      if (autonomousEvents.some(e => Object.keys(e.statDelta || {}).length > 0)) {
         await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
       }
 
