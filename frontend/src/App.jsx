@@ -957,12 +957,27 @@ function nominalGdpRubTrillion(economyScore) {
 function nominalGdpUsdTrillion(rubTrillion, usdRubRate) {
   return rubTrillion / (usdRubRate || 80);
 }
+// Резервы (ФНБ) — тоже балл 0-100, а не реальные деньги. Якорим линейно на
+// историческом диапазоне ФНБ РФ: пик ≈₽13 трлн (февраль 2022, балл 100),
+// пусто = ₽0 (балл 0). Балл 48 (старт партии) даёт ≈₽6.2 трлн — это
+// примерно текущий (2025-2026) уровень ликвидной части фонда после трат
+// на СВО. Никакого искусственного "бесконечного роста": балл всё так же
+// зажат 0-100 в модели, просто отображается в реальных деньгах.
+const RESERVES_RUB_TRILLION_PER_POINT = 0.13;
+function reservesRubTrillion(score) {
+  const s = Math.max(0, Math.min(100, score ?? 48));
+  return s * RESERVES_RUB_TRILLION_PER_POINT;
+}
+function reservesUsdBillion(rubTrillion, usdRubRate) {
+  return (rubTrillion * 1000) / (usdRubRate || 80);
+}
 // Общий форматтер для substat-карточек (инфляция/ВВП/занятость показываются в %,
 // остальное — сырым баллом 0-100). Используется во всех местах, где рендерятся substats.
 function formatSubstatValue(key, value) {
   if (key === "inflation") return `${inflationPercent(value).toFixed(1)}% г/г`;
   if (key === "gdp_growth") { const p = gdpGrowthPercent(value); return `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`; }
   if (key === "employment") return `${employmentRatePercent(value).toFixed(1)}%`;
+  if (key === "reserves") return `₽${reservesRubTrillion(value).toFixed(1)} трлн`;
   return value;
 }
 function deltaColor(stat, delta) {
@@ -5944,6 +5959,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const [loading, setLoading] = useState(null);
   const [error, setError] = useState(null);
   const [statHistory, setStatHistory] = useState(null);
+  const [confirmReserves, setConfirmReserves] = useState(false);
 
   useEffect(() => {
     fetchStatHistory(gameId).then(d => setStatHistory(d.history || [])).catch(() => {});
@@ -6465,6 +6481,11 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const initiativeR = stats.initiative ?? 100;
         const canConvert = !reservesConverted && initiativeR >= 20 && reservesNow - RESERVES_CONVERT_AMOUNT_T >= RESERVES_CONVERT_MIN_LEFT_T;
         const reservesColor = reservesNow < 20 ? "#c03030" : reservesNow < 35 ? "#9c8347" : "#4a7a5a";
+        const reservesRubT = reservesRubTrillion(reservesNow);
+        const reservesUsdB = reservesUsdBillion(reservesRubT, usdRubT);
+        const convertRubT = reservesRubTrillion(RESERVES_CONVERT_AMOUNT_T);
+        const floorRubT = reservesRubTrillion(RESERVES_CONVERT_MIN_LEFT_T);
+        const headroomRubT = Math.max(0, reservesRubT - floorRubT);
         return (
           <div style={sectionStyle}>
             <div style={labelStyle}>РЕЗЕРВЫ (ФНБ)</div>
@@ -6472,24 +6493,27 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 26, fontWeight: 700, color: reservesColor, lineHeight: 1 }}>
-                    {Math.round(reservesNow)}
+                    ₽{reservesRubT.toFixed(1)} трлн
                   </div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", marginTop: 3 }}>
-                    {reservesNow < 20 ? "ЦБ нечем защищать рубль" : reservesNow < 35 ? "буфер тонкий" : "надёжный демпфер"}
+                    ≈${reservesUsdB.toFixed(0)} млрд · {reservesNow < 20 ? "ЦБ нечем защищать рубль" : reservesNow < 35 ? "буфер тонкий" : "надёжный демпфер"}
                   </div>
                 </div>
               </div>
 
-              <div style={{ height: 6, background: "#1a2030", borderRadius: 3, marginBottom: 14, overflow: "hidden" }}>
+              <div style={{ height: 6, background: "#1a2030", borderRadius: 3, marginBottom: 8, overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${reservesNow}%`, background: reservesColor, borderRadius: 3, transition: "width 0.4s" }} />
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", marginBottom: 14 }}>
+                Доступно на конвертацию: ₽{headroomRubT.toFixed(1)} трлн (ниже ₽{floorRubT.toFixed(1)} трлн опускать нельзя — это резерв ЦБ для защиты рубля)
               </div>
 
               <div style={{ borderTop: "1px solid #2a3040", paddingTop: 12 }}>
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>
-                  КОНВЕРТАЦИЯ В КАЗНУ · ⚡20, +{RESERVES_CONVERT_AMOUNT_T} казны, −{RESERVES_CONVERT_AMOUNT_T} резервов · инфляция +0.3
+                  КОНВЕРТАЦИЯ В КАЗНУ · ⚡20, +₽{convertRubT.toFixed(1)} трлн казны, −₽{convertRubT.toFixed(1)} трлн резервов · инфляция +0.3
                 </div>
                 <button
-                  onClick={handleConvertReserves}
+                  onClick={() => setConfirmReserves(true)}
                   disabled={!canConvert || loading === "convert_reserves"}
                   style={{
                     width: "100%", background: !canConvert ? "#1a2030" : "#1a1208",
@@ -6500,17 +6524,49 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                     textAlign: "left",
                   }}
                 >
-                  {loading === "convert_reserves" ? "Конвертация…" : reservesConverted ? "⚠ Резервы уже конвертировались в этом месяце" : `💰 Распечатать ${RESERVES_CONVERT_AMOUNT_T} пунктов ФНБ в казну`}
+                  {loading === "convert_reserves" ? "Конвертация…" : reservesConverted ? "⚠ Резервы уже конвертировались в этом месяце" : `💰 Распечатать ₽${convertRubT.toFixed(1)} трлн ФНБ в казну`}
                 </button>
                 {!reservesConverted && reservesNow - RESERVES_CONVERT_AMOUNT_T < RESERVES_CONVERT_MIN_LEFT_T && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 5 }}>
-                    Резервы нельзя опускать ниже {RESERVES_CONVERT_MIN_LEFT_T} — ниже этого уровня ЦБ нечем защищать рубль от шоков курса.
+                    Резервы нельзя опускать ниже ₽{floorRubT.toFixed(1)} трлн — ниже этого уровня ЦБ нечем защищать рубль от шоков курса.
                   </div>
                 )}
               </div>
 
               {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
             </div>
+
+            {confirmReserves && (
+              <Modal title="ПОДТВЕРДИТЕ: ПЕЧАТЬ ФНБ" onClose={() => setConfirmReserves(false)}>
+                <div style={{ fontFamily: "'PT Serif',serif", fontSize: 14, color: "#2a2620", lineHeight: 1.5, marginBottom: 14 }}>
+                  Вы собираетесь распечатать <b>₽{convertRubT.toFixed(1)} трлн</b> из Фонда национального благосостояния и перевести их в казну.
+                </div>
+                <div style={{ background: "#efe8d6", border: "1px solid #d8cfb8", borderRadius: 4, padding: "10px 12px", marginBottom: 16 }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a5240", letterSpacing: "0.06em", marginBottom: 6 }}>ПОСЛЕДСТВИЯ</div>
+                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a3428", lineHeight: 1.6 }}>
+                    − ⚡20 очков инициативы за ход<br/>
+                    + ₽{convertRubT.toFixed(1)} трлн в казну<br/>
+                    − ₽{convertRubT.toFixed(1)} трлн из резервов (останется ₽{(reservesRubT - convertRubT).toFixed(1)} трлн)<br/>
+                    + инфляция 0.3<br/>
+                    Действие одноразовое на этот месяц — повторно распечатать нельзя до следующего хода.
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => setConfirmReserves(false)}
+                    style={{ background: "none", border: "1px solid #b0a888", color: "#5a5240", borderRadius: 3, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    onClick={() => { setConfirmReserves(false); handleConvertReserves(); }}
+                    style={{ background: "#1a1208", border: "1px solid #8a6020", color: "#c09050", borderRadius: 3, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}
+                  >
+                    Распечатать
+                  </button>
+                </div>
+              </Modal>
+            )}
           </div>
         );
       })()}
@@ -6736,13 +6792,38 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
     onRefresh?.();
   }
 
+  const stats = state.stats || {};
+  const oilPrice = stats.oil_price ?? 85;
+  const usdRub = stats.usd_rub ?? 80;
+  const EUR_USD_RATE = 1.08; // фиксированный кросс-курс евро/доллар для отображения (в игре нет отдельной статы под евро)
+  const eurRub = usdRub * EUR_USD_RATE;
+  const oilTickerColor = oilPrice >= 80 ? "#4a7a5a" : oilPrice >= 55 ? "#9c8347" : "#c03030";
+  const fxTickerColor = usdRub <= 75 ? "#4a7a5a" : usdRub <= 95 ? "#9c8347" : "#c03030";
+  const marketTicker = (
+    <div style={{
+      display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center",
+      background: "#14181f", border: "1px solid #2a3040", borderRadius: 4,
+      padding: "8px 14px", marginBottom: 12,
+    }}>
+      <span className="mono-font" style={{ fontSize: 11, color: oilTickerColor }}>🛢 Brent ${oilPrice.toFixed(0)}</span>
+      <span className="mono-font" style={{ fontSize: 11, color: fxTickerColor }}>$ {usdRub.toFixed(1)}₽</span>
+      <span className="mono-font" style={{ fontSize: 11, color: fxTickerColor }}>€ {eurRub.toFixed(1)}₽</span>
+    </div>
+  );
+
   if (!state.newsfeed?.length) {
-    return <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>Лента пуста.</div>;
+    return (
+      <div>
+        {marketTicker}
+        <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>Лента пуста.</div>
+      </div>
+    );
   }
   const relMap = {};
   for (const r of (state.relations || [])) relMap[r.name] = r.value;
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      {marketTicker}
       {[...state.newsfeed].reverse().map((item, i) => {
         if (item.type === "ukraine_action") {
           return (
