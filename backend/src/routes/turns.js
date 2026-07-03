@@ -1843,6 +1843,29 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Казна ограничена 100 сверху: профицит выше 100 не накапливается
       newStats.treasury = Math.min(100, treasuryAfter);
 
+      // --- МИРНЫЙ ДИВИДЕНД ---
+      // Раньше «всё зелёное» не гарантировало НИКАКОГО пассивного роста экономики — только
+      // казна>65, сильное отклонение ВВП (эффект режется /25) или низкая ставка ЦБ. Штрафы же
+      // (ставка, военное бремя, инфляция, дефицит) срабатывают гораздо охотнее и без такого
+      // смягчения. Игрок мог месяцами держать все статы здоровыми и не видеть роста экономики.
+      // Добавляем скромный органический плюс: если и экономика, и стабильность, и дипломатия,
+      // и рейтинг здоровы — И в этом месяце не сработал НИ ОДИН автоматический минус (ставка,
+      // военное бремя, инфляция, дефицит, случайный кризис) — устойчивое правление даёт отдачу.
+      {
+        const noAutoCrisis = economyAutoEffects.every(e => e.delta >= 0);
+        const coreEco = newStats.economy ?? 50;
+        const coreStab = newStats.stability ?? 50;
+        const coreDip = newStats.diplomacy ?? 50;
+        const coreAppr = newStats.approval ?? 50;
+        const allHealthy = coreEco >= 55 && coreStab >= 55 && coreDip >= 55 && coreAppr >= 55;
+        const allStrong = coreEco >= 70 && coreStab >= 70 && coreDip >= 70 && coreAppr >= 70;
+        if (noAutoCrisis && allHealthy) {
+          const dividend = allStrong ? 2 : 1;
+          newStats.economy = Math.min(100, coreEco + dividend);
+          economyAutoEffects.push({ label: "Мирный дивиденд", delta: dividend });
+        }
+      }
+
       // --- ПОТОЛОК МЕСЯЧНОЙ ЭРОЗИИ ЭКОНОМИКИ ---
       // Раньше несколько автоэффектов (ставка ЦБ, военное бремя, инфляция, спираль казны,
       // случайный кризис) могли сложиться в −10..−15 экономики за ОДИН месяц без верхнего

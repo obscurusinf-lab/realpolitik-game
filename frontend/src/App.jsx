@@ -4196,6 +4196,34 @@ function EndMonthForecastPanel({ stats }) {
     }
   }
 
+  // 9.5. Мирный дивиденд: все базовые статы здоровы и в этом месяце не сработал ни один
+  // автоматический минус на экономику — устойчивое правление даёт скромную отдачу.
+  {
+    const hadEconomyHit = mechanisms.some(m => m.active === true && m.impacts.some(i => i.label === "Экономика" && typeof i.delta === "number" && i.delta < 0));
+    const allHealthy = eco >= 55 && stab >= 55 && dip >= 55 && appr >= 55;
+    const allStrong = eco >= 70 && stab >= 70 && dip >= 70 && appr >= 70;
+    if (!hadEconomyHit && allHealthy) {
+      const dividend = allStrong ? 2 : 1;
+      mechanisms.push({
+        active: true, severity: "good",
+        name: "Мирный дивиденд",
+        trigger: `Экономика ${eco}, стабильность ${stab}, дипломатия ${dip}, рейтинг ${appr} — все здоровы, кризисов на экономику не было`,
+        impacts: [{ label: "Экономика", delta: dividend }],
+        fix: null,
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Мирный дивиденд",
+        trigger: hadEconomyHit
+          ? "В этом месяце уже сработал автоматический минус на экономику — дивиденд не начисляется"
+          : `Не все базовые статы ≥55 (экономика ${eco}, стабильность ${stab}, дипломатия ${dip}, рейтинг ${appr})`,
+        impacts: [],
+        fix: hadEconomyHit ? null : "Поднимите экономику, стабильность, дипломатию и рейтинг выше 55 одновременно и избегайте кризисов — тогда экономика начнёт расти сама по себе (+1, или +2, если все показатели выше 70).",
+      });
+    }
+  }
+
   // 10. Мятеж элит (вероятностный, только при низком elite_satisfaction)
   {
     const eliteSat = stats.elite_satisfaction ?? 62;
@@ -4322,34 +4350,61 @@ function getPassiveEffects(key, stats) {
   const inf = stats.inflation ?? 64;
   const trs = stats.treasury ?? 52;
   const eco = stats.economy ?? 50;
+  const stab = stats.stability ?? 50;
+  const dip = stats.diplomacy ?? 50;
+  const appr = stats.approval ?? 50;
   const streak = stats.military_streak ?? 0;
   const corr = stats.corruption ?? 55;
   const mc = stats.middle_class ?? 44;
   const lc = stats.lower_class_mood ?? 41;
   const eliteSat = stats.elite_satisfaction ?? 62;
+  const rate = stats.key_rate ?? 18.5;
+  const gdp = stats.gdp_growth ?? 36;
   const wearinessHit = streak >= 4 ? Math.min(5, Math.floor((streak - 3) * 1.5)) : 0;
   const moodEffect = Math.round((mc - 44) / 30) + Math.round((lc - 41) / 30);
   const effects = [];
 
   if (key === "economy") {
+    let hadNegative = false;
     if (mil > 80) {
       const tax = Math.floor((mil - 80) / 10) + 1;
       effects.push({ sign: -1, value: tax, text: `Военное бремя: содержание армии (${mil} > 80)` });
+      hadNegative = true;
     }
     if (inf > 73) {
       const pen = Math.min(3, Math.floor((inf - 73) / 10) + 1);
       effects.push({ sign: -1, value: pen, text: `Инфляционный шок (${inflationPercent(inf).toFixed(0)}% > 15% г/г)` });
+      hadNegative = true;
     }
     if (trs < 0) {
       effects.push({ sign: -1, value: 2, text: `Дефицит казны (${trs} < 0)` });
+      hadNegative = true;
     } else if (trs < 15) {
       effects.push({ sign: -1, value: 1, text: `Низкая казна (${trs} < 15)` });
+      hadNegative = true;
     } else if (trs > 65 && eco < 82) {
       effects.push({ sign: +1, value: 1, text: `Профицит казны (${trs} > 65)` });
+    }
+    if (rate > 17) {
+      effects.push({ sign: -1, value: 1, text: `Ключевая ставка ЦБ высокая (${rate}% > 17%)` });
+      hadNegative = true;
+    } else if (rate < 11) {
+      effects.push({ sign: +1, value: 1, text: `Ключевая ставка ЦБ низкая (${rate}% < 11%)` });
+    }
+    const gdpEffect = Math.round((gdp - 36) / 25);
+    if (gdpEffect) {
+      effects.push({ sign: gdpEffect > 0 ? 1 : -1, value: Math.abs(gdpEffect), text: `Рост ВВП vs старт партии (${gdpGrowthPercent(gdp).toFixed(1)}% г/г)` });
+      if (gdpEffect < 0) hadNegative = true;
     }
     if (corr > 50) {
       const drain = Math.round(Math.pow((corr - 50) / 50, 1.3) * 12);
       effects.push({ sign: -1, value: drain, text: `Коррупционная утечка бюджета (бьёт по казне, элиты в доле)` });
+    }
+    // Мирный дивиденд: все базовые статы здоровы и в этом месяце не сработал ни один
+    // автоматический минус на экономику — устойчивое правление даёт скромную отдачу.
+    if (!hadNegative && eco >= 55 && stab >= 55 && dip >= 55 && appr >= 55) {
+      const dividend = (eco >= 70 && stab >= 70 && dip >= 70 && appr >= 70) ? 2 : 1;
+      effects.push({ sign: +1, value: dividend, text: `Мирный дивиденд: все базовые статы здоровы, кризисов нет` });
     }
   }
 
@@ -7007,6 +7062,7 @@ function WikiTab({ dark = false }) {
       <div style={S.p}><span style={S.b}>Инфляция</span> — когда индекс выше 73, каждый месяц давит на экономику. Снижается от ключевой ставки и стабилизации курса. Растёт от дефицита, военных трат, слабого рубля. Рынок труда тоже слегка влияет: перегретая занятость (выше стартовых 95%) немного разгоняет инфляцию через рост зарплат, а высокая безработица — наоборот, охлаждает её (эффект намеренно мягкий).</div>
       <div style={S.p}><span style={S.b}>Рост ВВП и занятость</span> — оба показателя переведены в реальные единицы вместо абстрактных баллов: рост ВВП — в % год к году (старт партии ≈1%), занятость — в % рабочей силы (старт ≈95%, с запасом для роста). Экономика в целом также отображается в номинальном ВВП (₽ трлн / $ трлн), пересчитанном по текущему курсу — всё это видно на вкладке Казна с разбивкой, что именно двигает показатель в последний месяц.</div>
       <div style={S.p}><span style={S.b}>Потолок месячной эрозии экономики</span> — все автоматические потери за один месяц (высокая ключевая ставка, военное бремя, инфляционный шок, дефицит казны, случайные кризисы) суммарно ограничены −6 пунктов. Резкий обвал экономики за один ход больше не случится: если суммарные потери превышают потолок, разница возвращается экономике. В конце месяца новость от «Минэкономразвития» показывает точную разбивку: что именно и сколько списало экономику.</div>
+      <div style={S.p}><span style={S.b}>Мирный дивиденд</span> — если экономика, стабильность, дипломатия и рейтинг одновременно выше 55, и в этом месяце не сработал ни один автоматический минус на экономику (ставка ЦБ, военное бремя, инфляция, дефицит казны) — экономика получает +1 пункт сама по себе, +2, если все четыре показателя выше 70. Устойчивое здоровое правление должно давать отдачу, а не просто «не терять очки».</div>
       <div style={S.p}><span style={S.b}>Советник Силин</span> всегда называет конкретные цифры и объясняет, какие инструменты доступны прямо сейчас.</div>
 
       <div style={S.h}>ПРОЗРАЧНОСТЬ ПОКАЗАТЕЛЕЙ</div>
