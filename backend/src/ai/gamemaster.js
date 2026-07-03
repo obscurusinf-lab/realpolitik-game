@@ -79,7 +79,7 @@ function stripMarkdownFences(text) {
 async function classifyTurn({ params, callClaudeApi, retryCount = 0 }) {
   const response = await callClaudeApi({
     model: "claude-sonnet-4-6",
-    max_tokens: 2500,
+    max_tokens: 4000,
     system: [{ type: "text", text: CACHED_SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: buildUserMessage(params) }],
   });
