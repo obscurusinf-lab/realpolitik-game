@@ -176,21 +176,24 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
 }`;
 
 function buildEconIndicators(stats) {
-  const OIL_BASE = 85, FX_BASE = 80, INFLATION_OFFSET = 58;
-  const oil = stats.oil_price ?? OIL_BASE;
+  // OIL_BUDGET_CUTOFF — цена отсечения бюджета ($65, как и в реальном бюджетном правиле РФ),
+  // НЕ текущая "нормальная" цена нефти. Должна совпадать с той же константой в turns.js —
+  // иначе советник озвучивает игроку не те цифры, что реально считает казна.
+  const OIL_BUDGET_CUTOFF = 65, FX_BASE = 80, INFLATION_OFFSET = 58;
+  const oil = stats.oil_price ?? 85;
   const fx = stats.usd_rub ?? FX_BASE;
   const inflScore = stats.inflation ?? 64;
   const inflPct = Math.max(0, inflScore - INFLATION_OFFSET);
   const treasury = stats.treasury ?? 52;
-  const oilEffect = oil > OIL_BASE ? `+${Math.round((oil - OIL_BASE) * 0.7)} к казне` : `${Math.round((oil - OIL_BASE) * 0.7)} к казне`;
+  const oilEffect = oil > OIL_BUDGET_CUTOFF ? `+${Math.round((oil - OIL_BUDGET_CUTOFF) * 0.7)} к казне` : `${Math.round((oil - OIL_BUDGET_CUTOFF) * 0.7)} к казне`;
   const fxEffect = fx > FX_BASE + 10 ? "инфляционное давление через импорт" : fx < FX_BASE - 10 ? "укрепление рубля снижает инфляцию" : "нейтральный эффект на инфляцию";
   const inflWarning = inflScore > 73 ? `⚠️ ВЫШЕ ПОРОГА — давит на экономику −${Math.min(3, Math.floor((inflScore - 73) / 10) + 1)} и одобрение` : inflScore > 68 ? "близко к опасной зоне (>73)" : "норма";
   const treasuryNote = treasury < 0 ? "⚠️ ДЕФИЦИТ — займы разгоняют инфляцию" : treasury < 15 ? "низкая — экономика проседает" : treasury > 65 ? "профицит — экономика восстанавливается" : "стабильная";
-  return `• Нефть Brent: $${oil}/барр. (база $${OIL_BASE}) → ${oilEffect}/мес
+  return `• Нефть Brent: $${oil}/барр. (цена отсечения бюджета $${OIL_BUDGET_CUTOFF}) → ${oilEffect}/мес
 • Курс USD/RUB: ₽${fx} (база ₽${FX_BASE}) → ${fxEffect}
 • Инфляция: ${inflPct.toFixed(1)}% г/г (индекс ${inflScore}) — ${inflWarning}
 • Казна: ${(treasury * 0.8).toFixed(1)} трлн ₽ — ${treasuryNote}
-Рычаги: указ об экономическом стимулировании поднимает экономику +1..+3, но при дефиците казны или инфляции >73 этот рост гасится. Нефть дороже базы — профицит бюджета. Слабый рубль (>${FX_BASE + 10}₽/$) разгоняет инфляцию.`;
+Рычаги: указ об экономическом стимулировании поднимает экономику +1..+3, но при дефиците казны или инфляции >73 этот рост гасится. Нефть дороже цены отсечения — профицит бюджета. Слабый рубль (>${FX_BASE + 10}₽/$) разгоняет инфляцию.`;
 }
 
 /**

@@ -4090,27 +4090,30 @@ function EndMonthForecastPanel({ stats }) {
     }
   }
 
-  // 8. Занятость → налоговая база (доход казны от экономики и политик)
+  // 8. Занятость → налоговая база + инфляция (кривая Филлипса)
   {
     const empl = stats.employment ?? 74;
     const factor = Math.max(0.6, Math.min(1.3, 1 + (empl - 74) * 0.004));
     const pctShift = Math.round((factor - 1) * 100);
+    const emplInflEffect = Math.round((empl - 74) / 25);
     const emplPct = employmentRatePercent(empl);
-    if (pctShift !== 0) {
+    if (pctShift !== 0 || emplInflEffect !== 0) {
+      const impacts = [{ label: `Доход казны ${pctShift > 0 ? "+" : ""}${pctShift}%`, delta: null }];
+      if (emplInflEffect) impacts.push({ label: "Инфляция", delta: emplInflEffect });
       mechanisms.push({
         active: true, severity: pctShift > 0 ? "good" : "bad",
         name: "Занятость",
-        trigger: `Занятость ${emplPct.toFixed(1)}% (старт партии: 95%) — двигает налоговую базу`,
-        impacts: [{ label: `Доход казны ${pctShift > 0 ? "+" : ""}${pctShift}%`, delta: null }],
+        trigger: `Занятость ${emplPct.toFixed(1)}% (старт партии: 95%) — двигает налоговую базу и инфляцию`,
+        impacts,
         fix: pctShift < 0
-          ? "Низкая занятость режет налоговые поступления и доход от экономики. Указы «Стимул экономики» и либерализация поднимают занятость."
-          : "Высокая занятость расширяет налоговую базу — доход казны выше обычного. Дальнейший рост занятости продолжает увеличивать доход, даже когда % на глаз выглядит почти максимальным.",
+          ? "Низкая занятость режет налоговые поступления и доход от экономики (зато охлаждает инфляцию). Указы «Стимул экономики» и либерализация поднимают занятость."
+          : "Высокая занятость расширяет налоговую базу — доход казны выше обычного, но перегретый рынок труда понемногу разгоняет инфляцию (кривая Филлипса). Дальнейший рост занятости продолжает увеличивать доход, даже когда % на глаз выглядит почти максимальным.",
       });
     } else {
       mechanisms.push({
         active: false,
         name: "Занятость",
-        trigger: `Занятость ${emplPct.toFixed(1)}% ≈ стартовый уровень — налоговая база не искажена`,
+        trigger: `Занятость ${emplPct.toFixed(1)}% ≈ стартовый уровень — налоговая база и инфляция не искажены`,
         impacts: [],
         fix: null,
       });
@@ -5963,7 +5966,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const economyIncome = Math.round(rawEconomyIncomeT * employmentFactorT);
   const taxIncome = Math.round(rawTaxIncomeT * employmentFactorT);
   const gdpGrowthT = stats.gdp_growth ?? 36;
-  const OIL_BASELINE_T = 85, FX_BASELINE_T = 80;
+  const OIL_BASELINE_T = 85, FX_BASELINE_T = 80;   // текущая "нормальная" цена — фолбэк, если oil_price не задан
+  const OIL_BUDGET_CUTOFF_T = 65;                  // цена отсечения бюджета — база для oilIncomeT, НЕ фолбэк
   const oilPriceT = stats.oil_price ?? OIL_BASELINE_T;
   const usdRubT = stats.usd_rub ?? FX_BASELINE_T;
   const nominalGdpRubT = nominalGdpRubTrillion(eco);
@@ -5974,7 +5978,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const allyTrustT = stats.ally_trust ?? 42;
   const allyMitigationT = allyTrustT > 50 ? Math.min(0.15, (allyTrustT - 50) / 100) : 0;
   const sanctionDiscountT = Math.max(0, rawSanctionDiscountT - allyMitigationT);
-  const oilIncomeT = Math.round((oilPriceT - OIL_BASELINE_T) * 0.7 * (1 - sanctionDiscountT));
+  const oilIncomeT = Math.round((oilPriceT - OIL_BUDGET_CUTOFF_T) * 0.7 * (1 - sanctionDiscountT));
   const fxIncomeT = Math.round((usdRubT - FX_BASELINE_T) * 0.4);
   const corrLevelT = stats.corruption ?? 55;
   const corruptionDrainT = corrLevelT > 50 ? Math.round(Math.pow((corrLevelT - 50) / 50, 1.3) * 12) : 0;
@@ -6576,8 +6580,9 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
       {/* Нефть и валюта */}
       {(() => {
-        const OIL_BASELINE = 68, FX_BASELINE = 80;
-        const oilPrice = stats.oil_price ?? OIL_BASELINE;
+        const OIL_CURRENT_FALLBACK = 85, FX_BASELINE = 80; // фолбэк на случай отсутствия oil_price
+        const OIL_BUDGET_CUTOFF = 65; // цена отсечения бюджета — база для oilIncome (см. turns.js)
+        const oilPrice = stats.oil_price ?? OIL_CURRENT_FALLBACK;
         const usdRub = stats.usd_rub ?? FX_BASELINE;
         const isolationVal = stats.isolation ?? 68;
         const oilColor = oilPrice >= 80 ? "#4a7a5a" : oilPrice >= 55 ? "#9c8347" : "#c03030";
@@ -6590,7 +6595,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const allyTrustVal = stats.ally_trust ?? 42;
         const allyMitigation = allyTrustVal > 50 ? Math.min(0.15, (allyTrustVal - 50) / 100) : 0;
         const sanctionDiscount = Math.max(0, rawSanctionDiscount - allyMitigation);
-        const oilIncome = Math.round((oilPrice - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
+        const oilIncome = Math.round((oilPrice - OIL_BUDGET_CUTOFF) * 0.7 * (1 - sanctionDiscount));
         const fxIncome = Math.round((usdRub - FX_BASELINE) * 0.4);
         const totalOilFx = oilIncome + fxIncome;
 
@@ -6613,7 +6618,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                     ${oilPrice.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}>/барр.</span>
                   </div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#8a8472", marginTop: 2 }}>
-                    база: ${OIL_BASELINE} · {oilPrice >= OIL_BASELINE ? `+${(oilPrice - OIL_BASELINE).toFixed(1)} (доп. доход)` : `${(oilPrice - OIL_BASELINE).toFixed(1)} (ниже базы)`}
+                    цена отсечения бюджета: ${OIL_BUDGET_CUTOFF} · {oilPrice >= OIL_BUDGET_CUTOFF ? `+${(oilPrice - OIL_BUDGET_CUTOFF).toFixed(1)} (доход сверх бюджета)` : `${(oilPrice - OIL_BUDGET_CUTOFF).toFixed(1)} (недобор к бюджету)`}
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
@@ -6866,7 +6871,7 @@ function WikiTab({ dark = false }) {
       <div style={S.p}>У ВСУ три ключевых показателя: <span style={S.b}>армия</span> (боеспособность), <span style={S.b}>боевой дух</span> и <span style={S.b}>поддержка Запада</span>. Украина выбирает стратегию каждый ход — военную, дипломатическую, экономическую, информационную или гибридную. При перегруппировке или передышке с вашей стороны противник использует паузу.</div>
 
       <div style={S.h}>ЭКОНОМИЧЕСКИЕ ИНДИКАТОРЫ</div>
-      <div style={S.p}><span style={S.b}>Нефть Brent</span> — при цене выше базы ($85/барр.) казна получает бонус каждый месяц. Геополитика и ОПЕК+ двигают цену.</div>
+      <div style={S.p}><span style={S.b}>Нефть Brent</span> — бюджет свёрстан по цене отсечения $65/барр. (как и в реальном бюджетном правиле РФ): при любой цене выше $65 казна получает реальный доход, просто меньше при более низкой цене. Старт партии — $85 (военная надбавка на фоне ирано-американской эскалации): цена растёт первые 5-6 ходов, затем происходит временная сделка США-Иран — иранская нефть возвращается на рынок, и цена резко падает к довоенному уровню ~$68. Геополитика и ОПЕК+ двигают цену и после этого.</div>
       <div style={S.p}><span style={S.b}>Курс USD/RUB</span> — слабый рубль (выше ₽80) увеличивает рублёвые доходы от экспорта, но разгоняет инфляцию через импорт.</div>
       <div style={S.p}><span style={S.b}>Инфляция</span> — когда индекс выше 73, каждый месяц давит на экономику. Снижается от ключевой ставки и стабилизации курса. Растёт от дефицита, военных трат, слабого рубля.</div>
       <div style={S.p}><span style={S.b}>ФНБ (Фонд национального благосостояния)</span> — резервный буфер правительства, отдельно от ЗВР Центробанка. Пополняется при высоких ценах на нефть, тратится на покрытие дефицита казны в трудные месяцы.</div>

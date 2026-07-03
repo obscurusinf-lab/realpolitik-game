@@ -1471,24 +1471,47 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.peace_progress = Math.max(0, p - decay);
       }
 
-      // --- НЕФТЬ И ВАЛЮТА: помесячный дрейф + рыночные события ---
-      // Реальные единицы: $/баррель Brent (база 68) и ₽/$ (база 80). Случайное блуждание
-      // каждый месяц, но с лёгким возвратом к базе (mean reversion) — без геополитических
-      // причин цена/курс со временем стягиваются обратно к норме, а не «убегают» навсегда
-      // к границам диапазона. Плюс ~15% шанс геополитического события, которое толкает
-      // нефть/курс резко в плюс или в минус (Иран и т.п. — отдельный, более сильный сдвиг).
-      // База нефти поднята с 68 до 85: фоновый конфликт США-Иран держит рынок нервным,
-      // реальные котировки Brent в такой обстановке чаще находятся в диапазоне $80-120,
-      // а не у довоенных $60-70.
-      const OIL_BASELINE = 85;
+      // --- НЕФТЬ И ВАЛЮТА: сценарная траектория + помесячный дрейф + рыночные события ---
+      // Реальные единицы: $/баррель Brent и ₽/$. Сценарная дуга: ирано-американская
+      // эскалация толкает цену ВВЕРХ первые OIL_DEAL_TURN ходов, затем — временная сделка
+      // США-Иран (санкции на иранский экспорт частично сняты, нефть возвращается на рынок),
+      // после чего цель дрейфа падает к довоенному уровню — как и в реальности, военная
+      // надбавка временна.
+      //
+      // Доход казны считается ОТНОСИТЕЛЬНО ЦЕНЫ ОТСЕЧЕНИЯ БЮДЖЕТА ($65, как в реальном
+      // бюджетном правиле РФ) — НЕ относительно текущей "нормальной" цены. Раньше база
+      // дохода = текущая цель дрейфа (85), из-за чего партии, стартовавшие до этого фикса
+      // с ценой ниже 85 (например, старый сид $68), показывали "убыток" от нефти — хотя
+      // реальный доход от продажи нефти всегда положителен при любой цене выше отсечения,
+      // просто меньше, чем при пиковых ценах.
+      const OIL_BUDGET_CUTOFF = 65;  // цена отсечения бюджета — база для oilIncome, НЕ меняется по ходу игры
+      const OIL_DEAL_TURN = 6;       // ход, на котором происходит сделка США-Иран
       const FX_BASELINE = 80;
-      const oilBefore = typeof newStats.oil_price === "number" ? newStats.oil_price : OIL_BASELINE;
+      const oilDealAlreadyReached = !!newStats.oil_iran_deal_reached;
+      const oilReversionTarget = oilDealAlreadyReached ? 68 : 85; // цель дрейфа: военная надбавка / довоенный уровень
+      const oilBefore = typeof newStats.oil_price === "number" ? newStats.oil_price : 85;
       const fxBefore = typeof newStats.usd_rub === "number" ? newStats.usd_rub : FX_BASELINE;
-      const oilReversion = (OIL_BASELINE - oilBefore) * 0.08;
+      const oilReversion = (oilReversionTarget - oilBefore) * 0.08;
       const fxReversion = (FX_BASELINE - fxBefore) * 0.08;
-      let oilNow = Math.max(35, Math.min(120, oilBefore + oilReversion + (Math.random() * 6 - 3))); // возврат к базе + дрейф ±3$
+      let oilNow = Math.max(35, Math.min(120, oilBefore + oilReversion + (Math.random() * 6 - 3))); // возврат к цели + дрейф ±3$
       let fxNow = Math.max(55, Math.min(140, fxBefore + fxReversion + (Math.random() * 4 - 2)));    // возврат к базе + дрейф ±2₽
       let marketEventLine = "";
+
+      // Сценарная дуга: эскалация толкает цену вверх, пока не наступит сделка США-Иран
+      if (!oilDealAlreadyReached && completedMonth >= OIL_DEAL_TURN) {
+        newStats.oil_iran_deal_reached = true;
+        oilNow = Math.max(35, oilNow - 22); // иранская нефть возвращается на рынок — резкое падение
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, completedMonth, "news", "Reuters",
+           "США и Иран подписали временное соглашение по ядерной программе — часть санкций на иранский экспорт нефти снята. Иранская нефть возвращается на мировой рынок, цены на Brent резко пошли вниз, снимая военную надбавку последних месяцев.",
+           JSON.stringify([{ emoji: "🕊️", label: "разрядка", count: Math.floor(Math.random() * 120) + 40 }])]
+        );
+        fastify.log.info({ gameId, turn: completedMonth }, "Iran deal reached — oil price shock down");
+      } else if (!oilDealAlreadyReached) {
+        oilNow = Math.min(120, oilNow + 3 + Math.random() * 2); // эскалация продолжается — цена ползёт вверх
+      }
+
       if (Math.random() < 0.15) {
         const MARKET_EVENTS = [
           { source: "Bloomberg", oilDelta: 14, text: "Эскалация вокруг Ирана: удары по объектам в Персидском заливе подняли страх перебоев поставок. Нефть Brent подскочила на фоне угрозы блокады Ормузского пролива." },
@@ -1531,7 +1554,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const allyTrustVal = newStats.ally_trust ?? 42;
       const allyMitigation = allyTrustVal > 50 ? Math.min(0.15, (allyTrustVal - 50) / 100) : 0;
       const sanctionDiscount = Math.max(0, rawSanctionDiscount - allyMitigation);
-      const oilIncome = Math.round((newStats.oil_price - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
+      const oilIncome = Math.round((newStats.oil_price - OIL_BUDGET_CUTOFF) * 0.7 * (1 - sanctionDiscount));
       const fxIncome = Math.round((newStats.usd_rub - FX_BASELINE) * 0.4);
       if (newStats.usd_rub > FX_BASELINE + 10) {
         newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.5);
@@ -1577,6 +1600,14 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const employmentFactor = Math.max(0.6, Math.min(1.3, 1 + (employmentNow - 74) * 0.004));
       const economyIncome = Math.round(rawEconomyIncome * employmentFactor);
       const taxIncome = Math.round(rawTaxIncome * employmentFactor);
+      // ЗАНЯТОСТЬ → ИНФЛЯЦИЯ (кривая Филлипса): перегретый рынок труда разгоняет цены через
+      // рост зарплат при дефиците рабочих рук; высокая безработица (низкая занятость), наоборот,
+      // охлаждает инфляцию за счёт слабого спроса. Компаундинг относительно старта партии (74),
+      // как и у gdp_growth — намеренно мягкий (/25), т.к. инфляционных механизмов уже много.
+      const employmentInflationEffect = Math.round((employmentNow - 74) / 25);
+      if (employmentInflationEffect) {
+        newStats.inflation = Math.max(0, Math.min(100, (newStats.inflation ?? 64) + employmentInflationEffect));
+      }
       // Коррупционная утечка: часть бюджета разворовывается каждый месяц, пропорционально уровню коррупции.
       // 0-50 коррупции — утечки нет; 50-100 — растёт нелинейно (схемы крупнее при высокой коррупции).
       // Подстата живёт в группе «Одобрение» (коррупция — про элиты), но эффект чисто экономический.
