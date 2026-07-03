@@ -36,6 +36,8 @@ const OUTCOME_TITLES = {
   defeat_unrest:    "Народные волнения сметают власть",
   defeat_isolation: "Полная международная изоляция",
   defeat_war:       "Неконтролируемая эскалация войны",
+  defeat_military_collapse: "Армия небоеспособна — фронт рухнул",
+  defeat_donbass_lost:      "ВСУ отбили Донбасс",
 };
 
 const GAME_SLOT_LIMIT = 5;

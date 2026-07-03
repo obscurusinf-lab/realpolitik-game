@@ -1251,6 +1251,8 @@ const OUTCOME_TITLES = {
   defeat_unrest:    "НАРОДНЫЕ ВОЛНЕНИЯ",
   defeat_isolation: "МЕЖДУНАРОДНАЯ ИЗОЛЯЦИЯ",
   defeat_war:       "СПИРАЛЬ ВОЙНЫ",
+  defeat_military_collapse: "ФРОНТ РУХНУЛ",
+  defeat_donbass_lost:      "ДОНБАСС ОТБИТ",
 };
 
 function MissionPanel({ stats, turn, maxTurns = 24 }) {
@@ -1318,6 +1320,16 @@ function MissionPanel({ stats, turn, maxTurns = 24 }) {
       {(stats?.economy ?? 100) < 40 && (
         <div style={{ marginTop: 4, padding: "4px 8px", background: "#3a1515", borderRadius: 3, fontSize: 10.5, color: "#ef9a9a" }}>
           ⚠ Экономика под угрозой коллапса (&lt;30)
+        </div>
+      )}
+      {(stats?.military ?? 100) < 35 && (
+        <div style={{ marginTop: 4, padding: "4px 8px", background: "#3a1515", borderRadius: 3, fontSize: 10.5, color: "#ef9a9a" }}>
+          ⚠ Армия небоеспособна — угроза развала фронта (&lt;30)
+        </div>
+      )}
+      {((stats?.donetsk_control ?? 100) < 55 || (stats?.luhansk_control ?? 100) < 55) && (
+        <div style={{ marginTop: 4, padding: "4px 8px", background: "#3a1515", borderRadius: 3, fontSize: 10.5, color: "#ef9a9a" }}>
+          ⚠ ВСУ теснят фронт в Донбассе — поражение при Донецке и Луганске ниже 40%
         </div>
       )}
     </div>
@@ -1418,6 +1430,8 @@ const OUTCOME_COLORS = {
   defeat_unrest:    { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
   defeat_isolation: { bg: "#1a0010", border: "#ab47bc", title: "#ce93d8", glow: "rgba(171,71,188,0.1)" },
   defeat_war:       { bg: "#1a0500", border: "#ff5722", title: "#ff8a65", glow: "rgba(255,87,34,0.1)" },
+  defeat_military_collapse: { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+  defeat_donbass_lost:      { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
 };
 
 function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
@@ -6991,9 +7005,11 @@ function WikiTab({ dark = false }) {
         <span style={S.b}>Стабильность</span> ниже 25 — народные волнения сметают власть.<br/>
         <span style={S.b}>Дипломатия</span> ниже 15 — полная международная изоляция.<br/>
         <span style={S.b}>Военная эскалация</span> — счётчик международного напряжения растёт от слишком агрессивных военных операций (и снижается, если не воевать); при накоплении 3+ — неконтролируемая эскалация войны.<br/>
+        <span style={S.b}>Армия</span> ниже 30 — фронт рухнул, войска небоеспособны.<br/>
+        <span style={S.b}>Донецк и Луганск</span> оба ниже 40% — ВСУ отбили Донбасс.<br/>
         <span style={S.b}>Срок</span> — если к 24-му ходу не достигнуты условия победы, партия завершается как «время истекло».
       </div>
-      <div style={S.p}>Отдельного «военного поражения» — то есть развала самой армии или отвоевания Украиной всех территорий обратно — в игре нет. Потери на фронте и слабая армия бьют по казне, стабильности и рейтингу и через них приближают перечисленные выше пороги, но напрямую не завершают партию.</div>
+      <div style={S.p}>Военное поражение реально: при слабой армии (ниже 30) ВСУ получают шанс на прорыв фронта прямо в Донбассе, отбирая контроль у Донецка и Луганска — до этого момента контрнаступления Киева угрожали только Харькову, Херсону и Запорожью. Берегите армию не только ради наступлений, но и чтобы не потерять уже занятое.</div>
 
       <div style={S.h}>СОВЕТНИКИ И УКАЗЫ</div>
       <div style={S.p}>Кабинет министров даёт советы по всем направлениям. Вы можете принять предложенный советником указ — или полностью сформулировать своё решение. Игра принимает любые реалистичные президентские решения: торговые договоры, кадровые назначения, законы, дипломатические ноты, военные приказы.</div>

@@ -44,9 +44,13 @@ function inflationPercent(score) {
  *   - peace_progress >= 100 но статы не дотянули → "partial_peace"
  *
  * Условия поражения (в любой ход):
- *   - approval < 25 → "defeat_coup"
+ *   - approval < 30 → "defeat_coup"
  *   - economy < 30  → "defeat_collapse"
- *   - stability < 20 → "defeat_unrest"
+ *   - stability < 25 → "defeat_unrest"
+ *   - diplomacy < 15 → "defeat_isolation"
+ *   - war_escalation_counter >= 3 → "defeat_war"
+ *   - military < 30 → "defeat_military_collapse"
+ *   - donetsk_control < 40 И luhansk_control < 40 → "defeat_donbass_lost"
  */
 function detectGameOutcome(stats, turnNumber, maxTurns) {
   // Военная победа проверяется ПЕРВОЙ — если контроль над территориями достигнут,
@@ -78,6 +82,8 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
   if (stats.stability < 25)  return "defeat_unrest";     // повысили с 20
   if ((stats.diplomacy ?? 50) < 15) return "defeat_isolation"; // новый тип: изоляция
   if ((stats.war_escalation_counter ?? 0) >= 3) return "defeat_war"; // спираль войны
+  if ((stats.military ?? 50) < 30) return "defeat_military_collapse"; // армия небоеспособна
+  if ((stats.donetsk_control ?? 100) < 40 && (stats.luhansk_control ?? 100) < 40) return "defeat_donbass_lost"; // ВСУ отбили Донбасс
 
   // Досрочная мирная победа: доступна начиная с хода 12
   if (turnNumber >= 12) {
@@ -320,14 +326,14 @@ function applyOilFxTextImpact(text, newStats) {
 
 // --- УКРАИНА: стратегия (Claude Haiku) ---
 const UA_STRATEGY_MULTIPLIERS = {
-  military:    { drone_strike: 2.5, rail_sabotage: 2, counterattack: 2.5, dnipro_push: 2, weapons_delivery: 2,
+  military:    { drone_strike: 2.5, rail_sabotage: 2, counterattack: 2.5, dnipro_push: 2, weapons_delivery: 2, donbass_breakthrough: 2.5,
                  diplomatic_offensive: 0.4, war_crimes_tribunal: 0.4, info_warfare: 0.5, soldier_leaks: 0.5, sanctions_push: 0.4 },
   diplomatic:  { diplomatic_offensive: 3, war_crimes_tribunal: 3, sanctions_push: 1.5, info_warfare: 1.2,
-                 drone_strike: 0.4, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.5, weapons_delivery: 0.7, soldier_leaks: 0.8 },
+                 drone_strike: 0.4, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.5, weapons_delivery: 0.7, soldier_leaks: 0.8, donbass_breakthrough: 0.4 },
   economic:    { sanctions_push: 3.5, diplomatic_offensive: 2, war_crimes_tribunal: 1.5, soldier_leaks: 1.5,
-                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.7, info_warfare: 1 },
+                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.7, info_warfare: 1, donbass_breakthrough: 0.4 },
   information: { info_warfare: 3.5, soldier_leaks: 3, diplomatic_offensive: 1.5, war_crimes_tribunal: 1.2,
-                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.6, sanctions_push: 0.8 },
+                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.6, sanctions_push: 0.8, donbass_breakthrough: 0.4 },
   hybrid:      {},
 };
 
@@ -1005,6 +1011,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             ],
           },
           {
+            type: "donbass_breakthrough", weight: mil < 30 ? 6 : 0,
+            title: "Прорыв фронта в Донбассе",
+            text: "Резкое падение боеспособности российской группировки позволило ВСУ провести масштабное наступление на донбасском направлении. Украинские части заняли ряд населённых пунктов, ранее считавшихся глубоким тылом — линия фронта рушится на глазах.",
+            donetskDelta: -8, luhanskDelta: -6, army_moraleDelta: -4,
+            responses: [
+              { label: "Экстренно перебросить резервы и стабилизировать фронт любой ценой", type: "defend" },
+              { label: "Нанести массированный контрудар для восстановления позиций", type: "retaliate" },
+              { label: "Организовать плановый отход на новые рубежи обороны", type: "accept" },
+            ],
+          },
+          {
             type: "dnipro_push", weight: don > 90 ? 4 : 1,
             title: "Удары по переправам через Днепр",
             text: "ВСУ нанесли серию ракетных ударов по мостам и переправам через Днепр. Снабжение группировки в Херсонской области осложнено. Командование вынуждено перейти на воздушное снабжение.",
@@ -1171,6 +1188,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           army_moraleDelta: "army_morale", readinessDelta: "readiness",
           kharkivDelta: "kharkiv_control", khersonDelta: "kherson_control",
           zaporizhzhiaDelta: "zaporizhzhia_control", donetskDelta: "donetsk_control",
+          luhanskDelta: "luhansk_control",
         };
         for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
           if (typeof uaAction[deltaKey] === "number") {
