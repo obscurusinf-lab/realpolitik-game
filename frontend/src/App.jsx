@@ -3946,6 +3946,9 @@ function EndMonthForecastPanel({ stats }) {
   const inf = stats.inflation ?? 64;
   const trs = stats.treasury ?? 52;
   const eco = stats.economy ?? 50;
+  const stab = stats.stability ?? 50;
+  const dip = stats.diplomacy ?? 50;
+  const appr = stats.approval ?? 50;
   const streak = stats.military_streak ?? 0;
 
   // Build list of all mechanisms, active or not
