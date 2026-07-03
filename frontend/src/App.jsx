@@ -1361,6 +1361,10 @@ const MIL_VICTORY_REQS = {
   kherson_control: 65, kharkiv_control: 50,
 };
 
+// Только у Донецка и Луганска есть порог поражения — оба ниже одновременно = ВСУ отбили Донбасс
+// (см. detectGameOutcome в backend/turns.js, defeat_donbass_lost)
+const TERRITORY_DEFEAT_FLOOR = { donetsk_control: 40, luhansk_control: 40 };
+
 function TerritoryPanel({ stats }) {
   const [open, setOpen] = React.useState(false);
   if (!stats) return null;
@@ -1389,13 +1393,17 @@ function TerritoryPanel({ stats }) {
           {TERRITORIES.map(({ key, label }) => {
             const pct = s[key] ?? 0;
             const req = MIL_VICTORY_REQS[key];
-            const color = territoryColor(pct, req);
+            const floor = TERRITORY_DEFEAT_FLOOR[key];
+            const belowFloor = floor != null && pct < floor;
+            const nearFloor = floor != null && !belowFloor && pct < floor + 15;
+            const color = belowFloor ? "#c03030" : territoryColor(pct, req);
             const meetsReq = pct >= req;
             return (
               <div key={key}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                   <span style={{ color: "#7a8090", fontSize: 11 }}>{label}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {floor != null && <span style={{ fontSize: 10, color: "#6a4040" }}>поражение &lt;{floor}%</span>}
                     <span style={{ fontSize: 10, color: "#3a4050" }}>цель {req}%</span>
                     <span style={{ color, fontWeight: 700, fontSize: 11 }}>{Math.round(pct)}%{meetsReq ? " ✓" : ""}</span>
                   </div>
@@ -1403,12 +1411,22 @@ function TerritoryPanel({ stats }) {
                 <div style={{ background: "#0e0e14", borderRadius: 2, height: 4, overflow: "hidden", position: "relative" }}>
                   <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.5s" }} />
                   <div style={{ position: "absolute", top: 0, left: `${req}%`, width: 1, height: "100%", background: "#4a5878" }} />
+                  {floor != null && (
+                    <div style={{ position: "absolute", top: 0, left: `${floor}%`, width: 1, height: "100%", background: "#a8313a" }} />
+                  )}
                 </div>
+                {belowFloor && (
+                  <div style={{ marginTop: 2, fontSize: 9.5, color: "#e09090" }}>⚠ ниже порога поражения</div>
+                )}
+                {nearFloor && (
+                  <div style={{ marginTop: 2, fontSize: 9.5, color: "#9c8347" }}>приближается к порогу поражения</div>
+                )}
               </div>
             );
           })}
           <div style={{ marginTop: 4, fontSize: 10, color: "#3a4050", lineHeight: 1.4 }}>
-            Военная победа: Донецк+Луганск по 100% и ещё 2 региона выше цели · Бездействие отдаёт территории
+            Военная победа: Донецк+Луганск по 100% и ещё 2 региона выше цели · Бездействие отдаёт территории<br/>
+            Поражение: Донецк и Луганск оба ниже 40% одновременно — ВСУ отбили Донбасс (риск растёт при слабой армии)
           </div>
         </div>
       )}
