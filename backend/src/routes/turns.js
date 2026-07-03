@@ -631,8 +631,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         const isDiplomaticLike = CATEGORY_GROUP.diplomatic_activity.has(at) || pendingActionMode === "diplomacy_op";
 
         if (isOffensiveLike) {
-          // Прогресс зависит от армии и severity
-          const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50) + (newStats.equipment ?? 50)) / 3;
+          // Прогресс зависит от армии и severity. Опыт войск (veterans) — обстрелянные части
+          // эффективнее берут территорию независимо от текущего духа/техники.
+          const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50) + (newStats.equipment ?? 50) + (newStats.veterans ?? 50)) / 4;
           const baseGain = sev * 3 + Math.max(0, (armyQuality - 60) / 5); // 3-12 pts
           for (const key of TERRITORY_KEYS) {
             const regionName = key.replace("_control", "");
@@ -680,7 +681,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         // --- Украинское сопротивление при наступлении ---
         // Каждый offensive — ВСУ и союзники контратакуют: случайный откат 1-3 территорий
         if (isOffensiveLike) {
-          const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50)) / 2;
+          // Опытные части лучше держат удар при контратаке — тоже снижает интенсивность отката.
+          const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50) + (newStats.veterans ?? 50)) / 3;
           // Интенсивность ответа зависит от западной поддержки (diplomacy_vs_west прокси = relations с США/ЕС)
           const resistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
           // Украина контратакует преимущественно на слабых флангах (Харьков, Херсон)
@@ -1520,9 +1522,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Санкционный дисконт: высокая изоляция снижает эффективную цену нефти (скидка Urals к Brent).
       // isolation 0–50 → нет штрафа; 51–80 → до −30% дохода; 81–100 → до −50%.
       const isolationVal = newStats.isolation ?? 68;
-      const sanctionDiscount = isolationVal <= 50 ? 0
+      const rawSanctionDiscount = isolationVal <= 50 ? 0
         : isolationVal <= 80 ? (isolationVal - 50) / 100   // 0..0.30
         : 0.30 + (isolationVal - 80) / 200;               // 0.30..0.40
+      // Доверие союзников смягчает санкционный дисконт: параллельная торговля и альтернативные
+      // платёжные каналы через дружественные страны (Китай, Беларусь, Иран и т.д.) частично
+      // компенсируют изоляцию — до 15 п.п. при максимальном доверии.
+      const allyTrustVal = newStats.ally_trust ?? 42;
+      const allyMitigation = allyTrustVal > 50 ? Math.min(0.15, (allyTrustVal - 50) / 100) : 0;
+      const sanctionDiscount = Math.max(0, rawSanctionDiscount - allyMitigation);
       const oilIncome = Math.round((newStats.oil_price - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
       const fxIncome = Math.round((newStats.usd_rub - FX_BASELINE) * 0.4);
       if (newStats.usd_rub > FX_BASELINE + 10) {
@@ -1882,6 +1890,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const inflationLine = inflationEconomyPenalty > 0
         ? ` Инфляционный шок (${inflationPercent(inflationNow).toFixed(1)}% г/г): экономика −${inflationEconomyPenalty}, одобрение −${inflationApprovalPenalty}.`
         : "";
+      const allyMitigationLine = (allyMitigation > 0 && rawSanctionDiscount > 0)
+        ? ` Доверие союзников смягчило санкционный дисконт на ${Math.round(allyMitigation * 100)} п.п. (параллельная торговля через дружественные страны).`
+        : "";
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, completedMonth, "Минфин",
@@ -1889,7 +1900,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
          (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
           economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
           economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "") +
-         inflationLine]
+         inflationLine + allyMitigationLine]
       );
 
       // ПРОЗРАЧНАЯ СВОДКА: игрок видел прогноз при подписи хода, но реальный итог месяца

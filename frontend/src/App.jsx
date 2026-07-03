@@ -882,8 +882,8 @@ const ALL_STAT_LABELS = {
   diplomacy: "Дипломатия", approval: "Поддержка", initiative: "Инициатива",
   gdp_growth: "Рост ВВП", inflation: "Инфляция", employment: "Занятость", reserves: "Резервы",
   army_morale: "Боевой дух", equipment: "Техника", readiness: "Боеготовность", veterans: "Опыт войск",
-  ally_trust: "Доверие союзников", isolation: "Изоляция", soft_power: "Мягкая сила", reputation: "Репутация",
-  law_order: "Правопорядок", social_tension: "Соц. напряж.", media_control: "Контроль СМИ", regional_unity: "Ед. регионов",
+  ally_trust: "Доверие союзников", isolation: "Изоляция",
+  social_tension: "Соц. напряж.", media_control: "Контроль СМИ",
   elite_satisfaction: "Элиты", corruption: "Коррупция", middle_class: "Средний класс", lower_class_mood: "Народ",
   treasury: "Казна", peace_progress: "Мирный трек",
   donetsk_control: "Контроль Донецка", luhansk_control: "Контроль Луганска",
@@ -3641,14 +3641,10 @@ const SUBSTAT_META = {
   diplomacy: [
     { key: "ally_trust",  label: "Доверие союзников", color: "#5b6b8c", desc: "ОДКБ номинально, реально — Китай, КНДР, Беларусь. Ограниченный, но стабильный блок." },
     { key: "isolation",   label: "Изоляция",    color: "#8c5b5b", desc: "21-й пакет санкций ЕС готовится. Отрезаны от SWIFT, западных технологий и рынков.", inverted: true },
-    { key: "soft_power",  label: "Мягкая сила", color: "#6b8c9c", desc: "RT заблокирован на Западе. Влияние в Африке и части Азии остаётся, но падает." },
-    { key: "reputation",  label: "Репутация",   color: "#4a6b8c", desc: "Исторический минимум в западных странах. В БРИКС и Глобальном Юге — неоднозначно." },
   ],
   stability: [
-    { key: "law_order",       label: "Правопорядок",     color: "#4a6b5c", desc: "Силовые структуры работают в штатном режиме. Публичных протестов нет с 2022 года." },
     { key: "social_tension",  label: "Соц. напряж.",     color: "#a85030", desc: "Усталость от ограничений растёт, но открытых волнений нет. ВЦИОМ: поддержка СВО 65%.", inverted: true },
     { key: "media_control",   label: "Контроль СМИ",     color: "#5c7a6b", desc: "Большинство независимых СМИ закрыты или за рубежом. Телевидение полностью под контролем." },
-    { key: "regional_unity",  label: "Единство регионов",color: "#3a7a5c", desc: "Регионы лояльны. Чечня интегрирована. Новые территории — управляемая нестабильность." },
   ],
   approval: [
     { key: "elite_satisfaction", label: "Элиты",        color: "#8c6b3a", desc: "Силовики и госкорпорации в выигрыше от ВПК. Бизнес страдает от ставки ЦБ и санкций." },
@@ -5695,8 +5691,23 @@ const NEWSFEED_TYPE = {
   news:            { icon: "📰", color: "#5b6b8c", label: "НОВОСТИ" },
   reaction:        { icon: "🌐", color: "#4a6b5c", label: "РЕАКЦИЯ" },
   nuclear_reaction:{ icon: "☢", color: "#c03030", label: "ЯДЕРНЫЙ КРИЗИС" },
-  world_move:      { icon: "⚡", color: "#8c4a2a", label: "ДЕЙСТВИЕ ПРОТИВНИКА" },
 };
+
+// world_move раньше всегда красился под "врага" — но source может быть и союзником
+// (Беларусь, Китай и т.д.). Стойка считается по реальным отношениям (state.relations),
+// как в WorldTab, а не по статичному списку.
+const WORLD_MOVE_STANCE_STYLE = {
+  cooperative: { icon: "🤝", label: "ДЕЙСТВИЕ СОЮЗНИКА", color: "#4a8c5a", bg: "#0e1a10", border: "#2a5a30", text: "#a0d0a8", toggle: "#4a7a50" },
+  neutral:     { icon: "🌐", label: "ДЕЙСТВИЕ ГОСУДАРСТВА", color: "#8c7a3a", bg: "#1a1608", border: "#5a4a20", text: "#d0c090", toggle: "#7a6a40" },
+  hostile:     { icon: "⚡", label: "ДЕЙСТВИЕ ПРОТИВНИКА", color: "#8c4a2a", bg: "#1a0e0a", border: "#6a3020", text: "#d0a090", toggle: "#6a4030" },
+};
+function getWorldMoveStance(relMap, source) {
+  const val = relMap[source];
+  if (val === undefined) return "neutral";
+  if (val >= 60) return "cooperative";
+  if (val <= 30) return "hostile";
+  return "neutral";
+}
 
 // Текст новости/события сворачивается до фиксированного числа строк, чтобы карточки
 // в ленте не «прыгали» по высоте (на мобильных это сбивает позицию шапки при скролле).
@@ -5892,11 +5903,15 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const employmentFactorT = Math.max(0.6, Math.min(1.3, 1 + (employmentT - 74) * 0.004));
   const economyIncome = Math.round(rawEconomyIncomeT * employmentFactorT);
   const taxIncome = Math.round(rawTaxIncomeT * employmentFactorT);
+  const gdpGrowthT = stats.gdp_growth ?? 36;
   const OIL_BASELINE_T = 85, FX_BASELINE_T = 80;
   const oilPriceT = stats.oil_price ?? OIL_BASELINE_T;
   const usdRubT = stats.usd_rub ?? FX_BASELINE_T;
   const isolationT = stats.isolation ?? 68;
-  const sanctionDiscountT = isolationT <= 50 ? 0 : isolationT <= 80 ? (isolationT - 50) / 100 : 0.30 + (isolationT - 80) / 200;
+  const rawSanctionDiscountT = isolationT <= 50 ? 0 : isolationT <= 80 ? (isolationT - 50) / 100 : 0.30 + (isolationT - 80) / 200;
+  const allyTrustT = stats.ally_trust ?? 42;
+  const allyMitigationT = allyTrustT > 50 ? Math.min(0.15, (allyTrustT - 50) / 100) : 0;
+  const sanctionDiscountT = Math.max(0, rawSanctionDiscountT - allyMitigationT);
   const oilIncomeT = Math.round((oilPriceT - OIL_BASELINE_T) * 0.7 * (1 - sanctionDiscountT));
   const fxIncomeT = Math.round((usdRubT - FX_BASELINE_T) * 0.4);
   const corrLevelT = stats.corruption ?? 55;
@@ -5992,6 +6007,27 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Экономика: сама стата + два её драйвера (ВВП, занятость) — почему растёт/падает,
+          объясняет EndMonthForecastPanel ниже (та же логика, что и на вкладке Показатели). */}
+      <div style={sectionStyle}>
+        <div style={labelStyle}>ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ</div>
+        <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 16 }}>
+          {[
+            { label: "Экономика", val: eco, good: eco >= 55, bad: eco < 35 },
+            { label: "Рост ВВП", val: gdpGrowthT, good: gdpGrowthT > 36, bad: gdpGrowthT < 36 },
+            { label: "Занятость", val: employmentT, good: employmentT > 74, bad: employmentT < 74 },
+          ].map(({ label, val, good, bad }) => (
+            <div key={label} style={{ flex: 1 }}>
+              <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>{label}</div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: bad ? "#c05030" : good ? "#3a7a5a" : "#8a7a40" }}>
+                {Math.round(val)}
+              </div>
+            </div>
+          ))}
+        </div>
+        <EndMonthForecastPanel stats={stats} />
       </div>
 
       {/* Баланс: доходы и расходы */}
@@ -6458,14 +6494,18 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const fxColor = usdRub <= 75 ? "#4a7a5a" : usdRub <= 95 ? "#9c8347" : "#c03030";
 
         // Та же формула, что в бэкенде
-        const sanctionDiscount = isolationVal <= 50 ? 0
+        const rawSanctionDiscount = isolationVal <= 50 ? 0
           : isolationVal <= 80 ? (isolationVal - 50) / 100
           : 0.30 + (isolationVal - 80) / 200;
+        const allyTrustVal = stats.ally_trust ?? 42;
+        const allyMitigation = allyTrustVal > 50 ? Math.min(0.15, (allyTrustVal - 50) / 100) : 0;
+        const sanctionDiscount = Math.max(0, rawSanctionDiscount - allyMitigation);
         const oilIncome = Math.round((oilPrice - OIL_BASELINE) * 0.7 * (1 - sanctionDiscount));
         const fxIncome = Math.round((usdRub - FX_BASELINE) * 0.4);
         const totalOilFx = oilIncome + fxIncome;
 
-        const discountPct = Math.round(sanctionDiscount * 100);
+        const discountPct = Math.round(rawSanctionDiscount * 100);
+        const mitigationPct = Math.round(allyMitigation * 100);
         const discountColor = discountPct === 0 ? "#5a7050" : discountPct < 20 ? "#9c8347" : "#c05030";
 
         const [showOilAdvice, setShowOilAdvice] = React.useState(false);
@@ -6515,6 +6555,12 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                       <span style={{ color: discountColor, fontWeight: 700 }}>−{discountPct}%</span>
                     </div>
                   )}
+                  {mitigationPct > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
+                      <span style={{ color: "#4a8c5a" }}>🤝 Смягчение от союзников (доверие {Math.round(allyTrustVal)})</span>
+                      <span style={{ color: "#4a8c5a", fontWeight: 700 }}>+{mitigationPct} п.п.</span>
+                    </div>
+                  )}
                   <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, borderTop: "1px solid #e0dac8", paddingTop: 5, marginTop: 2 }}>
                     <span style={{ color: "#3a3020", fontWeight: 700 }}>ИТОГ нефть+валюта</span>
                     <span style={{ color: totalOilFx >= 0 ? "#2a6a3a" : "#8a2020", fontWeight: 700 }}>{totalOilFx >= 0 ? "+" : ""}{totalOilFx} / мес.</span>
@@ -6552,6 +6598,12 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                       desc: `Рубль ${usdRub.toFixed(0)}₽/$. Каждые +10₽ к курсу дают +4 к казне/мес. Инструменты: снижение ключевой ставки, скупка валюты ЦБ, ограничения на обязательную продажу экспортной выручки.`,
                       consequence: "Слабый рубль разгоняет инфляцию (+1 инфл. давление при >₽90). Бьёт по импорту и доходам населения.",
                       color: usdRub < FX_BASELINE ? "#c89060" : "#5a7a5a",
+                    },
+                    {
+                      label: "🤝 Укреплять доверие союзников",
+                      desc: `Доверие союзников ${Math.round(allyTrustVal)} → смягчение дисконта ${mitigationPct} п.п. (максимум 15 при 100). Выше 50 каждые +10 доверия дают +1 п.п. смягчения — параллельная торговля и расчёты через Китай, Беларусь, Иран компенсируют часть санкций.`,
+                      consequence: "Требует дипломатических инструментов (договоры, коалиции) — сама по себе не растёт от военных действий.",
+                      color: allyTrustVal < 50 ? "#c89060" : "#4a8c5a",
                     },
                     {
                       label: "🛢 Влиять на цену нефти через ОПЕК+",
@@ -6592,6 +6644,8 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
   if (!state.newsfeed?.length) {
     return <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>Лента пуста.</div>;
   }
+  const relMap = {};
+  for (const r of (state.relations || [])) relMap[r.name] = r.value;
   return (
     <div style={{ display: "grid", gap: 12 }}>
       {[...state.newsfeed].reverse().map((item, i) => {
@@ -6608,14 +6662,15 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
           );
         }
 
-        const meta = NEWSFEED_TYPE[item.type] || NEWSFEED_TYPE.news;
         const isWorldMove = item.type === "world_move";
+        const stance = isWorldMove ? getWorldMoveStance(relMap, item.source) : null;
+        const meta = isWorldMove ? WORLD_MOVE_STANCE_STYLE[stance] : (NEWSFEED_TYPE[item.type] || NEWSFEED_TYPE.news);
         const analystNote = isWorldMove ? item.reactions?.[0] : null;
         const moveDelta = analystNote?.stat_delta || {};
         return (
           <div key={i} style={{
-            background: isWorldMove ? "#1a0e0a" : "#f5f1e6",
-            border: `1px solid ${isWorldMove ? "#6a3020" : "#d8d2bf"}`,
+            background: isWorldMove ? meta.bg : "#f5f1e6",
+            border: `1px solid ${isWorldMove ? meta.border : "#d8d2bf"}`,
             borderRadius: 4, overflow: "hidden",
           }}>
             <div style={{ padding: "10px 13px", borderLeft: `3px solid ${meta.color}` }}>
@@ -6623,13 +6678,13 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
                 <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.08em", color: meta.color }}>
                   {meta.icon} {item.source.toUpperCase()} · {meta.label}
                 </span>
-                <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? "#6a4030" : "#8a8472" }}>ХОД {item.turn}</span>
+                <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? meta.toggle : "#8a8472" }}>ХОД {item.turn}</span>
               </div>
               <ExpandableText
                 text={item.text}
                 className="doc-font"
-                style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? "#d0a090" : undefined }}
-                toggleColor={isWorldMove ? "#6a4030" : "#8a8472"}
+                style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? meta.text : undefined }}
+                toggleColor={isWorldMove ? meta.toggle : "#8a8472"}
               />
               {isWorldMove && <StatDeltaBadges delta={moveDelta} />}
             </div>

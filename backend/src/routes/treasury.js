@@ -291,7 +291,6 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       const leaked = Math.random() < 0.3;
       if (leaked) {
         newStats.isolation = Math.min(100, (newStats.isolation ?? 68) + 3);
-        newStats.reputation = Math.max(0, (newStats.reputation ?? 28) - 5);
         await client.query(
           `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
           [gameId, game.current_turn + 1, "Reuters",
