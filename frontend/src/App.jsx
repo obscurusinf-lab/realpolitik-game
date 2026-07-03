@@ -2504,7 +2504,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         })}
       </div>
 
-      <div style={{ background: NK.contentBg, color: NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
+      <div style={{ background: tab === "kremlin" ? "#161b26" : NK.contentBg, color: tab === "kremlin" ? "#ece7d8" : NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} />}
         {tab === "kremlin" && (
           <KremlinTab
@@ -5836,29 +5836,29 @@ function KremlinTab({ state, onSelectCategory }) {
   return (
     <div>
       {/* Мини-сводка показателей */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 5, padding: "8px 12px" }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, background: "#141a24", border: "1px solid #2a3040", borderRadius: 5, padding: "8px 12px" }}>
         {Object.entries(KREMLIN_STAT_LABEL).map(([key, label]) => (
           <div key={key} style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-            <span className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.06em" }}>{label.slice(0, 3).toUpperCase()}</span>
-            <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: (stats[key] ?? 50) >= 55 ? "#4a6b5c" : (stats[key] ?? 50) < 35 ? "#a8313a" : "#9c8347" }}>{stats[key] ?? 50}</span>
+            <span className="mono-font" style={{ fontSize: 8, color: "#7a8294", letterSpacing: "0.06em" }}>{label.slice(0, 3).toUpperCase()}</span>
+            <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: (stats[key] ?? 50) >= 55 ? "#6ec894" : (stats[key] ?? 50) < 35 ? "#e08080" : "#c8a857" }}>{stats[key] ?? 50}</span>
           </div>
         ))}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 4 }}>
-          <span className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.06em" }}>ИНИЦ.</span>
-          <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: "#9c8347" }}>{stats.initiative ?? 100}</span>
+          <span className="mono-font" style={{ fontSize: 8, color: "#7a8294", letterSpacing: "0.06em" }}>ИНИЦ.</span>
+          <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: "#c8a857" }}>{stats.initiative ?? 100}</span>
         </div>
       </div>
 
       {/* Советник: математически рассчитанный оптимальный ход */}
       {rec && (
-        <div style={{ background: "#eef5ef", border: "1px solid #b8d4bf", borderLeft: "4px solid #3a8a5a", borderRadius: 6, padding: "10px 13px", marginBottom: 14 }}>
+        <div style={{ background: "#12241a", border: "1px solid #2a5a3a", borderLeft: "4px solid #3a8a5a", borderRadius: 6, padding: "10px 13px", marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
             <div style={{ flex: 1 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#2f6f47", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 3 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 3 }}>
                 📐 СОВЕТНИК · РЕКОМЕНДАЦИЯ АППАРАТА
               </div>
-              <div className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#1e3a2a", marginBottom: 3 }}>{rec.title}</div>
-              <div className="doc-font" style={{ fontSize: 11.5, color: "#3a4a40", lineHeight: 1.45 }}>{rec.reason}</div>
+              <div className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#cfeeda", marginBottom: 3 }}>{rec.title}</div>
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#a8c4b2", lineHeight: 1.45 }}>{rec.reason}</div>
             </div>
             <button
               onClick={goToRecommendation}
@@ -5877,9 +5877,9 @@ function KremlinTab({ state, onSelectCategory }) {
             key={d.id}
             onClick={() => setDomainId(d.id)}
             style={{
-              flexShrink: 0, background: domainId === d.id ? "#9c8347" : "#f5f1e6",
-              color: domainId === d.id ? "#1a1f2c" : "#5c5648",
-              border: `1px solid ${domainId === d.id ? "#9c8347" : "#d8d2bf"}`,
+              flexShrink: 0, background: domainId === d.id ? "#9c8347" : "#1c2230",
+              color: domainId === d.id ? "#14181f" : "#a8b0be",
+              border: `1px solid ${domainId === d.id ? "#9c8347" : "#2a3040"}`,
               borderRadius: 5, padding: "7px 14px", fontFamily: "'PT Serif',serif",
               fontSize: 13, fontWeight: domainId === d.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap",
             }}
@@ -5897,9 +5897,9 @@ function KremlinTab({ state, onSelectCategory }) {
               key={id}
               onClick={() => setTier(id)}
               style={{
-                flex: 1, background: tier === id ? "#3a5a4a" : "#f5f1e6",
-                color: tier === id ? "#ece7d8" : "#5c5648",
-                border: `1px solid ${tier === id ? "#3a5a4a" : "#d8d2bf"}`,
+                flex: 1, background: tier === id ? "#3a5a4a" : "#1c2230",
+                color: tier === id ? "#ece7d8" : "#a8b0be",
+                border: `1px solid ${tier === id ? "#4a7a5a" : "#2a3040"}`,
                 borderRadius: 4, padding: "6px 8px", fontFamily: "'PT Serif',serif",
                 fontSize: 11.5, cursor: "pointer",
               }}
@@ -5915,11 +5915,10 @@ function KremlinTab({ state, onSelectCategory }) {
         {cards.map(card => {
           const isExpanded = expandedCardId === card.id;
           const isRecommended = rec?.category === card.id && (recDomain !== "decrees" || !rec.tier || rec.tier === tier);
-          const variants = isExpanded ? buildCardVariants(card, tier) : [];
           return (
             <div
               key={card.id}
-              style={{ background: isRecommended ? "#eef5ef" : "#f5f1e6", border: `1px solid ${isExpanded ? "#9c8347" : isRecommended ? "#3a8a5a" : "#d8d2bf"}`, borderRadius: 5, padding: "11px 13px", transition: "border-color 0.15s" }}
+              style={{ background: isRecommended ? "#12241a" : "#1c2230", border: `1px solid ${isExpanded ? "#9c8347" : isRecommended ? "#3a8a5a" : "#2a3040"}`, borderRadius: 5, padding: "11px 13px", transition: "border-color 0.15s" }}
             >
               <div
                 onClick={() => toggleCard(card)}
@@ -5927,25 +5926,25 @@ function KremlinTab({ state, onSelectCategory }) {
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{card.title}</span>
+                    <span className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: "#ece7d8" }}>{card.title}</span>
                     {card.domain && (
-                      <span className="mono-font" style={{ fontSize: 8, background: "#eee6d0", color: "#8a6b3a", borderRadius: 3, padding: "1px 5px" }}>{card.domain}</span>
+                      <span className="mono-font" style={{ fontSize: 8, background: "#2a2416", color: "#c8a857", borderRadius: 3, padding: "1px 5px" }}>{card.domain}</span>
                     )}
                     {isRecommended && (
                       <span className="mono-font" style={{ fontSize: 8, background: "#3a8a5a", color: "#fff", borderRadius: 3, padding: "1px 5px", fontWeight: 700 }} title="Рекомендация советника — математически рассчитанный оптимальный ход">📐 СОВЕТ</span>
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                    {card.cost && <span className="mono-font" style={{ fontSize: 9, color: "#9c8347", whiteSpace: "nowrap" }}>{card.cost}</span>}
-                    <span style={{ color: "#9c8347", fontSize: 13, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+                    {card.cost && <span className="mono-font" style={{ fontSize: 9, color: "#c8a857", whiteSpace: "nowrap" }}>{card.cost}</span>}
+                    <span style={{ color: "#c8a857", fontSize: 13, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
                   </div>
                 </div>
-                <div className="doc-font" style={{ fontSize: 12, color: "#5c5648", lineHeight: 1.4, marginBottom: 6 }}>{card.desc}</div>
+                <div className="doc-font" style={{ fontSize: 12, color: "#8a94a6", lineHeight: 1.4, marginBottom: 6 }}>{card.desc}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {Object.entries(card.effects || {}).map(([stat, sign]) => (
                     <span key={stat} className="mono-font" style={{
                       fontSize: 9, borderRadius: 3, padding: "1px 6px", fontWeight: 700,
-                      background: sign > 0 ? "#e8f5e8" : "#fde8e8", color: sign > 0 ? "#4a6b5c" : "#a8313a",
+                      background: sign > 0 ? "#12241a" : "#2a1414", color: sign > 0 ? "#6ec894" : "#e08080",
                     }}>
                       {KREMLIN_STAT_LABEL[stat]} {sign > 0 ? "↑" : "↓"}
                     </span>
@@ -5954,34 +5953,35 @@ function KremlinTab({ state, onSelectCategory }) {
               </div>
 
               {isExpanded && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #d8d2bf" }} onClick={e => e.stopPropagation()}>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8, letterSpacing: "0.05em" }}>ВЫБЕРИТЕ ФОРМУЛИРОВКУ</div>
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #2a3040" }} onClick={e => e.stopPropagation()}>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#7a8294", marginBottom: 8, letterSpacing: "0.05em" }}>ВЫБЕРИТЕ ФОРМУЛИРОВКУ</div>
                   <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
-                    {variants.map((v, i) => (
+                    {buildCardVariants(card, tier).map((v, i) => (
                       <div
                         key={i}
                         onClick={() => { setSelectedVariant(i); setCustomText(""); }}
                         style={{
                           padding: "8px 10px", borderRadius: 4, cursor: "pointer",
-                          background: selectedVariant === i && !customText ? "#e8dcc0" : "#fff",
-                          border: `1px solid ${selectedVariant === i && !customText ? "#9c8347" : "#d8d2bf"}`,
+                          background: selectedVariant === i && !customText ? "#33301c" : "#141a24",
+                          border: `1px solid ${selectedVariant === i && !customText ? "#9c8347" : "#2a3040"}`,
                         }}
                       >
-                        <div className="mono-font" style={{ fontSize: 8.5, color: "#8a6b3a", marginBottom: 3 }}>{v.label.toUpperCase()}</div>
-                        <div className="doc-font" style={{ fontSize: 12, lineHeight: 1.4, color: "#3a362e" }}>{v.text}</div>
+                        <div className="mono-font" style={{ fontSize: 8.5, color: "#c8a857", marginBottom: 3 }}>{v.label.toUpperCase()}</div>
+                        <div className="doc-font" style={{ fontSize: 12, lineHeight: 1.4, color: "#d8dce4" }}>{v.text}</div>
                       </div>
                     ))}
                   </div>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 6, letterSpacing: "0.05em" }}>ИЛИ НАПИШИТЕ СВОЙ ВАРИАНТ</div>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#7a8294", marginBottom: 6, letterSpacing: "0.05em" }}>ИЛИ НАПИШИТЕ СВОЙ ВАРИАНТ</div>
                   <textarea
                     value={customText}
                     onChange={e => setCustomText(e.target.value)}
                     placeholder="Свой текст указа/операции…"
                     rows={2}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 4, border: "1px solid #d8d2bf", fontFamily: "'PT Serif',serif", fontSize: 12.5, resize: "vertical", marginBottom: 10, boxSizing: "border-box" }}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 4, background: "#141a24", color: "#e8e4d8", border: "1px solid #2a3040", fontFamily: "'PT Serif',serif", fontSize: 12.5, resize: "vertical", marginBottom: 10, boxSizing: "border-box" }}
                   />
                   <button
                     onClick={() => {
+                      const variants = buildCardVariants(card, tier);
                       onSelectCategory(customText.trim() || variants[selectedVariant ?? 0]?.text || card.template, domain.mode || tier);
                       setExpandedCardId(null);
                     }}
@@ -5995,7 +5995,7 @@ function KremlinTab({ state, onSelectCategory }) {
           );
         })}
       </div>
-      <div className="mono-font" style={{ fontSize: 9.5, color: "#a8a294", marginTop: 12, lineHeight: 1.5 }}>
+      <div className="mono-font" style={{ fontSize: 9.5, color: "#7a8294", marginTop: 12, lineHeight: 1.5 }}>
         Раскройте карточку, выберите готовую формулировку или напишите свою. Текст подставится в форму подписи внизу экрана — она видна на любой вкладке. Прокрутите вниз: там же появится предпросмотр с точными изменениями статов и кнопка подписи.
       </div>
     </div>
