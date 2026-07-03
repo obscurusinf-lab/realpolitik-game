@@ -1862,7 +1862,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         if (noAutoCrisis && allHealthy) {
           const dividend = allStrong ? 2 : 1;
           newStats.economy = Math.min(100, coreEco + dividend);
-          economyAutoEffects.push({ label: "Мирный дивиденд", delta: dividend });
+          economyAutoEffects.push({ label: "Организационный рост", delta: dividend });
         }
       }
 
