@@ -1,8 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Shield, Swords, Landmark, Castle, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
+import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
+
+// БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
+// буквально Парфенон), потом Castle (обычная западная крепость) — Петя прислал фото Спасской
+// башни и попросил именно КРАСНУЮ звезду: самая узнаваемая, однозначно кремлёвская деталь
+// (в отличие от стен/башен — общий признак любой крепости в мире). ⭐-эмодзи в лейбле не подходил:
+// это цветной эмодзи-глиф, не текстовый символ, CSS-цвет на него не действует, и на большинстве
+// платформ он рендерится жёлтым/золотым, а не красным. Поэтому — свой SVG, залитый фиксированным
+// красным цветом (не currentColor: звезда красная всегда, а не только в активной вкладке).
+function KremlinStarIcon({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="#c0392b" stroke="#c0392b" strokeWidth="0.5" strokeLinejoin="round">
+      <path d="M12 2l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 16.9l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94z" />
+    </svg>
+  );
+}
 
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
@@ -2409,7 +2424,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const tabs = [
     { id: "overview", label: "Обстановка", icon: Globe2 },
-    { id: "kremlin", label: "⭐ Кремль", icon: Castle },
+    { id: "kremlin", label: "Кремль", icon: KremlinStarIcon },
     { id: "treasury", label: "💰 Казна", icon: Landmark },
     { id: "map", label: "Карта", icon: Globe2 },
     { id: "stats", label: "Показатели", icon: Shield },
@@ -3308,7 +3323,7 @@ function WelcomeModal({ state, playerName, onClose }) {
             </div>
           </BriefSection>
 
-          <BriefSection id="decisiontypes" label="⭐ ВКЛАДКА «КРЕМЛЬ»" color="#9c8347">
+          <BriefSection id="decisiontypes" label={<><span style={{ color: "#c0392b" }}>★</span> ВКЛАДКА «КРЕМЛЬ»</>} color="#9c8347">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
               {[
                 { label: "⚔️ Военное", desc: "Разведка, удары, наступления, оборона — от 15 до 80 инициативы.", color: "#9c6347" },
@@ -7830,7 +7845,7 @@ function WikiTab({ dark = false }) {
       <div style={S.p}><span style={S.b}>Рейтинг</span> — одобрение президента. Ниже 30 — поражение через переворот. Растёт от социальных решений, военных успехов, информационной работы.</div>
       <div style={S.p}><span style={S.b}>Мирный трек</span> — прогресс переговоров. Достигнув 100 при сильных показателях — дипломатическая победа. Медленно распадается если не поддерживать дипломатией.</div>
 
-      <div style={S.h}>ВКЛАДКА «КРЕМЛЬ»</div>
+      <div style={S.h}><span style={{ color: "#c0392b" }}>★</span> ВКЛАДКА «КРЕМЛЬ»</div>
       <div style={S.p}>Все решения президента сгруппированы во вкладке <span style={S.b}>Кремль</span> по четырём направлениям: <span style={S.b}>военное</span>, <span style={S.b}>разведка</span>, <span style={S.b}>дипломатия</span> и <span style={S.b}>указы</span> (экономика, военно-административные, политика, информационные). Внутри — 30 готовых категорий решений: от разведки и точечных ударов до мобилизации, санкционного обхода и мирных инициатив. Откройте карточку категории — появятся 3 готовые, полностью сформулированные формулировки указа на выбор, либо можно написать собственный текст. Выбранный текст подставляется в поле подписи внизу экрана — оно видно на любой вкладке, переключаться никуда не нужно.</div>
       <div style={S.p}>Кроме готовых категорий, всегда доступно свободное поле «написать правительству» — президент может сформулировать любое реалистичное решение своими словами. Чем конкретнее формулировка, тем точнее игра рассчитает эффект.</div>
 
