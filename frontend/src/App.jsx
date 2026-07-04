@@ -143,19 +143,23 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
               })()}
             </div>
             {(() => {
-              // Территории, субметрики и т.п. — те же "прочие" дельты, что и в PreviewCard,
-              // просто плоским списком (нет общей шкалы 0-100 для бара). "Инициатива" — исключение,
-              // та же шкала 0-100, что у 5 базовых статов — получает бар, как и в PreviewCard.
+              // Субметрики/территории/мирный трек — тоже 0-100, получают бар (см. EXTRA_BAR_META
+              // и PreviewCard). "Казна" и прочее без единой 0-100 шкалы остаются плоским текстом.
+              // "Инициатива" — та же шкала 0-100, что у 5 базовых статов — получает бар отдельно.
               const initiativeDelta = statDeltas.initiative;
+              const barExtraDeltas = Object.entries(statDeltas).filter(([s, d]) => d !== 0 && EXTRA_BAR_META[s]);
               const otherDeltas = Object.entries(statDeltas).filter(
-                ([s, d]) => d !== 0 && !statMeta[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak"
+                ([s, d]) => d !== 0 && !statMeta[s] && !EXTRA_BAR_META[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak"
               );
-              if (otherDeltas.length === 0 && !initiativeDelta) return null;
+              if (otherDeltas.length === 0 && barExtraDeltas.length === 0 && !initiativeDelta) return null;
               return (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
                   {!!initiativeDelta && (
                     <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={prevStats?.initiative ?? 100} delta={initiativeDelta} />
                   )}
+                  {barExtraDeltas.map(([stat, delta]) => (
+                    <PreviewStatBar key={stat} statKey={stat} current={prevStats?.[stat] ?? 50} delta={delta} />
+                  ))}
                   {otherDeltas.map(([stat, delta]) => (
                     <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
                       {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
@@ -1181,14 +1185,18 @@ function fmtEcoEffect(n) { return `${n > 0 ? "+" : ""}${n}`; }
 // полупрозрачной полосой поверх до проектной отметки (тонкая линия = где окажется стата
 // после подтверждения). Наглядно показывает "какие будут изменения" прямо на шкале,
 // а не только числом рядом.
-function PreviewStatBar({ statKey, current, delta, label, color }) {
-  // label/color — необязательный оверрайд для ключей вне statMeta (напр. "initiative" — та же
-  // шкала 0-100, что и у 5 базовых статов, но не входит в statMeta, чтобы не попасть в основную
-  // сетку статов на вкладке «Показатели» — это расходуемый ресурс хода, а не национальная стата).
-  const meta = statMeta[statKey] || (label ? { label, color: color || "#8a8fa0" } : null);
+function PreviewStatBar({ statKey, current, delta, label, color, inverted: invertedProp }) {
+  // label/color — необязательный оверрайд для ключей вне statMeta/EXTRA_BAR_META (напр.
+  // "initiative" — та же шкала 0-100, что и у 5 базовых статов, но не входит в statMeta, чтобы не
+  // попасть в основную сетку статов на вкладке «Показатели» — это расходуемый ресурс хода, а не
+  // национальная стата). EXTRA_BAR_META — субметрики/территории/мирный трек (см. выше), они тоже
+  // 0-100, но раньше рисовались только плоским текстом — игрок попросил бары и для них тоже.
+  const extraMeta = EXTRA_BAR_META[statKey];
+  const meta = statMeta[statKey] || extraMeta || (label ? { label, color: color || "#8a8fa0", inverted: !!invertedProp } : null);
   if (!meta) return null;
+  const inverted = !!meta.inverted;
   const projected = Math.max(0, Math.min(100, current + delta));
-  const good = delta > 0;
+  const good = inverted ? delta < 0 : delta > 0;
   const lo = Math.min(current, projected);
   const hi = Math.max(current, projected);
   return (
@@ -1223,12 +1231,13 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
   // остальные (субметрики, казна, территории) остаются плоским списком ниже, у них нет
   // единой шкалы 0-100 с барами на этом экране.
   const coreDeltas = deltas.filter(([s]) => statMeta[s]);
-  // БАЛАНС (2026-07-04): "Инициатива" — та же шкала 0-100, что и 5 базовых статов (просто не в
-  // statMeta, см. комментарий в PreviewStatBar) — игрок ожидал бар и для неё, не только плоский
-  // текст. "Казна" остаётся плоским текстом (шкала -100..100, другой формат), но получает
-  // рублёвую аннотацию ниже.
+  // БАЛАНС (2026-07-04): субметрики/территории/мирный трек/"Инициатива" — все 0-100 внутри, как и
+  // 5 базовых статов (просто не в statMeta, см. EXTRA_BAR_META выше и комментарий в
+  // PreviewStatBar) — игрок попросил бары и для них, не только плоский текст. "Казна" остаётся
+  // плоским текстом (шкала -100..100, другой формат), но получает рублёвую аннотацию ниже.
   const initiativeDelta = deltas.find(([s]) => s === "initiative");
-  const otherDeltas = deltas.filter(([s]) => !statMeta[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak");
+  const barExtraDeltas = deltas.filter(([s]) => EXTRA_BAR_META[s]);
+  const otherDeltas = deltas.filter(([s]) => !statMeta[s] && !EXTRA_BAR_META[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak");
 
   const econNotes = computeEconomyForecastNotes(currentStats, preview.statDeltasPreview);
 
@@ -1359,11 +1368,11 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
       )}
       <div style={{ background: "#1f2733", borderRadius: 4, padding: "8px 12px", marginBottom: 12 }}>
         <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>ПРОГНОЗ ИЗМЕНЕНИЙ</div>
-        {coreDeltas.length === 0 && otherDeltas.length === 0 && !initiativeDelta
+        {coreDeltas.length === 0 && otherDeltas.length === 0 && barExtraDeltas.length === 0 && !initiativeDelta
           ? <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>
           : (
             <>
-              {(coreDeltas.length > 0 || initiativeDelta) && (
+              {(coreDeltas.length > 0 || initiativeDelta || barExtraDeltas.length > 0) && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: otherDeltas.length > 0 ? 10 : 0 }}>
                   {coreDeltas.map(([stat, delta]) => (
                     <PreviewStatBar key={stat} statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
@@ -1371,6 +1380,20 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
                   {initiativeDelta && (
                     <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={currentStats?.initiative ?? 100} delta={initiativeDelta[1]} />
                   )}
+                  {barExtraDeltas.map(([stat, delta]) => {
+                    const note = econNotes[stat];
+                    const noteChannelLabel = stat === "gdp_growth" ? "рост ВВП" : stat === "employment" ? "занятость" : EXTRA_BAR_META[stat]?.label ?? stat;
+                    return (
+                      <div key={stat}>
+                        <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
+                        {note && (
+                          <div className="mono-font" style={{ fontSize: 9, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
+                            ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoEffect(note.before)} → {fmtEcoEffect(note.after)}/мес
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {otherDeltas.length > 0 && (
@@ -1381,7 +1404,7 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
                     // не деньги. Добавляем рублёвый эквивалент тем же курсом, что и вкладка «Казна»
                     // (TREASURY_PER_TRILLION) — раньше цена указа в очках нигде не переводилась в ₽.
                     const rubHint = stat === "treasury" ? `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн` : null;
-                    const noteChannelLabel = stat === "treasury" ? "казна" : stat === "gdp_growth" ? "рост ВВП" : stat === "employment" ? "занятость" : ALL_STAT_LABELS[stat] ?? stat;
+                    const noteChannelLabel = stat === "treasury" ? "казна" : ALL_STAT_LABELS[stat] ?? stat;
                     return (
                       <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
                         {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
@@ -3976,6 +3999,21 @@ const SUBSTAT_META = {
     { key: "lower_class_mood",   label: "Народ",        color: "#4a6b5c", desc: "Рост цен перекрывает надбавки участникам СВО. Деревня держится, города напряжены." },
   ],
 };
+
+// БАЛАНС (2026-07-04): плоский key→{label,color,inverted} индекс по SUBSTAT_META + территории +
+// мирный трек — все они 0-100 внутри, как и 5 базовых статов, просто не входили в statMeta (не
+// хотим засорять основную сетку статов на "Показателях"). Игрок попросил бары и для субметрик —
+// раньше они были только плоским текстом в PreviewCard/EndTurnScreen. Теперь PreviewStatBar может
+// рисовать бар для любого из этих ключей через label/color/inverted пропсы. Казна (-100..100,
+// другой масштаб) и Инициатива (уже есть отдельный кейс) сюда не входят.
+const EXTRA_BAR_META = {};
+for (const group of Object.values(SUBSTAT_META)) {
+  for (const s of group) EXTRA_BAR_META[s.key] = { label: s.label, color: s.color, inverted: !!s.inverted };
+}
+for (const k of ["donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"]) {
+  EXTRA_BAR_META[k] = { label: ALL_STAT_LABELS[k], color: "#7a8fae", inverted: false };
+}
+EXTRA_BAR_META.peace_progress = { label: "Мирный трек", color: "#5b8c6b", inverted: false };
 
 // Спарклайн-график из SVG без библиотек
 function Sparkline({ data, color, width = 120, height = 32 }) {
