@@ -819,7 +819,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ВОЕННЫЙ БЛОУЭФФЕКТ ---
-      // Наступательные операции с вероятностью 35% вызывают эскалацию и международное осуждение
+      // Наступательные операции с вероятностью 20% вызывают эскалацию и международное осуждение
+      // (комментарий раньше говорил "35%" — расходился с кодом, вводящее в заблуждение число)
       if (CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type) && Math.random() < 0.20) {
         const BLOWBACK_EVENTS = [
           { source: "AP", penalty: 8, diplomacyDelta: -5, approvalDelta: -4,
@@ -2024,15 +2025,20 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Добавляем скромный органический плюс: если и экономика, и стабильность, и дипломатия,
       // и рейтинг здоровы — И в этом месяце не сработал НИ ОДИН автоматический минус (ставка,
       // военное бремя, инфляция, дефицит, случайный кризис) — устойчивое правление даёт отдачу.
+      // БАЛАНС (2026-07-04): не проверял коррупцию — здоровое, но насквозь коррумпированное
+      // правление (коррупция 90, но 4 базовых стата ≥55) всё равно получало дивиденд. Утечка
+      // коррупции бьёт по treasury (см. corruptionDrain выше), а не по economyAutoEffects
+      // напрямую, поэтому noAutoCrisis её не видел — добавлена отдельная проверка.
       {
         const noAutoCrisis = economyAutoEffects.every(e => e.delta >= 0);
         const coreEco = newStats.economy ?? 50;
         const coreStab = newStats.stability ?? 50;
         const coreDip = newStats.diplomacy ?? 50;
         const coreAppr = newStats.approval ?? 50;
+        const notCorrupt = (newStats.corruption ?? 55) <= 50;
         const allHealthy = coreEco >= 55 && coreStab >= 55 && coreDip >= 55 && coreAppr >= 55;
         const allStrong = coreEco >= 70 && coreStab >= 70 && coreDip >= 70 && coreAppr >= 70;
-        if (noAutoCrisis && allHealthy) {
+        if (noAutoCrisis && notCorrupt && allHealthy) {
           const dividend = allStrong ? 2 : 1;
           newStats.economy = Math.min(100, coreEco + dividend);
           economyAutoEffects.push({ label: "Организационный рост", delta: dividend });
