@@ -4910,8 +4910,11 @@ function EndMonthForecastPanel({ stats, policies }) {
   const economyDrain = activeImpacts.filter(i => i.label === "Экономика" && i.delta < 0).reduce((s, i) => s + i.delta, 0);
   const otherNegativeLabels = new Set(activeImpacts.filter(i => i.label !== "Экономика" && i.delta < 0).map(i => i.label));
 
-  const severityColor = { crit: "#e08080", bad: "#d4a35a", good: "#7fae93", random: "#b8a0e0" };
-  const severityBg = { crit: "#3a1418", bad: "#3a2810", good: "#142418", random: "#221a38" };
+  // БАЛАНС (2026-07-04): "bad" изначально был жёлто-коричневым (khaki) — Петя не понравился
+  // цвет предупреждения. Перешёл на терракотовый/кирпичный (тёплый тёмно-красный оттенок,
+  // визуально отличимый от "crit", но без жёлтого).
+  const severityColor = { crit: "#e08080", bad: "#c88060", good: "#7fae93", random: "#b8a0e0" };
+  const severityBg = { crit: "#3a1418", bad: "#3a2016", good: "#142418", random: "#221a38" };
 
   return (
     <div style={{ marginBottom: 14, borderRadius: 6, border: `1px solid ${activeCount > 0 ? "#c8a87a" : "#2a3040"}`, overflow: "hidden", background: "#14181f" }}>
