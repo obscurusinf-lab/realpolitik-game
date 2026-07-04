@@ -430,6 +430,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // Проверяем хватает ли инициативы
     const { INITIATIVE_COST, INITIATIVE_REGEN_PER_TURN, INITIATIVE_MAX } = require("../rules/rules-engine");
     const initiativeCheck = await db.query(`SELECT gs.stats FROM game_state gs WHERE gs.game_id = $1`, [gameId]);
+    // military_blocked_this_month проверяется ПОСЛЕ классификации (ниже, рядом с gmClassification) —
+    // разведка (mil_recon) исключена из этого конкретного блока (см. комментарий там). Остальные два
+    // военных лимита (1 операция/мес, блок после передышки) не зависят от подкатегории — их можно
+    // проверить сразу, до классификации.
+    let statsForMilitaryCheck = null;
     if (initiativeCheck.rowCount > 0) {
       const currentStats = initiativeCheck.rows[0].stats;
       const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
@@ -443,15 +448,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
       // Военный лимит: 1 операция в месяц без перегруппировки
       if (actionMode === "military") {
-        const stats = initiativeCheck.rows[0]?.stats || {};
-        if (stats.military_blocked_this_month) {
-          return reply.code(400).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
-        }
-        if (stats.military_used_this_month && !stats.regroup_bonus_attack) {
+        statsForMilitaryCheck = currentStats;
+        if (currentStats.military_used_this_month && !currentStats.regroup_bonus_attack) {
           return reply.code(400).send({ error: "В этом месяце уже проводилась военная операция. Используйте перегруппировку для второго удара." });
         }
         // Передышка — президент занят тылом, фронт без внимания в этом месяце.
-        if (stats.skip_used_this_month) {
+        if (currentStats.skip_used_this_month) {
           return reply.code(400).send({ error: "В этом месяце была гражданская передышка — военные операции недоступны до следующего месяца." });
         }
       } else if (currentStats.regroup_used_this_month) {
@@ -507,6 +509,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       },
       callClaudeApi,
     });
+
+    // Военный лимит (продолжение): military_blocked_this_month ставится перегруппировкой на
+    // СЛЕДУЮЩИЙ месяц (армия отдыхает после двойного удара) — но разведка (mil_recon) не требует
+    // отдыха войск так, как боевая операция, поэтому исключена из этого конкретного блока (Петя,
+    // 2026-07-04). Проверка тут, а не выше вместе с остальными военными лимитами, потому что до
+    // classifyTurn() мы не знаем точную категорию (actionMode="military" сама по себе не отличает
+    // mil_recon от боевых) — /turns/confirm делает тот же самый чек ниже по стеку, с тем же условием,
+    // чтобы превью и подтверждение не расходились.
+    if (statsForMilitaryCheck?.military_blocked_this_month && gmClassification.action_type !== "mil_recon") {
+      return reply.code(400).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
+    }
 
     // Раскрытие тайных операций (covert_*) считается внутри applyTurn (rules-engine.js) —
     // seeded-бросок по exposure_risk, который декларирует ИИ. Старый Math.random()-бросок
@@ -624,7 +637,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const confirmAt = gmClassification.action_type;
       const isConfirmMilitary = CATEGORY_GROUP.military_operations.has(confirmAt);
       if (isConfirmMilitary) {
-        if (game.stats?.military_blocked_this_month) {
+        // Разведка (mil_recon) исключена из этого конкретного блока — она не требует отдыха войск
+        // так, как боевая операция (см. тот же чек и комментарий в /turns/preview выше по файлу).
+        if (game.stats?.military_blocked_this_month && confirmAt !== "mil_recon") {
           await client.query("ROLLBACK");
           return reply.code(409).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
         }
