@@ -91,40 +91,54 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
           <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 18px", marginBottom: 14 }}>
             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.1em" }}>ИЗМЕНЕНИЯ ПОКАЗАТЕЛЕЙ</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {Object.entries(statLabel).map(([k, label]) => {
-                const entry = changelog?.[k];
-                const totalD = entry?.total ?? (statDeltas[k] ?? 0);
-                const decreeD = entry?.decree ?? (statDeltas[k] ?? 0);
-                const eventsD = entry?.events ?? 0;
-                const prev = prevStats[k] ?? 50;
-                const next = Math.max(0, Math.min(100, prev + totalD));
-                const color = totalD > 0 ? "#7fae93" : totalD < 0 ? "#e09090" : "#5a6070";
-                return (
-                  <div key={k} style={{ background: "#1f2733", padding: "7px 10px", borderRadius: 4 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
-                      <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>
-                        {prev} → {next} {totalD !== 0 && `(${totalD > 0 ? "+" : ""}${totalD})`}
-                      </span>
-                    </div>
-                    {/* Разбивка: указ vs события */}
-                    {entry && (decreeD !== 0 || eventsD !== 0) && (
-                      <div className="mono-font" style={{ fontSize: 9, marginTop: 3, display: "flex", gap: 8 }}>
-                        {decreeD !== 0 && (
-                          <span style={{ color: decreeD > 0 ? "#5a8a6a" : "#8a5050" }}>
-                            указ {decreeD > 0 ? "+" : ""}{decreeD}
-                          </span>
-                        )}
-                        {eventsD !== 0 && (
-                          <span style={{ color: eventsD > 0 ? "#5a7a6a" : "#7a4040" }}>
-                            события {eventsD > 0 ? "+" : ""}{eventsD}
-                          </span>
-                        )}
+              {(() => {
+                // Экономика теперь индикатор: военные/дипломатия/шпионаж/большинство указов не
+                // двигают economy напрямую, поэтому её totalD часто ровно 0 здесь — выглядит так,
+                // будто действие вообще не задело экономику. Честный прогноз (та же формула,
+                // что в бэкенде) показывает, что оно всё равно скажется — просто с лагом.
+                const econForecast = computeEconomyForecastNotes(prevStats, statDeltas);
+                const econForecastSum = Object.values(econForecast).reduce((s, n) => s + n.after, 0);
+                return Object.entries(statLabel).map(([k, label]) => {
+                  const entry = changelog?.[k];
+                  const totalD = entry?.total ?? (statDeltas[k] ?? 0);
+                  const decreeD = entry?.decree ?? (statDeltas[k] ?? 0);
+                  const eventsD = entry?.events ?? 0;
+                  const prev = prevStats[k] ?? 50;
+                  const next = Math.max(0, Math.min(100, prev + totalD));
+                  const color = totalD > 0 ? "#7fae93" : totalD < 0 ? "#e09090" : "#5a6070";
+                  const showEconForecast = k === "economy" && totalD === 0 && econForecastSum !== 0;
+                  return (
+                    <div key={k} style={{ background: "#1f2733", padding: "7px 10px", borderRadius: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
+                        <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>
+                          {prev} → {next} {totalD !== 0 && `(${totalD > 0 ? "+" : ""}${totalD})`}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                      {/* Разбивка: указ vs события */}
+                      {entry && (decreeD !== 0 || eventsD !== 0) && (
+                        <div className="mono-font" style={{ fontSize: 9, marginTop: 3, display: "flex", gap: 8 }}>
+                          {decreeD !== 0 && (
+                            <span style={{ color: decreeD > 0 ? "#5a8a6a" : "#8a5050" }}>
+                              указ {decreeD > 0 ? "+" : ""}{decreeD}
+                            </span>
+                          )}
+                          {eventsD !== 0 && (
+                            <span style={{ color: eventsD > 0 ? "#5a7a6a" : "#7a4040" }}>
+                              события {eventsD > 0 ? "+" : ""}{eventsD}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {showEconForecast && (
+                        <div className="mono-font" style={{ fontSize: 9, marginTop: 3, color: econForecastSum < 0 ? "#c47a7a" : "#7fae93" }}>
+                          ⤷ сейчас не видно, но скажется позже: {fmtEcoEffect(econForecastSum)}/мес (рост ВВП/занятость/казна)
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         )}
@@ -1028,6 +1042,49 @@ function TrendIcon({ trend }) {
   return <Minus size={13} color="#8a8472" />;
 }
 
+// ЧЕСТНЫЙ прогноз давления на экономику: с тех пор как RULES_TABLE перестала бить по economy
+// напрямую у военных/дипломатии/шпионажа/большинства указов (см. rules-engine.js), их влияние
+// на экономику идёт ТОЛЬКО через gdp_growth/employment/казну — а это невидимо там, где игрок
+// видит только итоговые дельты: превью до подписи ("Армия +3, Рост ВВП −2" без намёка, что это
+// значит для экономики) И экран результатов после подписи ("Экономика 52 → 52" серым, будто война
+// вообще не задела экономику). Считаем по ТЕМ ЖЕ формулам и делителям, что бэкенд (turns.js,
+// секции "РОСТ ВВП → ЭКОНОМИКА" / "ЗАНЯТОСТЬ → ЭКОНОМИКА" / "СПИРАЛЬ КАЗНА") от РЕАЛЬНЫХ статов —
+// не гадаем число, а честно показываем, во что переведётся ЭТО отклонение в конце месяца, если
+// продержится (округление то же самое). Общая функция для PreviewCard и EndTurnScreen — одно
+// место дублирования формулы вместо двух.
+function computeEconomyForecastNotes(beforeStats, statDeltas) {
+  const notes = {};
+  const economyNow = beforeStats?.economy ?? 50;
+
+  const gdpDelta = statDeltas?.gdp_growth;
+  if (typeof gdpDelta === "number" && gdpDelta !== 0) {
+    const before = beforeStats?.gdp_growth ?? 36;
+    const after = Math.max(0, Math.min(100, before + gdpDelta));
+    const effBefore = Math.round((before - 36) / 8);
+    const effAfter = Math.round((after - 36) / 8);
+    if (effBefore !== effAfter) notes.gdp_growth = { before: effBefore, after: effAfter };
+  }
+  const emplDelta = statDeltas?.employment;
+  if (typeof emplDelta === "number" && emplDelta !== 0) {
+    const before = beforeStats?.employment ?? 74;
+    const after = Math.max(0, Math.min(100, before + emplDelta));
+    const effBefore = Math.round((before - 74) / 10);
+    const effAfter = Math.round((after - 74) / 10);
+    if (effBefore !== effAfter) notes.employment = { before: effBefore, after: effAfter };
+  }
+  const treasuryDelta = statDeltas?.treasury;
+  if (typeof treasuryDelta === "number" && treasuryDelta !== 0) {
+    const before = beforeStats?.treasury ?? 52;
+    const after = Math.max(-100, Math.min(100, before + treasuryDelta));
+    const treasuryEffect = (t) => t < 0 ? -2 : t < 15 ? -1 : (t > 65 && economyNow < 82) ? 1 : 0;
+    const effBefore = treasuryEffect(before);
+    const effAfter = treasuryEffect(after);
+    if (effBefore !== effAfter) notes.treasury = { before: effBefore, after: effAfter };
+  }
+  return notes;
+}
+function fmtEcoEffect(n) { return `${n > 0 ? "+" : ""}${n}`; }
+
 // Мини-бар с "призраком" прогноза: текущее значение сплошной заливкой, изменение —
 // полупрозрачной полосой поверх до проектной отметки (тонкая линия = где окажется стата
 // после подтверждения). Наглядно показывает "какие будут изменения" прямо на шкале,
@@ -1073,42 +1130,7 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
   const coreDeltas = deltas.filter(([s]) => statMeta[s]);
   const otherDeltas = deltas.filter(([s]) => !statMeta[s] && !s.startsWith("_") && s !== "military_streak");
 
-  // ЧЕСТНЫЙ прогноз давления на экономику: с тех пор как RULES_TABLE перестала бить по economy
-  // напрямую у военных/дипломатии/шпионажа/большинства указов (см. rules-engine.js), их влияние
-  // на экономику идёт ТОЛЬКО через gdp_growth/employment/казну — и в этом самом превью раньше
-  // становилось невидимым: военная операция показывала "Армия +3, Рост ВВП −2" без намёка, что
-  // это вообще что-то значит для экономики. Считаем по ТЕМ ЖЕ формулам и делителям, что бэкенд
-  // (turns.js, секции "РОСТ ВВП → ЭКОНОМИКА" / "ЗАНЯТОСТЬ → ЭКОНОМИКА" / "СПИРАЛЬ КАЗНА") —
-  // не гадаем число, а честно показываем, во что переведётся ЭТО отклонение в конце месяца,
-  // если продержится (округление то же самое).
-  const econNotes = {};
-  const gdpDelta = preview.statDeltasPreview?.gdp_growth;
-  if (typeof gdpDelta === "number" && gdpDelta !== 0) {
-    const before = currentStats?.gdp_growth ?? 36;
-    const after = Math.max(0, Math.min(100, before + gdpDelta));
-    const effBefore = Math.round((before - 36) / 8);
-    const effAfter = Math.round((after - 36) / 8);
-    if (effBefore !== effAfter) econNotes.gdp_growth = { before: effBefore, after: effAfter };
-  }
-  const emplDelta = preview.statDeltasPreview?.employment;
-  if (typeof emplDelta === "number" && emplDelta !== 0) {
-    const before = currentStats?.employment ?? 74;
-    const after = Math.max(0, Math.min(100, before + emplDelta));
-    const effBefore = Math.round((before - 74) / 10);
-    const effAfter = Math.round((after - 74) / 10);
-    if (effBefore !== effAfter) econNotes.employment = { before: effBefore, after: effAfter };
-  }
-  const treasuryDelta = preview.statDeltasPreview?.treasury;
-  if (typeof treasuryDelta === "number" && treasuryDelta !== 0) {
-    const economyNow = currentStats?.economy ?? 50;
-    const before = currentStats?.treasury ?? 52;
-    const after = Math.max(-100, Math.min(100, before + treasuryDelta));
-    const treasuryEffect = (t) => t < 0 ? -2 : t < 15 ? -1 : (t > 65 && economyNow < 82) ? 1 : 0;
-    const effBefore = treasuryEffect(before);
-    const effAfter = treasuryEffect(after);
-    if (effBefore !== effAfter) econNotes.treasury = { before: effBefore, after: effAfter };
-  }
-  const fmtEcoEffect = (n) => `${n > 0 ? "+" : ""}${n}`;
+  const econNotes = computeEconomyForecastNotes(currentStats, preview.statDeltasPreview);
 
   async function handleArgue() {
     if (!argumentText.trim() || sendingArg) return;
