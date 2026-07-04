@@ -134,7 +134,7 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
                       )}
                       {showEconForecast && (
                         <div className="mono-font" style={{ fontSize: 9, marginTop: 3, color: econForecastSum < 0 ? "#c47a7a" : "#7fae93" }}>
-                          ⤷ сейчас не видно, но скажется позже: {fmtEcoEffect(econForecastSum)}/мес (рост ВВП/занятость/казна)
+                          ⤷ сейчас не видно, но скажется позже: {fmtEcoEffect(econForecastSum)}/мес (рост ВВП/занятость/армия/инфляция/казна)
                         </div>
                       )}
                     </div>
@@ -1320,6 +1320,31 @@ function computeEconomyForecastNotes(beforeStats, statDeltas) {
     const effAfter = treasuryEffect(after);
     if (effAfter !== 0 || effBefore !== 0) notes.treasury = { before: effBefore, after: effAfter };
   }
+  // БАЛАНС (2026-07-04): раньше прогноз показывал только 3 из ~9 реальных каналов, которыми
+  // economy двигается на end-month (см. turns.js) — военные и инфляционные эффекты были
+  // невидимы игроку ДО хода, хотя они не менее реальны. Добавлены два детерминированных канала,
+  // завязанных на конкретный стат (как и выше) — те же формулы, что в turns.js:
+  // ВПК/военное бремя (military) и инфляционный шторм (inflation). Ставку ЦБ и "организационный
+  // рост" (мирный дивиденд) сюда не добавляем — это автономные месячные эффекты, не завязанные
+  // на дельту ОДНОГО конкретного хода, прогнозировать их по одному указу не получится честно.
+  const milDelta = statDeltas?.military ?? 0;
+  {
+    const before = beforeStats?.military ?? 50;
+    const after = Math.max(0, Math.min(100, before + milDelta));
+    const milEconEffect = (m) => m > 80 ? -(Math.floor((m - 80) / 10) + 1) : m >= 50 ? Math.floor((m - 50) / 15) : 0;
+    const effBefore = milEconEffect(before);
+    const effAfter = milEconEffect(after);
+    if (effAfter !== 0 || effBefore !== 0) notes.military = { before: effBefore, after: effAfter };
+  }
+  const inflDelta = statDeltas?.inflation ?? 0;
+  {
+    const before = beforeStats?.inflation ?? 64;
+    const after = Math.max(0, Math.min(100, before + inflDelta));
+    const inflEconEffect = (i) => i > 73 ? -Math.min(3, Math.floor((i - 73) / 10) + 1) : 0;
+    const effBefore = inflEconEffect(before);
+    const effAfter = inflEconEffect(after);
+    if (effAfter !== 0 || effBefore !== 0) notes.inflation = { before: effBefore, after: effAfter };
+  }
   return notes;
 }
 function fmtEcoEffect(n) { return `${n > 0 ? "+" : ""}${n}`; }
@@ -1524,15 +1549,26 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
             <>
               {(coreDeltas.length > 0 || initiativeDelta || barExtraDeltas.length > 0) && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: otherDeltas.length > 0 ? 10 : 0 }}>
-                  {coreDeltas.map(([stat, delta]) => (
-                    <PreviewStatBar key={stat} statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
-                  ))}
+                  {coreDeltas.map(([stat, delta]) => {
+                    const note = econNotes[stat];
+                    const noteChannelLabel = stat === "military" ? "армию" : ALL_STAT_LABELS[stat] ?? stat;
+                    return (
+                      <div key={stat}>
+                        <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
+                        {note && (
+                          <div className="mono-font" style={{ fontSize: 9, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
+                            ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoNote(note)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                   {initiativeDelta && (
                     <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={currentStats?.initiative ?? 100} delta={initiativeDelta[1]} />
                   )}
                   {barExtraDeltas.map(([stat, delta]) => {
                     const note = econNotes[stat];
-                    const noteChannelLabel = stat === "gdp_growth" ? "рост ВВП" : stat === "employment" ? "занятость" : EXTRA_BAR_META[stat]?.label ?? stat;
+                    const noteChannelLabel = stat === "gdp_growth" ? "рост ВВП" : stat === "employment" ? "занятость" : stat === "inflation" ? "инфляцию" : EXTRA_BAR_META[stat]?.label ?? stat;
                     return (
                       <div key={stat}>
                         <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
@@ -4224,6 +4260,7 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
   const MECHANIC_NOTES = {
     economy: [
       { text: "Большая армия дорого обходится: если военная мощь выше 80, каждый месяц с экономики списывается содержание армии — от 1 до 3 пунктов, тем больше, чем сильнее армия превышает порог.", warn: (state.stats.military ?? 50) > 80 },
+      { text: "Затяжная война сама по себе стоит экономике, независимо от размера армии: с 4-го месяца непрерывных боевых действий подряд каждый месяц списывается 1-2 пункта — рабочие руки и ресурсы уходят на фронт. Регруппировка/передышка сбрасывают счётчик.", warn: (state.stats.military_streak ?? 0) >= 4 },
       { text: "Высокая инфляция бьёт по экономике: выше 15% годовых начинают идти ежемесячные потери — до 3 пунктов при инфляции 100%.", warn: (state.stats.inflation ?? 64) > 73 },
       { text: "Пустая казна — это дефицит: при отрицательной казне экономика теряет 2 пункта в месяц, а инфляция ускоряется. Казна ниже 15 из 100 тоже понемногу давит на экономику.", warn: (state.stats.treasury ?? 52) < 15 },
       { text: "Здоровый запас в казне (выше 65) даёт небольшой плюс к экономике — есть деньги на инвестиции.", warn: false },
@@ -4410,10 +4447,11 @@ function EndMonthForecastPanel({ stats }) {
     const sizeTax = mil > 80 ? Math.floor((mil - 80) / 10) + 1 : 0;
     const wearinessHit = streak >= 4 ? Math.min(5, Math.floor((streak - 3) * 1.5)) : 0;
     const stabHit = Math.ceil(wearinessHit / 2);
+    const warEconomyDrag = wearinessHit > 0 ? Math.ceil(wearinessHit / 3) : 0;
     if (sizeTax > 0 || wearinessHit > 0) {
       const impacts = [];
       if (sizeTax > 0) impacts.push({ label: "Экономика", delta: -sizeTax }, { label: "Одобрение", delta: -1 });
-      if (wearinessHit > 0) impacts.push({ label: "Одобрение", delta: -wearinessHit }, { label: "Стабильность", delta: -stabHit });
+      if (wearinessHit > 0) impacts.push({ label: "Одобрение", delta: -wearinessHit }, { label: "Стабильность", delta: -stabHit }, { label: "Экономика", delta: -warEconomyDrag });
       const parts = [];
       if (sizeTax > 0) parts.push(`армия ${mil} > 80`);
       if (wearinessHit > 0) parts.push(`${streak}-й месяц войны подряд`);
@@ -4871,6 +4909,11 @@ function getPassiveEffects(key, stats) {
     if (mil > 80) {
       const tax = Math.floor((mil - 80) / 10) + 1;
       effects.push({ sign: -1, value: tax, text: `Военное бремя: содержание армии (${mil} > 80)` });
+      hadNegative = true;
+    }
+    if (wearinessHit > 0) {
+      const warEconDrag = Math.ceil(wearinessHit / 3);
+      effects.push({ sign: -1, value: warEconDrag, text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
       hadNegative = true;
     }
     if (inf > 73) {
@@ -7708,7 +7751,7 @@ function WikiTab({ dark = false }) {
       <div style={S.p}><span style={S.b}>Потолок месячной эрозии экономики</span> — все автоматические потери за один месяц (высокая ключевая ставка, военное бремя, инфляционный шок, дефицит казны, случайные кризисы) суммарно ограничены −6 пунктов. Резкий обвал экономики за один ход больше не случится: если суммарные потери превышают потолок, разница возвращается экономике. В конце месяца новость от «Минэкономразвития» показывает точную разбивку: что именно и сколько списало экономику.</div>
       <div style={S.p}><span style={S.b}>Организационный рост</span> — если экономика, стабильность, дипломатия и рейтинг одновременно выше 55, коррупция под контролем (CPI ≥28 — см. ниже про направление CPI) и в этом месяце не сработал ни один автоматический минус на экономику (ставка ЦБ, военное бремя, инфляция, дефицит казны, спад ВВП или занятости, коррупционная утечка) — экономика получает +1 пункт сама по себе, +2, если все четыре показателя выше 70. Устойчивое здоровое правление должно давать отдачу, а не просто «не терять очки»: коррумпированное правление, даже с хорошими цифрами по остальным статам, не считается «здоровым».</div>
       <div style={S.p}><span style={S.b}>Коррупция и CPI — осторожно, направления разные.</span> На вкладке Казна и в других местах видны ДВА числа коррупции: «внутренний балл» (0-100, тот же, что двигает игровую механику и заполняет шкалу — <b>выше = хуже</b>, больше коррупции) и «CPI» (индекс восприятия коррупции по методике Transparency International, реалистичный диапазон ~10-46 — <b>выше = ЛУЧШЕ</b>, меньше коррупции, как и в реальности). Они всегда двигаются в противоположные стороны: балл растёт — CPI падает, и наоборот. Порог «коррупция под контролем» для Организационного роста — внутренний балл ≤50, это соответствует CPI ≥28.</div>
-      <div style={S.p}><span style={S.b}>Оборонзаказ (ВПК)</span> — армия не только стоит денег. В диапазоне 50-80 баллов военные заказы стимулируют промышленность и дают небольшой плюс к экономике — реальный эффект военной экономики. Выше 80 баллов содержание такой армии перевешивает отдачу от заказов, и стимул сменяется бременем.</div>
+      <div style={S.p}><span style={S.b}>Оборонзаказ (ВПК)</span> — армия не только стоит денег. В диапазоне 50-80 баллов военные заказы стимулируют промышленность и дают небольшой плюс к экономике — реальный эффект военной экономики. Выше 80 баллов содержание такой армии перевешивает отдачу от заказов, и стимул сменяется бременем. Отдельно от размера армии — с 4-го месяца непрерывных боевых действий подряд сама протяжённость войны тоже понемногу подтачивает экономику (1-2 пункта/мес.), даже если армия умеренного размера: рабочие руки и ресурсы уходят на фронт. Регруппировка или передышка сбрасывают этот счётчик.</div>
       <div style={S.p}><span style={S.b}>Внутренние кризисы и стабильность</span> — случайное внутреннее потрясение (7% шанс в месяц) бьёт по одной-двум статам, но крепкий тыл реально смягчает удар: стабильность выше 60 гасит до половины последствий при стабильности 100. Если смягчение оказалось заметным, об этом отдельно сообщают в ленте — устойчивое общество не просто «держит удар», оно снижает сам удар.</div>
       <div style={S.p}><span style={S.b}>Содержание отвоёванных территорий</span> — взятая территория не бесплатный трофей: администрирование и восстановление регионов, отвоёванных сверх стартовой линии контроля, каждый месяц немного тянет казну вниз. Регионы, которые были под контролем изначально (сид партии), ничего не стоят — платится только за реальную военную экспансию.</div>
       <div style={S.p}><span style={S.b}>Советник Силин</span> всегда называет конкретные цифры и объясняет, какие инструменты доступны прямо сейчас.</div>

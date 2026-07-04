@@ -1748,9 +1748,19 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
         if (warStreak >= 4) {
           const wearinessHit = Math.min(5, Math.floor((warStreak - 3) * 1.5)); // 1-5 pts
+          // БАЛАНС (2026-07-04): раньше усталость от войны (streak) била только по рейтингу и
+          // стабильности — army>80 "налог на размер" был единственным прямым ударом по economy
+          // от военных действий, а он не срабатывает при умеренной армии (50-80), где к тому же
+          // работает ОБРАТНЫЙ канал (Оборонзаказ/ВПК, выше по файлу) — воевать месяцами подряд
+          // умеренной армией НИКАК не задевало economy напрямую (только очень медленно, через
+          // компаундинг gdp_growth/employment). Добавлен прямой, но мягкий экономический компонент
+          // усталости — сама протяжённость войны (не размер армии) тоже стоит экономике: рабочие
+          // руки и ресурсы уходят на фронт, производство перестраивается под нужды войны.
+          const warEconomyDrag = Math.ceil(wearinessHit / 3); // 1-2 pts
+          burdenEconomy += warEconomyDrag;
           burdenApproval += wearinessHit;
           burdenStability += Math.ceil(wearinessHit / 2);
-          burdenParts.push(`${warStreak}-й месяц непрерывной войны: рейтинг −${wearinessHit}, стабильность −${Math.ceil(wearinessHit / 2)}`);
+          burdenParts.push(`${warStreak}-й месяц непрерывной войны: рейтинг −${wearinessHit}, стабильность −${Math.ceil(wearinessHit / 2)}, экономика −${warEconomyDrag}`);
         }
 
         if (burdenEconomy || burdenApproval || burdenStability) {
