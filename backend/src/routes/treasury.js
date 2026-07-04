@@ -99,7 +99,7 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
         [JSON.stringify(newStats), gameId]
       );
 
-      const T = 0.8;
+      const { TREASURY_PER_TRILLION: T } = require("../rules/rules-engine");
       const gain = OFZ_TREASURY_GAIN;
       const monthlyCost = ofzTotalMonthlyCost(newStats.ofz_count, newStats.key_rate);
 
@@ -165,7 +165,7 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
         [JSON.stringify(newStats), gameId]
       );
 
-      const T = 0.8;
+      const { TREASURY_PER_TRILLION: T } = require("../rules/rules-engine");
       const newMonthlyCost = ofzTotalMonthlyCost(newStats.ofz_count, newStats.key_rate);
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
@@ -236,7 +236,7 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
 
       await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
 
-      const T = 0.8;
+      const { TREASURY_PER_TRILLION: T } = require("../rules/rules-engine");
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, game.current_turn + 1, "Минфин",

@@ -1004,6 +1004,16 @@ function reservesRubTrillion(score) {
 function reservesUsdBillion(rubTrillion, usdRubRate) {
   return (rubTrillion * 1000) / (usdRubRate || 80);
 }
+// Казна — тот же принцип, что резервы выше: балл 0-100, реальные деньги для отображения.
+// БАЛАНС (2026-07-04): было 0.8 — месячный доход казны (~20 очков при экономике 50)
+// отображался как ≈₽16 трлн/мес (≈₽192 трлн/год) — почти весь номинальный ВВП модели
+// (₽190 трлн при экономике 50, см. GDP_NOMINAL_BASE_RUB_TRILLION выше) исправно собирался
+// налогами КАЖДЫЙ год, при реальной доле доходов федерального бюджета РФ к ВВП ≈18-20%.
+// Приведено к тому же курсу, что и резервы — конвертация ФНБ→казна (treasury.js) двигает
+// одни и те же рубли между двумя пулами очков, курс обязан совпадать, иначе конвертация
+// физически создаёт/уничтожает деньги. Держать в синхроне с backend/src/rules/rules-engine.js
+// (TREASURY_PER_TRILLION) — общего модуля между backend/frontend нет.
+const TREASURY_PER_TRILLION = 0.13;
 // Общий форматтер для substat-карточек (инфляция/ВВП/занятость показываются в %,
 // остальное — сырым баллом 0-100). Используется во всех местах, где рендерятся substats.
 function formatSubstatValue(key, value) {
@@ -1011,7 +1021,12 @@ function formatSubstatValue(key, value) {
   if (key === "gdp_growth") { const p = gdpGrowthPercent(value); return `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`; }
   if (key === "employment") return `${employmentRatePercent(value).toFixed(1)}%`;
   if (key === "reserves") return `₽${reservesRubTrillion(value).toFixed(1)} трлн`;
-  if (key === "corruption") return `${corruptionCpiEquivalent(value)}/100 (CPI)`;
+  // БАЛАНС (2026-07-04): было "X/100 (CPI)" — читалось как процент/доля бара, но бар везде
+  // рисуется от сырого 0-100 балла (см. Bar value={s.value} в substat-карточках), а не от CPI
+  // (сжат в реалистичный диапазон 10-46, см. corruptionCpiEquivalent). При балле 55 бар был
+  // заполнен наполовину, а рядом стояло «26/100» — выглядело как рассинхрон. CPI — не доля
+  // бара, а отдельная реалистичная оценка по методике Transparency International.
+  if (key === "corruption") return `CPI ${corruptionCpiEquivalent(value)}`;
   return value;
 }
 function deltaColor(stat, delta) {
@@ -2377,7 +2392,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
           {/* Казна (бюджет) + месячный поток + предупреждение о спирали */}
           {(() => {
-            const T = 0.8; // ₽ трлн за пункт
+            // БАЛАНС (2026-07-04): курс синхронизирован с TREASURY_PER_TRILLION в TreasuryTab
+            // (см. ниже) и с backend/src/rules/rules-engine.js — держать все три в синхроне.
+            const T = TREASURY_PER_TRILLION;
             const treasury = state?.stats?.treasury ?? 52;
             const economy = state?.stats?.economy ?? 50;
             const MONEY ={ military: 20, decree_program: 15, decree_reform: 8, decree: 8, decree_fast: 3, diplomacy_op: 5, intel: 5, crisis: 4 };
@@ -4486,8 +4503,13 @@ function EndMonthForecastPanel({ stats }) {
                 {m.impacts.length > 0 && m.active !== false && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: m.fix ? 6 : 0 }}>
                     {m.impacts.map((imp, j) => {
-                      const isNeg = imp.delta !== null && imp.delta < 0;
-                      const isPos = imp.delta !== null && imp.delta > 0;
+                      // БАЛАНС (2026-07-04): красили чисто по знаку дельты — «Инфляция −1»
+                      // (падение инфляции, это ХОРОШО) красилось в красный. Инфляция (и другие
+                      // INVERTED_STATS) — чем меньше, тем лучше, знак нужно инвертировать.
+                      const impKey = IMPACT_STAT_KEY[imp.label];
+                      const inverted = impKey && INVERTED_STATS.has(impKey);
+                      const isNeg = imp.delta !== null && (inverted ? imp.delta > 0 : imp.delta < 0);
+                      const isPos = imp.delta !== null && (inverted ? imp.delta < 0 : imp.delta > 0);
                       const chipColor = isNeg ? "#a8313a" : isPos ? "#4a6b5c" : "#5a4a8a";
                       const chipBg = isNeg ? "#fde8e8" : isPos ? "#e8f5e8" : "#f0eef8";
                       const pct = impactPercent(imp.label, imp.delta, stats);
@@ -6223,7 +6245,6 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded, warCounte
 }
 
 const OFZ_MAX = 3;
-const TREASURY_PER_TRILLION = 0.8;
 // Коррупция — балл 0-100 без реального ориентира, та же проблема, что решили для ВВП/резервов.
 // Даём два реальных числа: (1) ежемесячная утечка бюджета в ₽ трлн — та же величина, что уже
 // считается в очках, просто переведена в деньги тем же курсом, что и казна; (2) грубый аналог
@@ -6735,10 +6756,16 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 26, fontWeight: 700, color: corrColor, lineHeight: 1 }}>
-                    {corrCpi}/100
+                    CPI {corrCpi}
                   </div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", marginTop: 3 }}>
                     индекс восприятия коррупции (Transparency International) · {corrLevel > 65 ? "высокий риск скандалов" : corrLevel > 50 ? "заметная утечка бюджета" : "под контролем"}
+                  </div>
+                  {/* БАЛАНС (2026-07-04): CPI — реалистичная оценка (сжатый диапазон 10-46), НЕ доля
+                      шкалы ниже — та рисуется от внутреннего балла тяжести (corrLevel, 0-100).
+                      Раньше рядом с баром на полшкалы стояло «26/100», выглядело как рассинхрон. */}
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#3a4050", marginTop: 1 }}>
+                    внутренний уровень тяжести: {Math.round(corrLevel)}/100 (им и заполнена шкала ниже)
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>

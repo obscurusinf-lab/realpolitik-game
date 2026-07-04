@@ -2049,7 +2049,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         [gameId, completedMonth, score, JSON.stringify(Object.fromEntries(scoreKeys.map(k => [k, newStats[k] ?? 50])))]
       );
       // Бюджетная сводка в ленту
-      const T = 0.8; // ₽ трлн за пункт казны
+      const { TREASURY_PER_TRILLION: T } = require("../rules/rules-engine"); // ₽ трлн за пункт казны
       const flowSign = monthlyNet >= 0 ? "+" : "";
       const ofzLine = ofzCount > 0 ? `, обслуживание ОФЗ −${ofzDebtService}` : "";
       const oilFxLine = (oilIncome !== 0 || fxIncome !== 0)
