@@ -109,12 +109,14 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
                   const showEconForecast = k === "economy" && totalD === 0 && econForecastSum !== 0;
                   return (
                     <div key={k} style={{ background: "#1f2733", padding: "7px 10px", borderRadius: 4 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
-                        <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>
-                          {prev} → {next} {totalD !== 0 && `(${totalD > 0 ? "+" : ""}${totalD})`}
-                        </span>
-                      </div>
+                      {totalD !== 0
+                        ? <PreviewStatBar statKey={k} current={prev} delta={totalD} />
+                        : (
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span className="mono-font" style={{ fontSize: 10, color: "#a8a294" }}>{label}</span>
+                            <span className="mono-font" style={{ fontSize: 11, color, fontWeight: 700 }}>{prev}</span>
+                          </div>
+                        )}
                       {/* Разбивка: указ vs события */}
                       {entry && (decreeD !== 0 || eventsD !== 0) && (
                         <div className="mono-font" style={{ fontSize: 9, marginTop: 3, display: "flex", gap: 8 }}>
@@ -140,6 +142,23 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
                 });
               })()}
             </div>
+            {(() => {
+              // Территории, субметрики и т.п. — те же "прочие" дельты, что и в PreviewCard,
+              // просто плоским списком (нет общей шкалы 0-100 для бара).
+              const otherDeltas = Object.entries(statDeltas).filter(
+                ([s, d]) => d !== 0 && !statMeta[s] && !s.startsWith("_") && s !== "military_streak"
+              );
+              if (otherDeltas.length === 0) return null;
+              return (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
+                  {otherDeltas.map(([stat, delta]) => (
+                    <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
+                      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -2949,7 +2968,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                 { label: "💰 Казна (бюджет)", desc: "Деньги. Действия стоят казны (война — дороже всего). Доход: экономика + налоги. Расход: содержание программ. Казна и экономика связаны: пустая казна тянет экономику вниз, здоровая — вверх; слабая экономика сушит доход. Дефицит — спираль вниз.", color: "#c8b87a" },
                 { label: "📈 Экономика — индикатор, не рычаг", desc: "Военные операции, дипломатия, шпионаж и большинство указов не бьют по экономике напрямую — их влияние идёт через рост ВВП, занятость и инфляцию, которые эти действия и двигают. Прямо управляют экономикой только экономические указы — это их прямое назначение.", color: "#3a8a7a" },
                 { label: "🛢 Нефть и курс доллара", desc: "Цена нефти и курс ₽/$ дрейфуют каждый месяц и реагируют на геополитику (Иран, ОПЕК+, санкции). Дорогая нефть и слабый рубль увеличивают доход казны (экспорт в долларах), но слабый рубль разгоняет инфляцию.", color: "#c89060" },
-                { label: "⚙ Перегруппировка / 🏠 Передышка", desc: "Перегруппировка — отдых фронта (мораль, готовность, инициатива). Передышка — восстановление тыла (экономика, рейтинг, стабильность).", color: "#5a8050" },
+                { label: "⚙ Перегруппировка / 🏠 Передышка", desc: "Перегруппировка — отдых фронта (мораль, готовность, инициатива), даёт второй военный удар в этом месяце, но в этот месяц доступны только военные действия. Передышка — восстановление тыла (рейтинг, стабильность, занятость), но военные операции в этот месяц недоступны.", color: "#5a8050" },
               ].map(({ label, desc, color }) => (
                 <div key={label} style={{ background: "#1a2030", borderRadius: 3, padding: "7px 9px" }}>
                   <div className="mono-font" style={{ fontSize: 9, color, fontWeight: 700, marginBottom: 2 }}>{label}</div>
@@ -7233,8 +7252,8 @@ function WikiTab({ dark = false }) {
       <div style={S.p}>Кроме готовых категорий, всегда доступно свободное поле «написать правительству» — президент может сформулировать любое реалистичное решение своими словами. Чем конкретнее формулировка, тем точнее игра рассчитает эффект.</div>
 
       <div style={S.h}>СПЕЦИАЛЬНЫЕ ДЕЙСТВИЯ</div>
-      <div style={S.p}><span style={S.b}>⚙ Перегруппировка</span> — подтягивает снабжение и резервы, восстанавливает инициативу. Главный эффект: открывает <span style={S.b}>второй военный удар в этом же месяце</span>. Цена: следующий месяц армия восстанавливается — военные операции заблокированы. Украина видит паузу и может атаковать.</div>
-      <div style={S.p}><span style={S.b}>🏠 Передышка</span> — президент занимается тылом: экономика, рейтинг и стабильность восстанавливаются. Доступна 1 раз за месяц. Цена: пока Россия отдыхает, ВСУ восстанавливают боевой дух и личный состав — фронт не двигается в вашу пользу.</div>
+      <div style={S.p}><span style={S.b}>⚙ Перегруппировка</span> — подтягивает снабжение и резервы, восстанавливает инициативу. Главный эффект: открывает <span style={S.b}>второй военный удар в этом же месяце</span>. Цена: в этом месяце доступны только военные операции (это военное решение, не время для указов и дипломатии), а следующий месяц армия восстанавливается — военные операции заблокированы. Украина видит паузу и может атаковать.</div>
+      <div style={S.p}><span style={S.b}>🏠 Передышка</span> — президент занимается тылом: рейтинг, стабильность и занятость восстанавливаются. Доступна 1 раз за месяц. Цена: военные операции в этот месяц недоступны (президент занят тылом, не фронтом), а пока Россия отдыхает, ВСУ восстанавливают боевой дух и личный состав — фронт не двигается в вашу пользу.</div>
 
       <div style={S.h}>ВОЕННЫЕ ОПЕРАЦИИ</div>
       <div style={S.p}>В каждом месяце доступна <span style={S.b}>одна</span> военная операция. Хотите нанести два удара подряд — сначала используйте перегруппировку: она открывает второй слот в текущем месяце, но блокирует военные в следующем.</div>

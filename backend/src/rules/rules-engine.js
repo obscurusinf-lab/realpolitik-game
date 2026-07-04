@@ -372,6 +372,109 @@ function computePeaceProgressDelta({ action_type, severity, armyValue, seed }) {
   return 0;
 }
 
+const TERRITORY_KEYS = ["donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"];
+const TERRITORY_HARDNESS = { donetsk: 1.0, luhansk: 0.6, zaporizhzhia: 1.2, kherson: 1.3, kharkiv: 1.5 };
+
+/**
+ * Территориальный контроль (захват/откат фронта) — раньше жил только внутри /turns/confirm
+ * в turns.js и использовал Math.random(), поэтому /turns/preview не мог его посчитать: тот же
+ * бросок кубика дал бы ДРУГОЕ число при подтверждении, честного превью не получилось бы (см.
+ * принцип "то, что видит игрок в превью, должно совпадать 1:1 с confirm" — applyTurn выше).
+ * Вынесено сюда и переведено на seededFraction (сид = gameId:turnNumber:action_type:territory) —
+ * теперь preview и confirm с одинаковым сидом дают одинаковый результат. Не мутирует stats,
+ * возвращает { deltas, moraleDelta }.
+ */
+function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameId, turnNumber }) {
+  const seed = `${gameId}:${turnNumber}:${action_type}:territory`;
+  const sev = severity || 2;
+  const next = {}; // key -> уже посчитанное новое значение в рамках этого вызова
+  const get = (key, fallback) => (next[key] !== undefined ? next[key] : (stats[key] ?? fallback));
+
+  const isOffensiveLike = CATEGORY_GROUP.military_offensive_like.has(action_type);
+  const isDefensiveLike = CATEGORY_GROUP.military_defensive_like.has(action_type);
+  const isDiplomaticLike = CATEGORY_GROUP.diplomatic_activity.has(action_type) || actionMode === "diplomacy_op";
+
+  if (isOffensiveLike) {
+    // Прогресс зависит от армии и severity. Опыт войск (veterans) — обстрелянные части
+    // эффективнее берут территорию независимо от текущего духа/техники.
+    const armyQuality = ((stats.army_morale ?? 50) + (stats.readiness ?? 50) + (stats.equipment ?? 50) + (stats.veterans ?? 50)) / 4;
+    const baseGain = sev * 3 + Math.max(0, (armyQuality - 60) / 5); // 3-12 pts
+    for (const key of TERRITORY_KEYS) {
+      const regionName = key.replace("_control", "");
+      const hardness = TERRITORY_HARDNESS[regionName] || 1.0;
+      const current = get(key, 50);
+      if (current < 100) {
+        // Труднее брать уже занятые территории и более укреплённые
+        const effectiveness = Math.max(0.1, 1 - (current / 100) * 0.5);
+        const gain = Math.round((baseGain / hardness) * effectiveness);
+        next[key] = Math.min(100, current + Math.max(1, gain));
+      }
+    }
+  } else if (isDefensiveLike) {
+    // Оборона — удержание. Небольшое восстановление потерянных позиций
+    for (const key of TERRITORY_KEYS) {
+      const current = get(key, 50);
+      if (current < 60 && current > 0) {
+        next[key] = Math.min(60, current + 2);
+      }
+    }
+  } else if (isDiplomaticLike) {
+    // Мирный/дипломатический трек — небольшие уступки на спорных территориях
+    const concession = sev === 3 ? 4 : sev === 2 ? 2 : 1;
+    for (const key of ["kharkiv_control", "kherson_control"]) {
+      const current = get(key, 50);
+      // Уступаем только спорное — не более 20 пунктов за всю игру
+      if (current > 5) {
+        next[key] = Math.max(5, current - concession);
+      }
+    }
+  } else if (action_type === "diplo_pressure") {
+    // Жёсткая риторика — обострение, мелкие тактические потери
+    const current = get("kharkiv_control", 12);
+    next.kharkiv_control = Math.max(0, current - 3);
+  } else if (action_type === "null_action") {
+    // Бездействие — контрнаступление Украины на спорных направлениях
+    for (const key of ["kharkiv_control", "kherson_control"]) {
+      const current = get(key, 50);
+      next[key] = Math.max(0, current - 3);
+    }
+    next.zaporizhzhia_control = Math.max(0, get("zaporizhzhia_control", 68) - 1);
+  }
+
+  // --- Украинское сопротивление при наступлении ---
+  // Каждый offensive — ВСУ и союзники контратакуют: случайный откат 1-3 территорий
+  let moraleDelta = 0;
+  if (isOffensiveLike) {
+    // Опытные части лучше держат удар при контратаке — тоже снижает интенсивность отката.
+    const armyQuality = ((stats.army_morale ?? 50) + (stats.readiness ?? 50) + (stats.veterans ?? 50)) / 3;
+    // Интенсивность ответа зависит от западной поддержки (diplomacy_vs_west прокси = relations с США/ЕС)
+    const resistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
+    // Украина контратакует преимущественно на слабых флангах (Харьков, Херсон)
+    const contestedKeys = ["kharkiv_control", "kherson_control", "zaporizhzhia_control"];
+    const numContested = Math.min(contestedKeys.length, 1 + Math.floor(seededFraction(seed + ":count") * resistanceIntensity));
+    // Детерминированная "перетасовка": сортируем по сидованному скору вместо Math.random()+sort.
+    const shuffled = contestedKeys
+      .map(k => ({ k, score: seededFraction(seed + ":shuffle:" + k) }))
+      .sort((a, b) => a.score - b.score)
+      .slice(0, numContested)
+      .map(x => x.k);
+    for (const key of shuffled) {
+      const current = get(key, 0);
+      const pushback = Math.round(1 + seededFraction(seed + ":pushback:" + key) * resistanceIntensity);
+      next[key] = Math.max(0, current - pushback);
+    }
+    // Потери от боёв: армейский моральный откат
+    moraleDelta = -Math.round(1 + seededFraction(seed + ":morale") * 3);
+  }
+
+  const deltas = {};
+  for (const [key, val] of Object.entries(next)) {
+    const before = stats[key] ?? 50;
+    if (val !== before) deltas[key] = val - before;
+  }
+  return { deltas, moraleDelta };
+}
+
 /**
  * Основная функция: берёт текущий state, классификацию от ИИ,
  * возвращает новый state + объект дельт (для отображения игроку).
@@ -588,6 +691,7 @@ module.exports = {
   CATEGORY_COST,
   EXPOSURE_RISK_CHANCE,
   computePeaceProgressDelta,
+  computeTerritoryDelta,
   rollExposure,
   MAX_DELTA_PER_TURN,
   SUBSTAT_DEFAULTS,

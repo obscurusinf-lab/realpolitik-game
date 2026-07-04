@@ -106,7 +106,7 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
 
   return null;
 }
-const { applyTurn, computeDelayedEffectDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP } = require("../rules/rules-engine");
+const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
 // Вычисляет новую дату игры (+1 месяц в обычном режиме, +2 недели в кризисном)
@@ -445,6 +445,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         if (stats.military_used_this_month && !stats.regroup_bonus_attack) {
           return reply.code(400).send({ error: "В этом месяце уже проводилась военная операция. Используйте перегруппировку для второго удара." });
         }
+        // Передышка — президент занят тылом, фронт без внимания в этом месяце.
+        if (stats.skip_used_this_month) {
+          return reply.code(400).send({ error: "В этом месяце была гражданская передышка — военные операции недоступны до следующего месяца." });
+        }
+      } else if (currentStats.regroup_used_this_month) {
+        // Перегруппировка — военное решение, в этот месяц доступен только бой.
+        return reply.code(400).send({ error: "В этом месяце была перегруппировка — доступны только военные операции." });
       }
     }
 
@@ -523,7 +530,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // без этого preview в мульти-режиме показывал заниженную (на величину regen) цену
     // хода, расходясь с тем, что реально спишется при confirm. Найдено при тестировании.
     const { MULTI_ACTION_TURNS: previewMultiAction } = require("../rules/rules-engine");
-    const { statDeltas, relationDeltas } = applyTurn({
+    const { newStats: previewNewStats, statDeltas, relationDeltas } = applyTurn({
       state: { stats: statsAfterDelayed, relations: game.relations },
       gmClassification,
       gameId,
@@ -532,6 +539,24 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       revealCovertOutcome: false,
       regenInitiative: !previewMultiAction,
     });
+
+    // Территориальный прогноз — тот же computeTerritoryDelta, что и /turns/confirm, с тем же
+    // сидом (gameId:turnNumber:action_type) и от ТЕХ ЖЕ статов после applyTurn (army_morale/
+    // readiness/equipment/veterans могли уже сдвинуться от самого указа) — поэтому цифры здесь
+    // 1:1 совпадут с тем, что реально применится при подтверждении.
+    const { deltas: territoryDeltasPreview, moraleDelta: territoryMoraleDeltaPreview } = computeTerritoryDelta({
+      stats: previewNewStats,
+      action_type: gmClassification.action_type,
+      severity: gmClassification.severity,
+      actionMode,
+      gameId, turnNumber: nextTurnNumber,
+    });
+    for (const [key, d] of Object.entries(territoryDeltasPreview)) {
+      statDeltas[key] = (statDeltas[key] ?? 0) + d;
+    }
+    if (territoryMoraleDeltaPreview) {
+      statDeltas.army_morale = (statDeltas.army_morale ?? 0) + territoryMoraleDeltaPreview;
+    }
 
     await pendingTurnStore.save(gameId, {
       gmClassification,
@@ -602,6 +627,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           await client.query("ROLLBACK");
           return reply.code(409).send({ error: "В этом месяце уже проводилась военная операция. Используйте перегруппировку для второго удара." });
         }
+        if (game.stats?.skip_used_this_month) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "В этом месяце была гражданская передышка — военные операции недоступны до следующего месяца." });
+        }
+      } else if (game.stats?.regroup_used_this_month) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "В этом месяце была перегруппировка — доступны только военные операции." });
       }
 
       const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
@@ -634,82 +666,23 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ---
-      // Наступательные операции продвигают фронт, peace/diplomacy могут фиксировать или уступать территории
+      // Наступательные операции продвигают фронт, peace/diplomacy могут фиксировать или уступать
+      // территории. Логика вынесена в rules-engine.js (computeTerritoryDelta, seeded — тот же
+      // сид, что использует /turns/preview, поэтому цифры совпадают 1:1 с превью).
       {
-        const TERRITORY_KEYS = ["donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"];
-        const TERRITORY_HARDNESS = { donetsk: 1.0, luhansk: 0.6, zaporizhzhia: 1.2, kherson: 1.3, kharkiv: 1.5 };
-        const at = gmClassification.action_type;
-        const sev = gmClassification.severity || 2;
-        const isOffensiveLike = CATEGORY_GROUP.military_offensive_like.has(at);
-        const isDefensiveLike = CATEGORY_GROUP.military_defensive_like.has(at);
-        const isDiplomaticLike = CATEGORY_GROUP.diplomatic_activity.has(at) || pendingActionMode === "diplomacy_op";
-
-        if (isOffensiveLike) {
-          // Прогресс зависит от армии и severity. Опыт войск (veterans) — обстрелянные части
-          // эффективнее берут территорию независимо от текущего духа/техники.
-          const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50) + (newStats.equipment ?? 50) + (newStats.veterans ?? 50)) / 4;
-          const baseGain = sev * 3 + Math.max(0, (armyQuality - 60) / 5); // 3-12 pts
-          for (const key of TERRITORY_KEYS) {
-            const regionName = key.replace("_control", "");
-            const hardness = TERRITORY_HARDNESS[regionName] || 1.0;
-            const current = newStats[key] ?? 50;
-            if (current < 100) {
-              // Труднее брать уже занятые территории и более укреплённые
-              const effectiveness = Math.max(0.1, 1 - (current / 100) * 0.5);
-              const gain = Math.round((baseGain / hardness) * effectiveness);
-              newStats[key] = Math.min(100, current + Math.max(1, gain));
-            }
-          }
-        } else if (isDefensiveLike) {
-          // Оборона — удержание. Небольшое восстановление потерянных позиций
-          for (const key of TERRITORY_KEYS) {
-            const current = newStats[key] ?? 50;
-            if (current < 60 && current > 0) {
-              newStats[key] = Math.min(60, current + 2);
-            }
-          }
-        } else if (isDiplomaticLike) {
-          // Мирный/дипломатический трек — небольшие уступки на спорных территориях
-          const concession = sev === 3 ? 4 : sev === 2 ? 2 : 1;
-          for (const key of ["kharkiv_control", "kherson_control"]) {
-            const current = newStats[key] ?? 50;
-            // Уступаем только спорное — не более 20 пунктов за всю игру
-            if (current > 5) {
-              newStats[key] = Math.max(5, current - concession);
-            }
-          }
-        } else if (at === "diplo_pressure") {
-          // Жёсткая риторика — обострение, мелкие тактические потери
-          const kh = "kharkiv_control";
-          const current = newStats[kh] ?? 12;
-          newStats[kh] = Math.max(0, current - 3);
-        } else if (at === "null_action") {
-          // Бездействие — контрнаступление Украины на спорных направлениях
-          for (const key of ["kharkiv_control", "kherson_control"]) {
-            const current = newStats[key] ?? 50;
-            newStats[key] = Math.max(0, current - 3);
-          }
-          newStats["zaporizhzhia_control"] = Math.max(0, (newStats["zaporizhzhia_control"] ?? 68) - 1);
+        const { deltas: territoryDeltas, moraleDelta: territoryMoraleDelta } = computeTerritoryDelta({
+          stats: newStats,
+          action_type: gmClassification.action_type,
+          severity: gmClassification.severity,
+          actionMode: pendingActionMode,
+          gameId, turnNumber,
+        });
+        for (const [key, d] of Object.entries(territoryDeltas)) {
+          newStats[key] = Math.max(0, Math.min(100, (newStats[key] ?? 50) + d));
+          statDeltas[key] = (statDeltas[key] ?? 0) + d;
         }
-
-        // --- Украинское сопротивление при наступлении ---
-        // Каждый offensive — ВСУ и союзники контратакуют: случайный откат 1-3 территорий
-        if (isOffensiveLike) {
-          // Опытные части лучше держат удар при контратаке — тоже снижает интенсивность отката.
-          const armyQuality = ((newStats.army_morale ?? 50) + (newStats.readiness ?? 50) + (newStats.veterans ?? 50)) / 3;
-          // Интенсивность ответа зависит от западной поддержки (diplomacy_vs_west прокси = relations с США/ЕС)
-          const resistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
-          // Украина контратакует преимущественно на слабых флангах (Харьков, Херсон)
-          const contestedKeys = ["kharkiv_control", "kherson_control", "zaporizhzhia_control"];
-          const numContested = Math.min(contestedKeys.length, 1 + Math.floor(Math.random() * resistanceIntensity));
-          const shuffled = contestedKeys.sort(() => Math.random() - 0.5).slice(0, numContested);
-          for (const key of shuffled) {
-            const current = newStats[key] ?? 0;
-            const pushback = Math.round(1 + Math.random() * resistanceIntensity);
-            newStats[key] = Math.max(0, current - pushback);
-          }
-          // Потери от боёв: армейский моральный откат
-          newStats.army_morale = Math.max(0, (newStats.army_morale ?? 50) - Math.round(1 + Math.random() * 3));
+        if (territoryMoraleDelta) {
+          newStats.army_morale = Math.max(0, (newStats.army_morale ?? 50) + territoryMoraleDelta);
         }
       }
       // --- конец территорий ---
@@ -1400,6 +1373,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Военные флаги: сброс месячных, конвертация cooldown в блок
       delete newStats.military_used_this_month;
       delete newStats.regroup_bonus_attack;
+      delete newStats.regroup_used_this_month;
       if (newStats.military_locked_next_month) {
         newStats.military_blocked_this_month = true;
         delete newStats.military_locked_next_month;
@@ -2184,13 +2158,18 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // ГРАЖДАНСКАЯ ПЕРЕДЫШКА: президент сосредоточился на тыле.
-      // Восстанавливает экономику/рейтинг/стабильность (и связанные субметрики),
-      // НЕ даёт боевых бонусов (это работа перегруппировки) и оставляет фронт без внимания.
+      // Восстанавливает рейтинг/стабильность (и связанные субметрики), НЕ даёт боевых бонусов
+      // (это работа перегруппировки) и оставляет фронт без внимания.
+      // БАЛАНС (2026-07-04): убран прямой economy:3 — экономика теперь индикатор (см. комментарий
+      // над RULES_TABLE в rules-engine.js), передышка не экономический указ, чтобы влиять на неё
+      // напрямую. Восстановление экономики теперь идёт только через employment (+1, как и было) —
+      // тот же канал, что у всех остальных действий. Военные указы в месяц передышки блокируются
+      // ниже (в /turns/preview и /turns/confirm) — президент занят тылом, не фронтом.
       const clamp = (v) => Math.max(0, Math.min(100, v));
       const newStats = { ...currentStats };
       const statDeltas = {};
       const homeRecovery = {
-        economy: 3, approval: 3, stability: 3,
+        approval: 3, stability: 3,
         lower_class_mood: 3, reserves: 2, employment: 1, social_tension: -2,
         inflation: -1,
       };
@@ -2288,6 +2267,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
       // Перегруппировка открывает второй военный удар в этом месяце (ценой блока следующего)
       newStats.regroup_bonus_attack = true;
+      // БАЛАНС (2026-07-04): перегруппировка — это военное решение (подтянуть снабжение и резервы
+      // для следующего удара), не повод параллельно заниматься указами/дипломатией. Блокирует
+      // НЕ-военные действия в этом месяце (проверка — в /turns/preview и /turns/confirm), сбрасывается
+      // в конце месяца вместе с остальными помесячными флагами.
+      newStats.regroup_used_this_month = true;
 
       const narrative = "Войска перегруппированы и готовы к броску. Снабжение подтянуто, резервы переброшены на ключевые участки. В этом месяце доступен второй военный удар — но следующий месяц армия будет восстанавливаться без активных операций.";
 
