@@ -1657,14 +1657,27 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + ofzCount * 0.3);
       }
       // РОСТ ВВП → ЭКОНОМИКА: gdp_growth — подстата, которая раньше двигалась от действий, но
-      // никак не влияла на саму economy. Теперь отклонение от стартового уровня (36 на сиде)
-      // понемногу компаундится в economy — устойчивый рост ВВП постепенно поднимает всю
-      // экономику, устойчивый спад — подтачивает её, а не просто существует "для галочки".
+      // никак не влияла на саму economy. Отклонение от стартового уровня (36 на сиде) компаундится
+      // в economy — устойчивый рост ВВП постепенно поднимает всю экономику, устойчивый спад —
+      // подтачивает её. Делитель /8 (было /25): экономика теперь — ИНДИКАТОР, а не рычаг, который
+      // указы/операции двигают напрямую (см. комментарий над RULES_TABLE в rules-engine.js) — это
+      // главный канал, через который реальные действия должны доходить до экономики, поэтому он
+      // должен реагировать за 1-3 хода устойчивого тренда, а не буквально никогда не набирать
+      // видимую величину, как было при /25.
       const gdpGrowthNow = newStats.gdp_growth ?? 36;
-      const gdpEconomyEffect = Math.round((gdpGrowthNow - 36) / 25);
+      const gdpEconomyEffect = Math.round((gdpGrowthNow - 36) / 8);
       if (gdpEconomyEffect) {
         newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + gdpEconomyEffect));
         economyAutoEffects.push({ label: "Рост ВВП", delta: gdpEconomyEffect });
+      }
+      // ЗАНЯТОСТЬ → ЭКОНОМИКА: аналогично ВВП — employment раньше двигал только налоговую базу
+      // (economyIncome/taxIncome выше) и инфляцию (кривая Филлипса), но не саму economy напрямую,
+      // хотя занятость — такая же реальная часть экономического здоровья, как рост ВВП. Делитель
+      // /10 (чуть мягче ВВП: занятость — вторичный по значимости показатель).
+      const employmentEconomyEffect = Math.round((employmentNow - 74) / 10);
+      if (employmentEconomyEffect) {
+        newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + employmentEconomyEffect));
+        economyAutoEffects.push({ label: "Занятость", delta: employmentEconomyEffect });
       }
       // ПЕРЕГРЕВ ВВП → ИНФЛЯЦИЯ: gdp_growth не откатывается назад (в отличие от нефти/курса) —
       // устойчивый экономический рост реален и должен накапливаться. Но рост выше потенциального
