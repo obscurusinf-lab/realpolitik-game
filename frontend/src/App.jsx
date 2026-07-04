@@ -4697,9 +4697,11 @@ function EndMonthForecastPanel({ stats, policies }) {
     }
   }
 
-  // 9.6. Недовольство действующими политиками: некоторые политики (НДС до 22%, утильсбор)
+  // 9.6. Недовольство непопулярными мерами: некоторые политики (НДС до 22%, утильсбор)
   // пополняют казну, но пока действуют — вызывают постоянное недовольство. Раньше такого канала
   // не было вообще — только доход в казну, без цены за него (см. approval_upkeep в turns.js).
+  // Название сознательно НЕ "недовольство политиками" — читается как недовольство политиками-
+  // людьми, а не решениями/мерами (Петя, 2026-07-04).
   {
     const activePol = (policies || []).filter(p => p.status !== "cancelled");
     const approvalUpkeep = activePol.reduce((s, p) => s + (Number(p.approval_upkeep) || 0), 0);
@@ -4707,7 +4709,7 @@ function EndMonthForecastPanel({ stats, policies }) {
     if (approvalUpkeep !== 0) {
       mechanisms.push({
         active: true, severity: approvalUpkeep <= -3 ? "bad" : "random",
-        name: "Недовольство политиками",
+        name: "Недовольство мерами",
         trigger: dragPolicies.map(p => p.title).join(", ") || "непопулярные меры остаются в силе",
         impacts: [{ label: "Одобрение", delta: approvalUpkeep }],
         fix: "Отмена политики останавливает это недовольство, но убирает и доход в казну (см. вкладку «Политики»).",
@@ -4715,7 +4717,7 @@ function EndMonthForecastPanel({ stats, policies }) {
     } else {
       mechanisms.push({
         active: false,
-        name: "Недовольство политиками",
+        name: "Недовольство мерами",
         trigger: "нет действующих политик с постоянным недовольством",
         impacts: [],
         fix: null,

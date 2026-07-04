@@ -1580,7 +1580,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const activePolicies = (game.policies || []).filter(p => p.status !== "cancelled");
       const rawTaxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
       const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
-      // НЕДОВОЛЬСТВО ДЕЙСТВУЮЩИМИ ПОЛИТИКАМИ: некоторые политики (например, повышение НДС до 22%,
+      // НЕДОВОЛЬСТВО НЕПОПУЛЯРНЫМИ МЕРАМИ: некоторые политики (например, повышение НДС до 22%,
       // утильсбора) пополняют казну (budget_income выше), но пока действуют — вызывают постоянное
       // недовольство населения, не только штраф ПРИ ОТМЕНЕ (cancel_penalty — это другое: цена за то,
       // чтобы их убрать). Раньше поля approval_upkeep не существовало вовсе — только budget_income/
