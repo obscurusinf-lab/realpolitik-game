@@ -1785,7 +1785,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           burdenEconomy += warEconomyDrag;
           burdenApproval += wearinessHit;
           burdenStability += Math.ceil(wearinessHit / 2);
-          burdenParts.push(`${warStreak}-й месяц непрерывной войны: рейтинг −${wearinessHit}, стабильность −${Math.ceil(wearinessHit / 2)}, экономика −${warEconomyDrag}`);
+          burdenParts.push(`${warStreak}-я боевая операция подряд без передышки: рейтинг −${wearinessHit}, стабильность −${Math.ceil(wearinessHit / 2)}, экономика −${warEconomyDrag}`);
         }
 
         if (burdenEconomy || burdenApproval || burdenStability) {

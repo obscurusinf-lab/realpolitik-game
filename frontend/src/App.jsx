@@ -2044,6 +2044,56 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
   );
 }
 
+// Содержимое окна подтверждения перед перегруппировкой/передышкой — та же информация, что в
+// Ликбезе (СПЕЦИАЛЬНЫЕ ДЕЙСТВИЯ), но показывается ПЕРЕД исполнением, а не только по запросу
+// в справочнике (Петя, 2026-07-04: "пусть выскочит окно с предупреждением — что функция делает,
+// и какие побочки").
+const SPECIAL_ACTION_CONFIRM = {
+  regroup: {
+    title: "⚙ Перегруппировка",
+    body: "Подтягивает снабжение и резервы, восстанавливает инициативу (+75). Главный эффект: открывает второй военный удар в этом же месяце.",
+    costs: [
+      "В этом месяце доступны только военные операции — указы и дипломатия недоступны.",
+      "Следующий месяц боевые операции заблокированы (кроме разведки) — армия восстанавливается.",
+      "Украина видит паузу и может воспользоваться ей для контратаки.",
+    ],
+  },
+  skip: {
+    title: "🏠 Гражданская передышка",
+    body: "Президент занимается тылом — рейтинг, стабильность и занятость восстанавливаются.",
+    costs: [
+      "Военные операции в этот месяц недоступны.",
+      "Пока Россия отдыхает, ВСУ восстанавливают боевой дух и личный состав — фронт не двигается в вашу пользу.",
+      "Доступна не чаще 1 раза за месяц.",
+    ],
+  },
+};
+
+function SpecialActionConfirmModal({ kind, onConfirm, onCancel }) {
+  const info = SPECIAL_ACTION_CONFIRM[kind];
+  if (!info) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(13,16,22,0.85)", zIndex: 3600, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onCancel}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#1a1f2c", border: "1px solid #3a4156", borderRadius: 8, width: "min(92vw,440px)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)", padding: "18px 20px" }}>
+        <div className="doc-font" style={{ fontSize: 16, fontWeight: 700, color: "#ece7d8", marginBottom: 10 }}>{info.title}</div>
+        <div className="doc-font" style={{ fontSize: 13.5, color: "#cdd3e0", lineHeight: 1.5, marginBottom: 12 }}>{info.body}</div>
+        <div style={{ background: "#2a1f14", border: "1px solid #5a4520", borderRadius: 5, padding: "10px 12px", marginBottom: 16 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#c8a857", letterSpacing: "0.08em", marginBottom: 6 }}>ПОБОЧНЫЕ ЭФФЕКТЫ</div>
+          <ul style={{ margin: 0, paddingLeft: 16 }}>
+            {info.costs.map((c, i) => (
+              <li key={i} className="doc-font" style={{ fontSize: 12.5, color: "#d8b890", lineHeight: 1.45, marginBottom: 4 }}>{c}</li>
+            ))}
+          </ul>
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onCancel} style={{ background: "none", border: "1px solid #3a4156", borderRadius: 4, padding: "7px 16px", color: "#a8a294", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}>Отмена</button>
+          <button onClick={onConfirm} style={{ background: "#5a8050", border: "none", borderRadius: 4, padding: "7px 16px", color: "#fff", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Подтвердить</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
   const [state, setState] = useState(null);
   const [assistMode, setAssistMode] = useState("advisor"); // закреплён на старте партии: "advisor" | "hardcore"
@@ -2054,6 +2104,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // Ликбез — отдельная кнопка в шапке (не таб в скролл-баре): всегда на виду независимо от
   // текущей вкладки, на мобильной и десктопной версии одинаково (Петя, 2026-07-04).
   const [showWiki, setShowWiki] = useState(false);
+  // Подтверждение перед перегруппировкой/передышкой — раньше кнопка сразу исполняла действие,
+  // игрок узнавал о побочках (блок военных операций и т.п.) постфактум из title-тултипа, который
+  // на мобильных вообще не виден (Петя, 2026-07-04). null | { kind: "regroup"|"skip", action: fn }
+  const [confirmSpecialAction, setConfirmSpecialAction] = useState(null);
   const [loadError, setLoadError] = useState(null);
 
   const [draftInput, setDraftInput] = useState("");
@@ -2486,6 +2540,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           </div>
         </div>
       )}
+      {confirmSpecialAction && (
+        <SpecialActionConfirmModal
+          kind={confirmSpecialAction.kind}
+          onCancel={() => setConfirmSpecialAction(null)}
+          onConfirm={() => { const a = confirmSpecialAction.action; setConfirmSpecialAction(null); a(); }}
+        />
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=PT+Serif:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
@@ -2568,7 +2629,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         })}
       </div>
 
-      <div style={{ background: tab === "kremlin" ? "#161b26" : NK.contentBg, color: tab === "kremlin" ? "#ece7d8" : NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
+      <div style={{ background: (tab === "kremlin" || tab === "treasury") ? "#161b26" : NK.contentBg, color: (tab === "kremlin" || tab === "treasury") ? "#ece7d8" : NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} />}
         {tab === "kremlin" && (
           <KremlinTab
@@ -2845,7 +2906,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               /* Мульти-режим: действия внутри месяца + явное завершение месяца */
               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                 <button
-                  onClick={handleRegroupTurn}
+                  onClick={() => setConfirmSpecialAction({ kind: "regroup", action: handleRegroupTurn })}
                   disabled={confirming}
                   title="Перегруппировка — инициатива +75, армия отдыхает. Действие внутри месяца."
                   style={{ ...btnStyle("#1a2a1a", "#5a8050"), border: "1px solid #2a4030", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
@@ -2853,7 +2914,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                   {confirming ? "…" : "⚙ Перегруппировка"}
                 </button>
                 <button
-                  onClick={handleSkipTurn}
+                  onClick={() => setConfirmSpecialAction({ kind: "skip", action: handleSkipTurn })}
                   disabled={confirming}
                   title="Гражданская передышка — восстанавливает тыл. Действие внутри месяца."
                   style={{ ...btnStyle("#1f2733", "#7a8aa0"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
@@ -2874,7 +2935,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 {!lastActionResult && (
                   <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                     <button
-                      onClick={handleRegroupTurn}
+                      onClick={() => setConfirmSpecialAction({ kind: "regroup", action: handleRegroupTurn })}
                       disabled={confirming}
                       title="Перегруппировка — инициатива +75, армия отдыхает. Мягкие эффекты, нет штрафов"
                       style={{ ...btnStyle("#1a2a1a", "#5a8050"), border: "1px solid #2a4030", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
@@ -2882,7 +2943,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                       {confirming ? "…" : "⚙ Перегруппировка (+75 инициативы)"}
                     </button>
                     <button
-                      onClick={handleEndTurn}
+                      onClick={() => setConfirmSpecialAction({ kind: "skip", action: handleEndTurn })}
                       disabled={confirming}
                       title="Гражданская передышка — восстанавливает тыл (экономика/рейтинг/стабильность) и +40 инициативы."
                       style={{ ...btnStyle("#1f2733", "#7a8aa0"), border: "1px solid #2a3040", fontSize: 11, padding: "5px 14px", opacity: confirming ? 0.5 : 1 }}
@@ -4490,7 +4551,7 @@ function EndMonthForecastPanel({ stats, policies }) {
       if (wearinessHit > 0) impacts.push({ label: "Одобрение", delta: -wearinessHit }, { label: "Стабильность", delta: -stabHit }, { label: "Экономика", delta: -warEconomyDrag });
       const parts = [];
       if (sizeTax > 0) parts.push(`армия ${mil} > 80`);
-      if (wearinessHit > 0) parts.push(`${streak}-й месяц войны подряд`);
+      if (wearinessHit > 0) parts.push(`${streak}-я боевая операция подряд без передышки`);
       mechanisms.push({
         active: true, severity: (sizeTax >= 3 || wearinessHit >= 4) ? "crit" : "bad",
         name: "Военное бремя",
@@ -4506,7 +4567,7 @@ function EndMonthForecastPanel({ stats, policies }) {
       mechanisms.push({
         active: false,
         name: "Военное бремя",
-        trigger: `Армия ${mil} ≤ 80 и нет затяжной войны — не активно`,
+        trigger: `Армия ${mil} ≤ 80 и нет серии из 4+ боевых ходов подряд — не активно`,
         impacts: [],
         fix: null,
       });
@@ -4849,11 +4910,11 @@ function EndMonthForecastPanel({ stats, policies }) {
   const economyDrain = activeImpacts.filter(i => i.label === "Экономика" && i.delta < 0).reduce((s, i) => s + i.delta, 0);
   const otherNegativeLabels = new Set(activeImpacts.filter(i => i.label !== "Экономика" && i.delta < 0).map(i => i.label));
 
-  const severityColor = { crit: "#a8313a", bad: "#9c5a1a", good: "#4a6b5c", random: "#5a4a8a" };
-  const severityBg = { crit: "#fde8e8", bad: "#fdf3e8", good: "#e8f5e8", random: "#f0eef8" };
+  const severityColor = { crit: "#e08080", bad: "#d4a35a", good: "#7fae93", random: "#b8a0e0" };
+  const severityBg = { crit: "#3a1418", bad: "#3a2810", good: "#142418", random: "#221a38" };
 
   return (
-    <div style={{ marginBottom: 14, borderRadius: 6, border: `1px solid ${activeCount > 0 ? "#c8a87a" : "#d8d2bf"}`, overflow: "hidden", background: "#f5f1e6" }}>
+    <div style={{ marginBottom: 14, borderRadius: 6, border: `1px solid ${activeCount > 0 ? "#c8a87a" : "#2a3040"}`, overflow: "hidden", background: "#14181f" }}>
       <div
         onClick={() => setOpen(o => !o)}
         style={{ cursor: "pointer", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
@@ -4861,17 +4922,17 @@ function EndMonthForecastPanel({ stats, policies }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.1em", color: "#8a8472" }}>КОНЕЦ МЕСЯЦА · МЕХАНИКИ</span>
           {activeCount > 0 && (
-            <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
+            <span style={{ fontSize: 9, background: "#3a1418", color: "#e08080", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
               {activeCount} активно
             </span>
           )}
           {economyDrain < 0 && (
-            <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }} title="Только эффект на Экономику — другие статы считаются отдельно">
+            <span style={{ fontSize: 9, background: "#3a1418", color: "#e08080", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }} title="Только эффект на Экономику — другие статы считаются отдельно">
               экономика ≈{economyDrain}/мес авто
             </span>
           )}
           {otherNegativeLabels.size > 0 && (
-            <span style={{ fontSize: 9, background: "#f0eef8", color: "#5a4a8a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
+            <span style={{ fontSize: 9, background: "#221a38", color: "#b8a0e0", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
               + {otherNegativeLabels.size} др. стат{otherNegativeLabels.size > 1 ? "ы" : "а"}
             </span>
           )}
@@ -4880,20 +4941,20 @@ function EndMonthForecastPanel({ stats, policies }) {
       </div>
 
       {open && (
-        <div style={{ borderTop: "1px solid #e8e2d0", padding: "12px 12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ borderTop: "1px solid #2a3040", padding: "12px 12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
           {mechanisms.map((m, i) => {
-            const color = m.active === false ? "#a8a294" : (severityColor[m.severity] || "#5c5648");
-            const bg = m.active === false ? "#f0ede4" : (severityBg[m.severity] || "#f5f1e6");
+            const color = m.active === false ? "#a8a294" : (severityColor[m.severity] || "#a8a294");
+            const bg = m.active === false ? "#1a2030" : (severityBg[m.severity] || "#14181f");
             return (
-              <div key={i} style={{ background: bg, borderRadius: 5, border: `1px solid ${m.active === false ? "#d8d2bf" : color + "55"}`, padding: "8px 10px" }}>
+              <div key={i} style={{ background: bg, borderRadius: 5, border: `1px solid ${m.active === false ? "#2a3040" : color + "55"}`, padding: "8px 10px" }}>
                 {/* Header row */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <span className="doc-font" style={{ fontSize: 12, fontWeight: 700, color: m.active === false ? "#a8a294" : "#2e2a22" }}>{m.name}</span>
+                  <span className="doc-font" style={{ fontSize: 12, fontWeight: 700, color: m.active === false ? "#a8a294" : "#ece7d8" }}>{m.name}</span>
                   {m.active === false && (
-                    <span className="mono-font" style={{ fontSize: 8, color: "#a8a294", background: "#e8e2d0", borderRadius: 2, padding: "1px 5px" }}>НЕ АКТИВЕН</span>
+                    <span className="mono-font" style={{ fontSize: 8, color: "#a8a294", background: "#232838", borderRadius: 2, padding: "1px 5px" }}>НЕ АКТИВЕН</span>
                   )}
                   {m.active === "random" && (
-                    <span className="mono-font" style={{ fontSize: 8, color: "#5a4a8a", background: "#f0eef8", borderRadius: 2, padding: "1px 5px" }}>СЛУЧАЙНЫЙ</span>
+                    <span className="mono-font" style={{ fontSize: 8, color: "#b8a0e0", background: "#221a38", borderRadius: 2, padding: "1px 5px" }}>СЛУЧАЙНЫЙ</span>
                   )}
                 </div>
                 {/* Trigger condition */}
@@ -4911,8 +4972,8 @@ function EndMonthForecastPanel({ stats, policies }) {
                       const inverted = impKey && INVERTED_STATS.has(impKey);
                       const isNeg = imp.delta !== null && (inverted ? imp.delta > 0 : imp.delta < 0);
                       const isPos = imp.delta !== null && (inverted ? imp.delta < 0 : imp.delta > 0);
-                      const chipColor = isNeg ? "#a8313a" : isPos ? "#4a6b5c" : "#5a4a8a";
-                      const chipBg = isNeg ? "#fde8e8" : isPos ? "#e8f5e8" : "#f0eef8";
+                      const chipColor = isNeg ? "#e08080" : isPos ? "#7fae93" : "#b8a0e0";
+                      const chipBg = isNeg ? "#3a1418" : isPos ? "#142418" : "#221a38";
                       const pct = impactPercent(imp.label, imp.delta, stats);
                       // БАЛАНС (2026-07-04): «Казна» тут — очки условной шкалы 0-100/−100..100, не
                       // деньги. Раньше конец-месяца прогноз (ОФЗ, коррупционная утечка) показывал
@@ -4934,7 +4995,7 @@ function EndMonthForecastPanel({ stats, policies }) {
                 {m.fix && m.active !== false && (
                   <div style={{ display: "flex", gap: 5, alignItems: "flex-start" }}>
                     <span style={{ color: "#9c8347", fontSize: 11, flexShrink: 0, marginTop: 1 }}>→</span>
-                    <span className="doc-font" style={{ fontSize: 11, color: "#5c5648", lineHeight: 1.45 }}>{m.fix}</span>
+                    <span className="doc-font" style={{ fontSize: 11, color: "#a8a294", lineHeight: 1.45 }}>{m.fix}</span>
                   </div>
                 )}
               </div>
@@ -4984,7 +5045,7 @@ function getPassiveEffects(key, stats) {
     }
     if (wearinessHit > 0) {
       const warEconDrag = Math.ceil(wearinessHit / 3);
-      effects.push({ sign: -1, value: warEconDrag, text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
+      effects.push({ sign: -1, value: warEconDrag, text: `Военное бремя: усталость от войны (${streak}-я боевая операция подряд без передышки)` });
       hadNegative = true;
     }
     if (inf > 73) {
@@ -5051,7 +5112,7 @@ function getPassiveEffects(key, stats) {
       effects.push({ sign: -1, value: 1, text: `Военное бремя: содержание армии (армия > 80)` });
     }
     if (wearinessHit > 0) {
-      effects.push({ sign: -1, value: wearinessHit, text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
+      effects.push({ sign: -1, value: wearinessHit, text: `Военное бремя: усталость от войны (${streak}-я боевая операция подряд без передышки)` });
     }
     if (moodEffect) {
       effects.push({ sign: moodEffect > 0 ? 1 : -1, value: Math.abs(moodEffect), text: `Народное настроение (средний класс ${mc}, народ ${lc})` });
@@ -5066,7 +5127,7 @@ function getPassiveEffects(key, stats) {
       effects.push({ sign: -1, value: 4, text: `⚠ Риск мятежа элит (15% шанс, элиты ${eliteSat} < 35, до −9 если перерастёт)` });
     }
     if (wearinessHit > 0) {
-      effects.push({ sign: -1, value: Math.ceil(wearinessHit / 2), text: `Военное бремя: усталость от войны (${streak}-й месяц подряд)` });
+      effects.push({ sign: -1, value: Math.ceil(wearinessHit / 2), text: `Военное бремя: усталость от войны (${streak}-я боевая операция подряд без передышки)` });
     }
   }
 
@@ -6977,54 +7038,54 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           балл остаётся внутри для баланса, но игроку он ничего не говорит. */}
       <div style={sectionStyle}>
         <div style={labelStyle}>ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ</div>
-        <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 90px" }}>
-            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Экономика</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: eco < 35 ? "#c05030" : eco >= 55 ? "#3a7a5a" : "#8a7a40" }}>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#a8a294", marginBottom: 2 }}>Экономика</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: eco < 35 ? "#c05050" : eco >= 55 ? "#5a8a6a" : "#c8a857" }}>
               {Math.round(eco)}
             </div>
-            <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
-              <div style={{ width: `${eco}%`, height: "100%", background: eco < 35 ? "#c05030" : eco >= 55 ? "#3a7a5a" : "#8a7a40" }} />
+            <div style={{ height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
+              <div style={{ width: `${eco}%`, height: "100%", background: eco < 35 ? "#c05050" : eco >= 55 ? "#5a8a6a" : "#c8a857" }} />
             </div>
           </div>
           <div style={{ flex: "1 1 120px" }}>
-            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Номинальный ВВП</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: "#5a5040" }}>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#a8a294", marginBottom: 2 }}>Номинальный ВВП</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: "#cdd3e0" }}>
               ₽{nominalGdpRubT.toFixed(0)} трлн
             </div>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#8a8472" }}>${nominalGdpUsdT.toFixed(2)} трлн</div>
           </div>
           <div style={{ flex: "1 1 90px" }}>
-            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Рост ВВП</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: gdpGrowthT < 36 ? "#c05030" : gdpGrowthT > 36 ? "#3a7a5a" : "#8a7a40" }}>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#a8a294", marginBottom: 2 }}>Рост ВВП</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: gdpGrowthT < 36 ? "#c05050" : gdpGrowthT > 36 ? "#5a8a6a" : "#c8a857" }}>
               {formatSubstatValue("gdp_growth", gdpGrowthT)} <span style={{ fontSize: 10, fontWeight: 400 }}>г/г</span>
             </div>
-            <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
-              <div style={{ width: `${gdpGrowthT}%`, height: "100%", background: gdpGrowthT < 36 ? "#c05030" : gdpGrowthT > 36 ? "#3a7a5a" : "#8a7a40" }} />
+            <div style={{ height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
+              <div style={{ width: `${gdpGrowthT}%`, height: "100%", background: gdpGrowthT < 36 ? "#c05050" : gdpGrowthT > 36 ? "#5a8a6a" : "#c8a857" }} />
             </div>
           </div>
           <div style={{ flex: "1 1 90px" }}>
-            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Занятость</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: employmentT < 74 ? "#c05030" : employmentT > 74 ? "#3a7a5a" : "#8a7a40" }}>
+            <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#a8a294", marginBottom: 2 }}>Занятость</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: employmentT < 74 ? "#c05050" : employmentT > 74 ? "#5a8a6a" : "#c8a857" }}>
               {formatSubstatValue("employment", employmentT)}
             </div>
-            <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
-              <div style={{ width: `${employmentT}%`, height: "100%", background: employmentT < 74 ? "#c05030" : employmentT > 74 ? "#3a7a5a" : "#8a7a40" }} />
+            <div style={{ height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
+              <div style={{ width: `${employmentT}%`, height: "100%", background: employmentT < 74 ? "#c05050" : employmentT > 74 ? "#5a8a6a" : "#c8a857" }} />
             </div>
           </div>
         </div>
         {gdpGrowthEvents.length > 0 && (
-          <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "10px 14px", marginBottom: 10 }}>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a7a60", marginBottom: 4 }}>ПОСЛЕДНИЙ ВКЛАД В РОСТ ВВП</div>
-            <div className="doc-font" style={{ fontSize: 10.5, color: "#8a7a60", marginBottom: 6, lineHeight: 1.3 }}>
+          <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "10px 14px", marginBottom: 10 }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a8472", marginBottom: 4 }}>ПОСЛЕДНИЙ ВКЛАД В РОСТ ВВП</div>
+            <div className="doc-font" style={{ fontSize: 10.5, color: "#8a8472", marginBottom: 6, lineHeight: 1.3 }}>
               Это подстата «Рост ВВП», не сама Экономика — указы двигают ТОЛЬКО её напрямую. В Экономику она перетекает
               постепенно, в конце месяца, и только если отклонение от базового уровня накопилось и держится (см. ниже).
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {gdpGrowthEvents.map((ev, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
-                  <span style={{ color: "#5a5040" }}>Ход {ev.turn} · {ACTION_TYPE_LABEL[ev.actionType] || ev.actionType}</span>
-                  <span style={{ color: ev.delta >= 0 ? "#3a7a5a" : "#c05030", fontWeight: 700 }}>{ev.delta >= 0 ? "+" : ""}{ev.delta}</span>
+                  <span style={{ color: "#a8a294" }}>Ход {ev.turn} · {ACTION_TYPE_LABEL[ev.actionType] || ev.actionType}</span>
+                  <span style={{ color: ev.delta >= 0 ? "#5a8a6a" : "#c05050", fontWeight: 700 }}>{ev.delta >= 0 ? "+" : ""}{ev.delta}</span>
                 </div>
               ))}
             </div>
@@ -7037,54 +7098,54 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           резервы (см. TREASURY_PER_TRILLION) — раньше строки были только в абстрактных очках. */}
       <div style={sectionStyle}>
         <div style={labelStyle}>МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)</div>
-        <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4 }}>
-          <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
-            <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a6a4a" }}>+ Налоговый доход (экономика {Math.round(eco)})</span>
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#3a6a4a", fontWeight: 700 }}>+{economyIncome} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(economyIncome * T).toFixed(1)} трлн)</span></span>
+        <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4 }}>
+          <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
+            <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a8a6a" }}>+ Налоговый доход (экономика {Math.round(eco)})</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#5a8a6a", fontWeight: 700 }}>+{economyIncome} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(economyIncome * T).toFixed(1)} трлн)</span></span>
           </div>
           {taxIncome > 0 && (
-            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
-              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a6a4a" }}>+ Налоговые политики</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#3a6a4a", fontWeight: 700 }}>+{taxIncome} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(taxIncome * T).toFixed(1)} трлн)</span></span>
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a8a6a" }}>+ Налоговые политики</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#5a8a6a", fontWeight: 700 }}>+{taxIncome} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(taxIncome * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           {programUpkeep > 0 && (
-            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
-              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Содержание программ ({activePolicies.length} активных)</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{programUpkeep} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(programUpkeep * T).toFixed(1)} трлн)</span></span>
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#c05050" }}>− Содержание программ ({activePolicies.length} активных)</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#c05050", fontWeight: 700 }}>−{programUpkeep} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(programUpkeep * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           {(oilIncomeT !== 0 || fxIncomeT !== 0) && (
-            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
-              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: (oilIncomeT + fxIncomeT) >= 0 ? "#3a6a4a" : "#8a3030" }}>
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: (oilIncomeT + fxIncomeT) >= 0 ? "#5a8a6a" : "#c05050" }}>
                 {(oilIncomeT + fxIncomeT) >= 0 ? "+" : "−"} Нефть и курс (${ oilPriceT.toFixed(0)} / ₽{usdRubT.toFixed(0)})
               </span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: (oilIncomeT + fxIncomeT) >= 0 ? "#3a6a4a" : "#8a3030", fontWeight: 700 }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: (oilIncomeT + fxIncomeT) >= 0 ? "#5a8a6a" : "#c05050", fontWeight: 700 }}>
                 {(oilIncomeT + fxIncomeT) >= 0 ? "+" : ""}{oilIncomeT + fxIncomeT} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈{(oilIncomeT + fxIncomeT) >= 0 ? "+" : ""}₽{((oilIncomeT + fxIncomeT) * T).toFixed(1)} трлн)</span>
               </span>
             </div>
           )}
           {ofzDebt > 0 && (
-            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
-              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Обслуживание ОФЗ ({ofzCount} выпуска)</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{ofzDebt} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(ofzDebt * T).toFixed(1)} трлн)</span></span>
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#c05050" }}>− Обслуживание ОФЗ ({ofzCount} выпуска)</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#c05050", fontWeight: 700 }}>−{ofzDebt} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(ofzDebt * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           {corruptionDrainT > 0 && (
-            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
-              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Коррупционные потери (внутренний балл {Math.round(corrLevelT)}, CPI {corruptionCpiEquivalent(corrLevelT)})</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{corruptionDrainT} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(corruptionDrainT * T).toFixed(1)} трлн)</span></span>
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#c05050" }}>− Коррупционные потери (внутренний балл {Math.round(corrLevelT)}, CPI {corruptionCpiEquivalent(corrLevelT)})</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#c05050", fontWeight: 700 }}>−{corruptionDrainT} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(corruptionDrainT * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           {territoryUpkeepT > 0 && (
-            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
-              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Содержание отвоёванных территорий</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{territoryUpkeepT} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(territoryUpkeepT * T).toFixed(1)} трлн)</span></span>
+            <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#c05050" }}>− Содержание отвоёванных территорий</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#c05050", fontWeight: 700 }}>−{territoryUpkeepT} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(territoryUpkeepT * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#5a5040", letterSpacing: "0.06em" }}>ИТОГ</span>
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 700, color: projectedNet >= 0 ? "#2a6a3a" : "#8a2020" }}>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#a8a294", letterSpacing: "0.06em" }}>ИТОГ</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 700, color: projectedNet >= 0 ? "#5a8a6a" : "#c05050" }}>
               {projectedNet >= 0 ? "+" : ""}{projectedNet} пунктов/мес. <span style={{ fontSize: 10, fontWeight: 400 }}>(≈{projectedNet >= 0 ? "+" : ""}₽{(projectedNet * T).toFixed(1)} трлн)</span>
             </span>
           </div>
@@ -7448,35 +7509,43 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             </div>
 
             {confirmReserves && (
-              <Modal title="ПОДТВЕРДИТЕ: ПЕЧАТЬ ФНБ" onClose={() => setConfirmReserves(false)}>
-                <div style={{ fontFamily: "'PT Serif',serif", fontSize: 14, color: "#2a2620", lineHeight: 1.5, marginBottom: 14 }}>
-                  Вы собираетесь распечатать <b>₽{convertRubT.toFixed(1)} трлн</b> из Фонда национального благосостояния и перевести их в казну.
-                </div>
-                <div style={{ background: "#efe8d6", border: "1px solid #d8cfb8", borderRadius: 4, padding: "10px 12px", marginBottom: 16 }}>
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a5240", letterSpacing: "0.06em", marginBottom: 6 }}>ПОСЛЕДСТВИЯ</div>
-                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a3428", lineHeight: 1.6 }}>
-                    − ⚡20 очков инициативы за ход<br/>
-                    + ₽{convertRubT.toFixed(1)} трлн в казну<br/>
-                    − ₽{convertRubT.toFixed(1)} трлн из резервов (останется ₽{(reservesRubT - convertRubT).toFixed(1)} трлн)<br/>
-                    + инфляция 0.3<br/>
-                    Действие одноразовое на этот месяц — повторно распечатать нельзя до следующего хода.
+              <div onClick={() => setConfirmReserves(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+                <div onClick={e => e.stopPropagation()} style={{ background: "#1a1f2c", border: "1px solid #3a4156", borderRadius: 6, maxWidth: 560, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+                  <div style={{ background: "#14181f", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347" }}>ПОДТВЕРДИТЕ: ПЕЧАТЬ ФНБ</span>
+                    <button onClick={() => setConfirmReserves(false)} style={{ background: "none", border: "none", color: "#a8a294", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+                  </div>
+                  <div style={{ padding: "18px 20px" }}>
+                    <div style={{ fontFamily: "'PT Serif',serif", fontSize: 14, color: "#cdd3e0", lineHeight: 1.5, marginBottom: 14 }}>
+                      Вы собираетесь распечатать <b>₽{convertRubT.toFixed(1)} трлн</b> из Фонда национального благосостояния и перевести их в казну.
+                    </div>
+                    <div style={{ background: "#2a1f14", border: "1px solid #5a4520", borderRadius: 4, padding: "10px 12px", marginBottom: 16 }}>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#c8a857", letterSpacing: "0.06em", marginBottom: 6 }}>ПОСЛЕДСТВИЯ</div>
+                      <div style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#d8b890", lineHeight: 1.6 }}>
+                        − ⚡20 очков инициативы за ход<br/>
+                        + ₽{convertRubT.toFixed(1)} трлн в казну<br/>
+                        − ₽{convertRubT.toFixed(1)} трлн из резервов (останется ₽{(reservesRubT - convertRubT).toFixed(1)} трлн)<br/>
+                        + инфляция 0.3<br/>
+                        Действие одноразовое на этот месяц — повторно распечатать нельзя до следующего хода.
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                      <button
+                        onClick={() => setConfirmReserves(false)}
+                        style={{ background: "none", border: "1px solid #3a4156", color: "#a8a294", borderRadius: 3, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        onClick={() => { setConfirmReserves(false); handleConvertReserves(); }}
+                        style={{ background: "#1a1208", border: "1px solid #8a6020", color: "#c09050", borderRadius: 3, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}
+                      >
+                        Распечатать
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                  <button
-                    onClick={() => setConfirmReserves(false)}
-                    style={{ background: "none", border: "1px solid #b0a888", color: "#5a5240", borderRadius: 3, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    onClick={() => { setConfirmReserves(false); handleConvertReserves(); }}
-                    style={{ background: "#1a1208", border: "1px solid #8a6020", color: "#c09050", borderRadius: 3, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}
-                  >
-                    Распечатать
-                  </button>
-                </div>
-              </Modal>
+              </div>
             )}
           </div>
         );
@@ -7493,10 +7562,10 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         return (
           <div style={sectionStyle}>
             <div style={labelStyle}>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
-            <div style={{ background: inf > 70 ? "#1a0c08" : "#f5f1e6", border: `1px solid ${inf > 70 ? "#7a3020" : "#d8d2bf"}`, borderRadius: 4, padding: "12px 14px" }}>
+            <div style={{ background: inf > 70 ? "#1a0c08" : "#14181f", border: `1px solid ${inf > 70 ? "#7a3020" : "#2a3040"}`, borderRadius: 4, padding: "12px 14px" }}>
               {/* Значение + бар */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: inf > 70 ? "#e0c0a0" : "#3a3020" }}>Инфляция</span>
+                <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: inf > 70 ? "#e0c0a0" : "#ece7d8" }}>Инфляция</span>
                 <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                   <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: infColor }}>
                     {pct.toFixed(1)}%
@@ -7506,7 +7575,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                   </span>
                 </span>
               </div>
-              <div style={{ height: 8, background: inf > 70 ? "#2a1510" : "#e0dac8", borderRadius: 4, overflow: "hidden", marginBottom: 10, position: "relative" }}>
+              <div style={{ height: 8, background: inf > 70 ? "#2a1510" : "#1a2030", borderRadius: 4, overflow: "hidden", marginBottom: 10, position: "relative" }}>
                 <div style={{ height: "100%", width: `${inflationBarFraction(inf)}%`, background: infColor, borderRadius: 4, transition: "width 0.4s" }} />
                 {/* порог 70 (балл) — маркер на той же %-шкале, что и бар */}
                 <div style={{ position: "absolute", top: 0, left: `${inflationBarFraction(70)}%`, width: 1, height: "100%", background: "#c03030", opacity: 0.6 }} />
@@ -7530,13 +7599,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                   </div>
                 </div>
               ) : (
-                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#5a7050" }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#7aa080" }}>
                   Инфляция в норме. Штрафов нет — порог активируется выше {stormPct.toFixed(0)}% г/г.
                 </div>
               )}
               {/* ОФЗ-вклад */}
               {ofzCount > 0 && (
-                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#8a6040", marginTop: 8, borderTop: `1px solid ${inf > 70 ? "#3a2010" : "#e0dac8"}`, paddingTop: 6 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#c08050", marginTop: 8, borderTop: `1px solid ${inf > 70 ? "#3a2010" : "#2a3040"}`, paddingTop: 6 }}>
                   ОФЗ вклад: +{Math.round(ofzCount * 0.3 * 10) / 10} давления/мес.
                 </div>
               )}
@@ -7577,10 +7646,10 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             <div style={labelStyle}>НЕФТЕДОХОДЫ И ВАЛЮТА</div>
 
             {/* Котировки */}
-            <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "12px 14px", marginBottom: 10 }}>
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10 }}>
               <div style={{ display: "flex", gap: 20, marginBottom: 12 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 12, color: "#5a5040", marginBottom: 3 }}>Нефть Brent</div>
+                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 12, color: "#a8a294", marginBottom: 3 }}>Нефть Brent</div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: oilColor }}>
                     ${oilPrice.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}>/барр.</span>
                   </div>
@@ -7589,7 +7658,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 12, color: "#5a5040", marginBottom: 3 }}>Курс ₽/$</div>
+                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 12, color: "#a8a294", marginBottom: 3 }}>Курс ₽/$</div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 18, fontWeight: 700, color: fxColor }}>
                     ₽{usdRub.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 400, color: "#8a8472" }}>/$</span>
                   </div>
@@ -7600,16 +7669,16 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               </div>
 
               {/* Расчёт нефтедохода */}
-              <div style={{ borderTop: "1px solid #e0dac8", paddingTop: 10 }}>
-                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a7a60", marginBottom: 6 }}>РАСЧЁТ НЕФТЕДОХОДА / МЕС.</div>
+              <div style={{ borderTop: "1px solid #2a3040", paddingTop: 10 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a8472", marginBottom: 6 }}>РАСЧЁТ НЕФТЕДОХОДА / МЕС.</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
-                    <span style={{ color: "#5a5040" }}>Нефтяной доход (Brent−база)×0.7</span>
-                    <span style={{ color: oilIncome >= 0 ? "#3a6a4a" : "#8a3030", fontWeight: 700 }}>{oilIncome >= 0 ? "+" : ""}{oilIncome}</span>
+                    <span style={{ color: "#a8a294" }}>Нефтяной доход (Brent−база)×0.7</span>
+                    <span style={{ color: oilIncome >= 0 ? "#5a8a6a" : "#c05050", fontWeight: 700 }}>{oilIncome >= 0 ? "+" : ""}{oilIncome}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
-                    <span style={{ color: "#5a5040" }}>Валютный эффект (курс−база)×0.4</span>
-                    <span style={{ color: fxIncome >= 0 ? "#3a6a4a" : "#8a3030", fontWeight: 700 }}>{fxIncome >= 0 ? "+" : ""}{fxIncome}</span>
+                    <span style={{ color: "#a8a294" }}>Валютный эффект (курс−база)×0.4</span>
+                    <span style={{ color: fxIncome >= 0 ? "#5a8a6a" : "#c05050", fontWeight: 700 }}>{fxIncome >= 0 ? "+" : ""}{fxIncome}</span>
                   </div>
                   {discountPct > 0 && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
@@ -7623,9 +7692,9 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                       <span style={{ color: "#4a8c5a", fontWeight: 700 }}>+{mitigationPct} п.п.</span>
                     </div>
                   )}
-                  <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, borderTop: "1px solid #e0dac8", paddingTop: 5, marginTop: 2 }}>
-                    <span style={{ color: "#3a3020", fontWeight: 700 }}>ИТОГ нефть+валюта</span>
-                    <span style={{ color: totalOilFx >= 0 ? "#2a6a3a" : "#8a2020", fontWeight: 700 }}>{totalOilFx >= 0 ? "+" : ""}{totalOilFx} / мес.</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, borderTop: "1px solid #2a3040", paddingTop: 5, marginTop: 2 }}>
+                    <span style={{ color: "#ece7d8", fontWeight: 700 }}>ИТОГ нефть+валюта</span>
+                    <span style={{ color: totalOilFx >= 0 ? "#5a8a6a" : "#c05050", fontWeight: 700 }}>{totalOilFx >= 0 ? "+" : ""}{totalOilFx} / мес.</span>
                   </div>
                 </div>
               </div>
