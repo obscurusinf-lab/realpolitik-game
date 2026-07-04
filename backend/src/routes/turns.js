@@ -1162,9 +1162,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           zaporizhzhiaDelta: "zaporizhzhia_control", donetskDelta: "donetsk_control",
           luhanskDelta: "luhansk_control",
         };
+        // БАЛАНС (2026-07-04): раньше в reactions сохранялись только {type, responses} — сами
+        // применённые дельты действия Украины нигде не персистились, поэтому UkraineResponseScreen
+        // мог показать только нарратив, без цифр (п.7 из списка замечаний игрока). Собираем
+        // фактически применённые дельты в appliedDeltas и кладём в reactions вместе с остальным.
+        const appliedDeltas = {};
         for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
           if (typeof uaAction[deltaKey] === "number") {
             newStats[statKey] = Math.max(0, Math.min(100, (newStats[statKey] ?? 50) + uaAction[deltaKey]));
+            appliedDeltas[statKey] = uaAction[deltaKey];
           }
         }
 
@@ -1188,7 +1194,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
            VALUES ($1, $2, 'ukraine_action', $3, $4, $5)`,
           [gameId, turnNumber, `Украина · ${uaAction.title}`, uaAction.text,
-           JSON.stringify({ type: uaAction.type, responses: uaAction.responses })]
+           JSON.stringify({ type: uaAction.type, responses: uaAction.responses, deltas: appliedDeltas })]
         );
         fastify.log.info({ gameId, uaAction: uaAction.type }, "Ukraine action fired");
       }
@@ -2442,9 +2448,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               kharkivDelta: "kharkiv_control", khersonDelta: "kherson_control",
             };
             const uaStats = { ...newStats };
+            const appliedDeltas = {};
             for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
               if (typeof uaAction[deltaKey] === "number") {
                 uaStats[statKey] = Math.max(0, Math.min(100, (uaStats[statKey] ?? 50) + uaAction[deltaKey]));
+                appliedDeltas[statKey] = uaAction[deltaKey];
               }
             }
 
@@ -2455,7 +2463,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
                 `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
                  VALUES ($1, $2, 'ukraine_action', $3, $4, $5)`,
                 [gameId, turnNumber, `Украина · ${uaAction.title}`, uaAction.text,
-                 JSON.stringify({ type: uaAction.type, responses: uaAction.responses })]
+                 JSON.stringify({ type: uaAction.type, responses: uaAction.responses, deltas: appliedDeltas })]
               );
               await client3.query(
                 `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,

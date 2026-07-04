@@ -712,6 +712,51 @@ const UA_OUTCOME_LABELS = {
 
 const STAT_RU = { diplomacy: "Дипломатия", approval: "Рейтинг", economy: "Экономика", stability: "Стабильность", military: "Армия", army_morale: "Мораль армии", peace_progress: "Мирный трек" };
 
+// БАЛАНС (2026-07-04): игрок попросил показать предполагаемые изменения статов под каждым
+// вариантом ответа Украине ДО выбора (п.7 из списка замечаний) — раньше игрок видел только
+// текст кнопки, без единой цифры, и узнавал результат уже после выбора. Исход броска по-прежнему
+// вероятностный (не свели к детерминированному прогнозу — это НАМЕРЕННО: "ответный удар" —
+// решение с реальным риском, а не гарантированный результат), поэтому здесь — зеркало РЕАЛЬНЫХ
+// вероятностей и дельт из backend/src/routes/games.js (POST /games/:gameId/ukraine-response,
+// RESPONSE_EFFECTS) — держать оба места в синхроне при правке баланса ответов.
+const UA_RESPONSE_PREVIEW = {
+  defend: [
+    { prob: 55, delta: { economy: 0, stability: 1 }, note: "оборонные меры сработали" },
+    { prob: 30, delta: { economy: -1, military: -1 }, note: "меры частично снизили ущерб" },
+    { prob: 15, delta: { economy: -1, approval: -1 }, note: "меры не дали результата" },
+  ],
+  retaliate: [
+    { prob: 35, delta: { military: 2, approval: 2, army_morale: 2 }, note: "удар достиг целей" },
+    { prob: 30, delta: { military: 1, diplomacy: -2 }, note: "удар нанесён, но дипломатия просела" },
+    { prob: 35, delta: { diplomacy: -3, stability: -1, peace_progress: -5 }, note: "эскалация, контакты заморожены" },
+  ],
+  accept: [
+    { prob: 25, delta: { approval: -1 }, note: "бездействие замечено" },
+    { prob: 75, delta: {}, note: "стабилизируется само" },
+  ],
+};
+function uaResponsePreviewFor(responseType) {
+  return UA_RESPONSE_PREVIEW[responseType] || UA_RESPONSE_PREVIEW.accept;
+}
+function fmtUaDelta(delta) {
+  const entries = Object.entries(delta).filter(([, v]) => v !== 0);
+  if (entries.length === 0) return "без изменений статов";
+  return entries.map(([k, v]) => `${STAT_RU[k] || k} ${v > 0 ? "+" : ""}${v}`).join(", ");
+}
+// Компактная разбивка вероятностей прямо под кнопкой ответа — 2-3 строки, шанс : дельта.
+function UaResponsePreviewLine({ responseType, muted }) {
+  const tiers = uaResponsePreviewFor(responseType);
+  return (
+    <div className="mono-font" style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 1 }}>
+      {tiers.map((t, i) => (
+        <div key={i} style={{ fontSize: 9.5, color: muted ? "#4a3838" : "#8a7070", opacity: muted ? 0.8 : 1 }}>
+          {t.prob}%: {fmtUaDelta(t.delta)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function UkraineResponseScreen({ items, onDone, gameId, gameStats }) {
   const [idx, setIdx] = useState(0);
   const [choosing, setChoosing] = useState(false);
@@ -834,6 +879,22 @@ function UkraineResponseScreen({ items, onDone, gameId, gameStats }) {
             {item.source?.toUpperCase()}
           </div>
           <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6, color: "#e0c0c0" }}>{item.text}</div>
+          {/* БАЛАНС (2026-07-04): само действие Украины уже применило свои дельты на бэкенде
+              (territory/stats) ДО того, как игрок увидел этот экран — раньше эти цифры нигде не
+              показывались, только нарратив. meta.deltas — то, что реально уже применилось. */}
+          {(() => {
+            const already = Object.entries(meta?.deltas || {}).filter(([, v]) => v !== 0);
+            if (already.length === 0) return null;
+            return (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid #3a1515" }}>
+                {already.map(([k, v]) => (
+                  <span key={k} className="mono-font" style={{ fontSize: 10.5, color: v > 0 ? "#7fae93" : "#e09090" }}>
+                    {ALL_STAT_LABELS[k] || STAT_RU[k] || k}: {v > 0 ? "+" : ""}{v}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Результат выбора */}
@@ -899,6 +960,7 @@ function UkraineResponseScreen({ items, onDone, gameId, gameStats }) {
                   >
                     <span style={{ color: "#a8313a", marginRight: 8 }}>{i + 1}.</span>{r.label}
                     {isRec && <span className="mono-font" style={{ position: "absolute", top: 6, right: 8, fontSize: 7, color: "#4a7a3a", background: "#0d1a08", borderRadius: 2, padding: "1px 4px" }}>★ советник</span>}
+                    <UaResponsePreviewLine responseType={r.type} />
                   </button>
                 );
               })}
@@ -910,6 +972,7 @@ function UkraineResponseScreen({ items, onDone, gameId, gameStats }) {
                 onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a1a1a")}
               >
                 Принять ситуацию и продолжить курс
+                <UaResponsePreviewLine responseType="accept" muted />
               </button>
             </div>
           </>
@@ -6366,6 +6429,23 @@ function StatDeltaBadges({ delta }) {
   );
 }
 
+// БАЛАНС (2026-07-04): зеркало RESPONSE_EFFECTS из backend/src/routes/turns.js (POST
+// /turns/ukraine/respond, используется ИМЕННО этой карточкой, не UkraineResponseScreen — два
+// разных бэкенд-пути под одно и то же действие "ответить Украине", у каждого свой набор эффектов,
+// см. HANDOFF). Тут эффект ФИКСИРОВАННЫЙ (не вероятностный), поэтому прогноз можно показать как
+// точную цифру, а не разброс вероятностей, как в UkraineResponseScreen. Держать в синхроне.
+const UA_INLINE_RESPONSE_FIXED = {
+  defend:    { stability: 2, approval: 2, army_morale: 1, initiative: -10 },
+  retaliate: { army_morale: 3, military: 1, peace_progress: -5, war_escalation_counter: 1, approval: 1, initiative: -20 },
+  accept:    { approval: -2, stability: -1 },
+};
+function fmtUaInlineDelta(responseType) {
+  const d = UA_INLINE_RESPONSE_FIXED[responseType] || {};
+  return Object.entries(d)
+    .filter(([k]) => k !== "initiative" && k !== "war_escalation_counter")
+    .map(([k, v]) => `${STAT_RU[k] || k} ${v > 0 ? "+" : ""}${v}`)
+    .join(", ") || "без изменений статов";
+}
 function UkraineActionCard({ item, gameId, respondedType, onResponded, warCounter = 0 }) {
   const [loading, setLoading] = useState(null); // responseType being submitted
   const [error, setError] = useState(null);
@@ -6411,6 +6491,19 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded, warCounte
           style={{ fontSize: 13.5, lineHeight: 1.45, color: "#e8c0b0" }}
           toggleColor="#8a5050"
         />
+        {(() => {
+          const already = Object.entries(eventData?.deltas || {}).filter(([, v]) => v !== 0);
+          if (already.length === 0) return null;
+          return (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {already.map(([k, v]) => (
+                <span key={k} className="mono-font" style={{ fontSize: 10, color: v > 0 ? "#7fae93" : "#e09090" }}>
+                  {ALL_STAT_LABELS[k] || STAT_RU[k] || k}: {v > 0 ? "+" : ""}{v}
+                </span>
+              ))}
+            </div>
+          );
+        })()}
       </div>
       <div style={{ padding: "10px 13px 12px", background: "#1a0a0a", borderTop: "1px solid #5a1a1a" }}>
         {respondedType ? (
@@ -6458,7 +6551,10 @@ function UkraineActionCard({ item, gameId, respondedType, onResponded, warCounte
                       opacity: loading && loading !== r.type ? 0.5 : 1,
                     }}
                   >
-                    {loading === r.type ? "Выполняется…" : isRetaliate ? `${r.label} ${warDanger ? "⚠ +1 эскал." : "(+1 к счётчику)"}` : r.label}
+                    <div>{loading === r.type ? "Выполняется…" : isRetaliate ? `${r.label} ${warDanger ? "⚠ +1 эскал." : "(+1 к счётчику)"}` : r.label}</div>
+                    {loading !== r.type && (
+                      <div className="mono-font" style={{ fontSize: 9.5, opacity: 0.75, marginTop: 3 }}>{fmtUaInlineDelta(r.type)}</div>
+                    )}
                   </button>
                 );
               })}
