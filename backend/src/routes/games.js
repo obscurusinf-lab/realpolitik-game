@@ -481,11 +481,15 @@ ${historyLines || "(история пуста)"}
     if (!payload) return;
     const { responseType, turnN } = request.body || {};
     const { resolveUkraineResponse } = require("../rules/rules-engine");
+    const { detectGameOutcome } = require("./turns");
 
     const client = await db.connect();
     try {
       await client.query("BEGIN");
-      const gsRes = await client.query(`SELECT stats FROM game_state WHERE game_id = $1 FOR UPDATE`, [gameId]);
+      const gsRes = await client.query(
+        `SELECT gs.stats, g.current_turn FROM game_state gs JOIN games g ON g.id = gs.game_id WHERE gs.game_id = $1 FOR UPDATE`,
+        [gameId]
+      );
       if (gsRes.rowCount === 0) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
 
       const stats = { ...gsRes.rows[0].stats };
@@ -518,9 +522,18 @@ ${historyLines || "(история пуста)"}
       }
 
       await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
+
+      // Ретейлиейт двигает war_escalation_counter немедленно (не только на confirm/end-month) —
+      // без этой проверки поражение (defeat_war) обнаруживалось бы с опозданием на целый ход.
+      const currentTurn = gsRes.rows[0].current_turn ?? turnN ?? 0;
+      const gameOutcome = detectGameOutcome(stats, currentTurn, 24);
+      if (gameOutcome) {
+        await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
+      }
+
       await client.query("COMMIT");
 
-      return reply.send({ ok: true, delta, outcome, outcomeText, initiativeCost, warEscalationDelta });
+      return reply.send({ ok: true, delta, outcome, outcomeText, initiativeCost, warEscalationDelta, gameOutcome: gameOutcome || null });
     } catch (err) {
       await client.query("ROLLBACK");
       fastify.log.error(err);

@@ -753,8 +753,13 @@ const UA_RESPONSE_TIERS = {
 // сравнения партий, а не зависеть от того, в какой момент вызван Math.random(). seed передаёт
 // вызывающий код (gameId:turnN:responseType) — он же используется остальными seeded-функциями.
 function resolveUkraineResponse(responseType, seed) {
+  if (!seed) {
+    // Раньше здесь был молчаливый fallback на Math.random() — он нарушал бы детерминизм
+    // без единого предупреждения, если вызывающий код когда-нибудь забудет передать seed.
+    throw new Error("resolveUkraineResponse: seed is required (детерминизм: gameId:turnN:responseType)");
+  }
   const config = UA_RESPONSE_TIERS[responseType] || UA_RESPONSE_TIERS.accept;
-  const roll = seed ? seededFraction(`${seed}:uaResponse`) : Math.random();
+  const roll = seededFraction(`${seed}:uaResponse`);
   let cumulative = 0;
   let picked = config.tiers[config.tiers.length - 1];
   for (const tier of config.tiers) {

@@ -422,6 +422,9 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       newStats.initiative = initiative - 35;
       newStats.treasury = Math.max(TREASURY_MIN, treasuryCurrent - 8);
       newStats.anticorruption_used = true;
+      // Кампания — это и есть активная борьба с коррупцией в этом месяце: подавляет пассивный
+      // отскок коррупции в конце месяца (см. проверку anti_corruption_this_month в turns.js).
+      newStats.anti_corruption_this_month = true;
 
       const corrBefore = newStats.corruption ?? 55;
       const roll = Math.random();

@@ -2137,6 +2137,20 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
       }
 
+      // --- ФИНАЛЬНАЯ ГЛАВА: эскалация на ходах 17–23 ---
+      // ВАЖНО: применяем ДО detectGameOutcome — иначе поражение/победу, вызванные именно этим
+      // событием, обнаружили бы только на следующем ходу (games.status ещё хранил бы старый исход).
+      const finalEvents = generateFinalChapterEvent(newStats, completedMonth);
+      for (const ev of finalEvents) {
+        for (const [k, d] of Object.entries(ev.statDelta || {})) {
+          newStats[k] = Math.max(0, Math.min(100, (newStats[k] ?? 50) + d));
+        }
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'world_move',$3,$4,$5)`,
+          [gameId, completedMonth, ev.source, ev.text, JSON.stringify(ev.reactions || [])]
+        );
+      }
+
       // Сдвиг даты + продвижение месяца
       const currentGameDate = game.overview?.date;
       const newGameDate = currentGameDate ? advanceGameDate(currentGameDate, crisisMode) : null;
@@ -2201,21 +2215,6 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           [gameId, completedMonth, "Минэкономразвития",
            `Итоги месяца · экономика: ${economyAtMonthStart} → ${newStats.economy} (${netChange >= 0 ? "+" : ""}${netChange}). Из чего сложилось: ${lines.join("; ")}.${capNote}`]
         );
-      }
-
-      // --- ФИНАЛЬНАЯ ГЛАВА: эскалация на ходах 17–23 ---
-      const finalEvents = generateFinalChapterEvent(newStats, completedMonth);
-      for (const ev of finalEvents) {
-        for (const [k, d] of Object.entries(ev.statDelta || {})) {
-          newStats[k] = Math.max(0, Math.min(100, (newStats[k] ?? 50) + d));
-        }
-        await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'world_move',$3,$4,$5)`,
-          [gameId, completedMonth, ev.source, ev.text, JSON.stringify(ev.reactions || [])]
-        );
-      }
-      if (finalEvents.some(e => Object.keys(e.statDelta || {}).length > 0)) {
-        await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
       }
 
       await client.query("COMMIT");
@@ -2361,6 +2360,17 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const turnNumber = game.current_turn + 1;
       const currentStats = game.stats || {};
       const { INITIATIVE_MAX, INITIATIVE_REGROUP_REGEN, applyTurn } = require("../rules/rules-engine");
+
+      // Лимит: перегруппировка доступна только 1 раз за месяц (иначе бесконечный фарм бонусов инициативы/армии)
+      if (currentStats.regroup_used_this_month) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Перегруппировка уже использована в этом месяце — завершите месяц чтобы использовать снова." });
+      }
+      // Гражданская передышка — президент занят тылом, военные операции (включая перегруппировку) недоступны
+      if (currentStats.skip_used_this_month) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "В этом месяце была гражданская передышка — военные операции недоступны до следующего месяца." });
+      }
 
       // Применяем military_regroup через rules-engine — мягкие позитивные эффекты для армии
       const { newStats, statDeltas } = applyTurn({
@@ -2718,8 +2728,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         [gameId, currentTurn, "Штаб", `Ответ на действие противника (ход ${turnN}): ${outcomeText}`]
       );
 
+      // Ретейлиейт двигает war_escalation_counter немедленно (не только на confirm/end-month) —
+      // без этой проверки поражение (defeat_war) обнаруживалось бы с опозданием на целый ход.
+      const gameOutcome = detectGameOutcome(newStats, currentTurn, 24);
+      if (gameOutcome) {
+        await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
+      }
+
       await client.query("COMMIT");
-      return reply.send({ ok: true, label: outcomeText, statDelta: delta, outcome, outcomeText, initiativeCost, warEscalationDelta, newStats });
+      return reply.send({ ok: true, label: outcomeText, statDelta: delta, outcome, outcomeText, initiativeCost, warEscalationDelta, newStats, gameOutcome: gameOutcome || null });
     } catch (err) {
       await client.query("ROLLBACK");
       fastify.log.error(err);
@@ -2730,4 +2747,4 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
   });
 }
 
-module.exports = { registerTurnRoutes };
+module.exports = { registerTurnRoutes, detectGameOutcome };
