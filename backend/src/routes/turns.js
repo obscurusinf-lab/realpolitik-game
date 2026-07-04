@@ -2642,38 +2642,29 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         return reply.code(409).send({ error: "На это событие уже был дан ответ" });
       }
 
-      // Эффекты по типу ответа
+      // БАЛАНС (2026-07-04): раньше здесь была отдельная ФИКСИРОВАННАЯ (не вероятностная) таблица
+      // эффектов — независимый дубль вероятностной таблицы в games.js (POST
+      // /games/:gameId/ukraine-response, используется полноэкранным UkraineResponseScreen) для
+      // ОДНОГО и того же решения игрока. Теперь оба пути используют resolveUkraineResponse() из
+      // rules-engine.js — единственный источник истины (вероятностный разброс + цена
+      // инициативы/риск war_escalation_counter при "retaliate", как и было здесь).
+      const { resolveUkraineResponse } = require("../rules/rules-engine");
       const clamp = (v) => Math.max(0, Math.min(100, v));
-      const RESPONSE_EFFECTS = {
-        defend: {
-          // Эффективное противодействие: укрепляет стабильность, стоит инициативы
-          label: "Оборонительные меры приняты",
-          statDelta: { stability: 2, approval: 2, army_morale: 1, initiative: -10 },
-        },
-        retaliate: {
-          // Контрудар: поднимает боевой дух, но эскалирует
-          label: "Контрудар нанесён",
-          statDelta: { army_morale: 3, military: 1, peace_progress: -5, war_escalation_counter: 1, approval: 1, initiative: -20 },
-        },
-        accept: {
-          // Принять потери: дёшево, но бьёт по авторитету
-          label: "Потери приняты, ситуация взята под контроль",
-          statDelta: { approval: -2, stability: -1 },
-        },
-      };
-      const effect = RESPONSE_EFFECTS[responseType];
-      for (const [k, v] of Object.entries(effect.statDelta)) {
-        if (k === "initiative") {
-          newStats.initiative = Math.max(0, (newStats.initiative ?? 100) + v);
-        } else if (k === "war_escalation_counter") {
-          newStats.war_escalation_counter = Math.min(5, (newStats.war_escalation_counter ?? 0) + v);
-        } else if (k === "peace_progress") {
+      const { delta, outcome, outcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType);
+      for (const [k, v] of Object.entries(delta)) {
+        if (k === "peace_progress") {
           newStats.peace_progress = Math.max(0, Math.min(100, (newStats.peace_progress ?? 0) + v));
         } else if (typeof newStats[k] === "number") {
           newStats[k] = clamp(newStats[k] + v);
         } else {
           newStats[k] = clamp(50 + v);
         }
+      }
+      if (initiativeCost) {
+        newStats.initiative = Math.max(0, (newStats.initiative ?? 100) - initiativeCost);
+      }
+      if (warEscalationDelta) {
+        newStats.war_escalation_counter = Math.min(5, (newStats.war_escalation_counter ?? 0) + warEscalationDelta);
       }
 
       // Помечаем что ответили
@@ -2687,11 +2678,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const currentTurn = gsRes.rows[0].current_turn || turnN;
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
-        [gameId, currentTurn, "Штаб", `Ответ на действие противника (ход ${turnN}): ${effect.label}.`]
+        [gameId, currentTurn, "Штаб", `Ответ на действие противника (ход ${turnN}): ${outcomeText}`]
       );
 
       await client.query("COMMIT");
-      return reply.send({ ok: true, label: effect.label, statDelta: effect.statDelta, newStats });
+      return reply.send({ ok: true, label: outcomeText, statDelta: delta, outcome, outcomeText, initiativeCost, warEscalationDelta, newStats });
     } catch (err) {
       await client.query("ROLLBACK");
       fastify.log.error(err);

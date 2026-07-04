@@ -257,11 +257,11 @@ export async function fetchLegacy(gameId, outcome) {
   return res.json();
 }
 
-export async function sendUkraineResponse(gameId, responseType, actionType) {
+export async function sendUkraineResponse(gameId, responseType, actionType, turnN) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/ukraine-response`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-    body: JSON.stringify({ responseType, actionType }),
+    body: JSON.stringify({ responseType, actionType, turnN }),
   }, 8000);
   if (!res.ok) return { ok: false, delta: {}, outcome: "neutral", outcomeText: "" };
   return res.json();

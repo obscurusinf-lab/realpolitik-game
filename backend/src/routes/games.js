@@ -467,62 +467,64 @@ ${historyLines || "(история пуста)"}
   });
 
   // ---------- POST /games/:gameId/ukraine-response ----------
-  // Игрок отвечает на действие Украины — применяет вероятностный эффект
+  // Игрок отвечает на действие Украины — применяет вероятностный эффект.
+  // БАЛАНС (2026-07-04): раньше эта таблица дублировала (с расхождениями) отдельную таблицу в
+  // backend/src/routes/turns.js (POST /turns/ukraine/respond) — теперь оба пути используют
+  // resolveUkraineResponse() из rules-engine.js, единственный источник истины. Заодно добавлены
+  // цена инициативы и риск war_escalation_counter при "retaliate" — раньше этот путь (полноэкранный
+  // UkraineResponseScreen) был безопаснее инлайн-карточки в Ленте для ОДНОГО и того же решения;
+  // и идемпотентность по turnN (turns.js её уже имел, этот путь — нет: без нового поля старые
+  // фронтенды без turnN просто теряют эту защиту, но не ломаются — см. запрос ниже).
   fastify.post("/games/:gameId/ukraine-response", async (request, reply) => {
     const { gameId } = request.params;
     const payload = verifyToken(request, reply);
     if (!payload) return;
-    const { responseType, actionType } = request.body || {};
+    const { responseType, turnN } = request.body || {};
+    const { resolveUkraineResponse } = require("../rules/rules-engine");
 
-    const gsRes = await db.query(`SELECT stats FROM game_state WHERE game_id = $1`, [gameId]);
-    if (gsRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const gsRes = await client.query(`SELECT stats FROM game_state WHERE game_id = $1 FOR UPDATE`, [gameId]);
+      if (gsRes.rowCount === 0) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
 
-    const stats = { ...gsRes.rows[0].stats };
-    const roll = Math.random();
-    let delta = {};
-    let outcome = "neutral";
-    let outcomeText = "";
-
-    if (responseType === "defend") {
-      // Защита: высокая вероятность частичного смягчения, мал. риск провала
-      if (roll < 0.55) {
-        delta.economy = 1; delta.stability = 1;
-        outcome = "positive"; outcomeText = "Оборонные меры сработали — часть ущерба нейтрализована.";
-      } else if (roll < 0.85) {
-        delta.military = -1;
-        outcome = "mixed"; outcomeText = "Оборонные меры частично снизили ущерб.";
-      } else {
-        delta.approval = -1;
-        outcome = "negative"; outcomeText = "Оборонные меры не дали результата — население разочаровано.";
+      const stats = { ...gsRes.rows[0].stats };
+      const responded = stats.ukraine_responses || {};
+      if (turnN != null && responded[turnN]) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "На это событие уже был дан ответ" });
       }
-      // Защитные операции стоят ресурсов
-      delta.economy = (delta.economy ?? 0) - 1;
-    } else if (responseType === "retaliate") {
-      // Ответный удар: высокий риск, высокая награда
-      if (roll < 0.35) {
-        delta.military = 2; delta.approval = 2; delta.army_morale = 2;
-        outcome = "positive"; outcomeText = "Ответный удар достиг целей — армия воодушевлена, рейтинг вырос.";
-      } else if (roll < 0.65) {
-        delta.military = 1; delta.diplomacy = -2;
-        outcome = "mixed"; outcomeText = "Удар нанесён, но международная реакция ухудшила дипломатический климат.";
-      } else {
-        delta.diplomacy = -3; delta.stability = -1; delta.peace_progress = -5;
-        outcome = "negative"; outcomeText = "Ответный удар спровоцировал эскалацию — западные партнёры заморозили контакты.";
+
+      const { delta, outcome, outcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType);
+
+      for (const [k, v] of Object.entries(delta)) {
+        if (k === "peace_progress") {
+          stats.peace_progress = Math.max(0, Math.min(100, (stats.peace_progress ?? 0) + v));
+        } else if (typeof stats[k] === "number") {
+          stats[k] = Math.max(0, Math.min(100, stats[k] + v));
+        }
       }
-    } else {
-      // accept / ignore — небольшой рандом
-      if (roll < 0.25) { delta.approval = -1; outcome = "negative"; outcomeText = "Бездействие замечено — рейтинг слегка просел."; }
-      else { outcome = "neutral"; outcomeText = "Ситуация стабилизируется сама по себе."; }
+      if (initiativeCost) {
+        stats.initiative = Math.max(0, (stats.initiative ?? 100) - initiativeCost);
+      }
+      if (warEscalationDelta) {
+        stats.war_escalation_counter = Math.min(5, (stats.war_escalation_counter ?? 0) + warEscalationDelta);
+      }
+      if (turnN != null) {
+        stats.ukraine_responses = { ...responded, [turnN]: responseType };
+      }
+
+      await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
+      await client.query("COMMIT");
+
+      return reply.send({ ok: true, delta, outcome, outcomeText, initiativeCost, warEscalationDelta });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Ukraine response failed" });
+    } finally {
+      client.release();
     }
-
-    for (const [k, v] of Object.entries(delta)) {
-      if (typeof stats[k] === "number") {
-        stats[k] = Math.max(0, Math.min(100, stats[k] + v));
-      }
-    }
-    await db.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
-
-    return reply.send({ ok: true, delta, outcome, outcomeText });
   });
 
   // ---------- GET /leaderboard — Зал Славы (только opt-in партии) ----------

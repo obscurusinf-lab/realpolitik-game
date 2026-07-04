@@ -706,6 +706,62 @@ function computeDelayedEffectDelta({ category, stat, gameId, turnNumber, effectI
   return computeStatDelta({ category, stat, severity: 1, seed });
 }
 
+// --- ОТВЕТ НА ДЕЙСТВИЕ УКРАИНЫ (defend/retaliate/accept) ---
+// БАЛАНС (2026-07-04): раньше два независимых бэкенд-пути реализовывали ОДНО И ТО ЖЕ решение
+// по-разному: backend/src/routes/games.js (POST /games/:gameId/ukraine-response, вызывается
+// полноэкранным UkraineResponseScreen после конца месяца) — 3-уровневый вероятностный ролл,
+// БЕЗ цены инициативы и БЕЗ риска войны-эскалации; backend/src/routes/turns.js (POST
+// /turns/ukraine/respond, вызывается инлайн-карточкой в Ленте) — фиксированный (не
+// вероятностный) эффект, СТОИТ инициативы (defend −10, retaliate −20) и двигает
+// war_escalation_counter при retaliate (счётчик, триггерящий defeat_war на 3). Итог: одно и то
+// же решение ("нанести ответный удар") было строго безопаснее через один экран, чем через
+// другой — рассинхрон маршрута, а не осознанный выбор игрока. Общая функция ниже — единственный
+// источник истины для ОБОИХ путей: вероятностный разброс (интереснее фиксированного) + цена
+// инициативы/риск войны (реальные последствия, независимо от того, каким экраном отвечаешь).
+const UA_RESPONSE_TIERS = {
+  defend: {
+    initiativeCost: 10,
+    tiers: [
+      { prob: 0.55, delta: { economy: 0, stability: 1 }, outcome: "positive", text: "Оборонные меры сработали — часть ущерба нейтрализована." },
+      { prob: 0.30, delta: { economy: -1, military: -1 }, outcome: "mixed", text: "Оборонные меры частично снизили ущерб." },
+      { prob: 0.15, delta: { economy: -1, approval: -1 }, outcome: "negative", text: "Оборонные меры не дали результата — население разочаровано." },
+    ],
+  },
+  retaliate: {
+    initiativeCost: 20,
+    warEscalationDelta: 1,
+    tiers: [
+      { prob: 0.35, delta: { military: 2, approval: 2, army_morale: 2 }, outcome: "positive", text: "Ответный удар достиг целей — армия воодушевлена, рейтинг вырос." },
+      { prob: 0.30, delta: { military: 1, diplomacy: -2 }, outcome: "mixed", text: "Удар нанесён, но международная реакция ухудшила дипломатический климат." },
+      { prob: 0.35, delta: { diplomacy: -3, stability: -1, peace_progress: -5 }, outcome: "negative", text: "Ответный удар спровоцировал эскалацию — западные партнёры заморозили контакты." },
+    ],
+  },
+  accept: {
+    initiativeCost: 0,
+    tiers: [
+      { prob: 0.25, delta: { approval: -1 }, outcome: "negative", text: "Бездействие замечено — рейтинг слегка просел." },
+      { prob: 0.75, delta: {}, outcome: "neutral", text: "Ситуация стабилизируется сама по себе." },
+    ],
+  },
+};
+function resolveUkraineResponse(responseType) {
+  const config = UA_RESPONSE_TIERS[responseType] || UA_RESPONSE_TIERS.accept;
+  const roll = Math.random();
+  let cumulative = 0;
+  let picked = config.tiers[config.tiers.length - 1];
+  for (const tier of config.tiers) {
+    cumulative += tier.prob;
+    if (roll < cumulative) { picked = tier; break; }
+  }
+  return {
+    delta: { ...picked.delta },
+    outcome: picked.outcome,
+    outcomeText: picked.text,
+    initiativeCost: config.initiativeCost || 0,
+    warEscalationDelta: config.warEscalationDelta || 0,
+  };
+}
+
 module.exports = {
   RULES_TABLE,
   CATEGORY_GROUP,
@@ -713,6 +769,7 @@ module.exports = {
   EXPOSURE_RISK_CHANCE,
   computePeaceProgressDelta,
   computeTerritoryDelta,
+  resolveUkraineResponse,
   rollExposure,
   MAX_DELTA_PER_TURN,
   SUBSTAT_DEFAULTS,
