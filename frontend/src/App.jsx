@@ -144,13 +144,18 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
             </div>
             {(() => {
               // Территории, субметрики и т.п. — те же "прочие" дельты, что и в PreviewCard,
-              // просто плоским списком (нет общей шкалы 0-100 для бара).
+              // просто плоским списком (нет общей шкалы 0-100 для бара). "Инициатива" — исключение,
+              // та же шкала 0-100, что у 5 базовых статов — получает бар, как и в PreviewCard.
+              const initiativeDelta = statDeltas.initiative;
               const otherDeltas = Object.entries(statDeltas).filter(
-                ([s, d]) => d !== 0 && !statMeta[s] && !s.startsWith("_") && s !== "military_streak"
+                ([s, d]) => d !== 0 && !statMeta[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak"
               );
-              if (otherDeltas.length === 0) return null;
+              if (otherDeltas.length === 0 && !initiativeDelta) return null;
               return (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
+                  {!!initiativeDelta && (
+                    <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={prevStats?.initiative ?? 100} delta={initiativeDelta} />
+                  )}
                   {otherDeltas.map(([stat, delta]) => (
                     <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
                       {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
@@ -1176,8 +1181,11 @@ function fmtEcoEffect(n) { return `${n > 0 ? "+" : ""}${n}`; }
 // полупрозрачной полосой поверх до проектной отметки (тонкая линия = где окажется стата
 // после подтверждения). Наглядно показывает "какие будут изменения" прямо на шкале,
 // а не только числом рядом.
-function PreviewStatBar({ statKey, current, delta }) {
-  const meta = statMeta[statKey];
+function PreviewStatBar({ statKey, current, delta, label, color }) {
+  // label/color — необязательный оверрайд для ключей вне statMeta (напр. "initiative" — та же
+  // шкала 0-100, что и у 5 базовых статов, но не входит в statMeta, чтобы не попасть в основную
+  // сетку статов на вкладке «Показатели» — это расходуемый ресурс хода, а не национальная стата).
+  const meta = statMeta[statKey] || (label ? { label, color: color || "#8a8fa0" } : null);
   if (!meta) return null;
   const projected = Math.max(0, Math.min(100, current + delta));
   const good = delta > 0;
@@ -1215,7 +1223,12 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
   // остальные (субметрики, казна, территории) остаются плоским списком ниже, у них нет
   // единой шкалы 0-100 с барами на этом экране.
   const coreDeltas = deltas.filter(([s]) => statMeta[s]);
-  const otherDeltas = deltas.filter(([s]) => !statMeta[s] && !s.startsWith("_") && s !== "military_streak");
+  // БАЛАНС (2026-07-04): "Инициатива" — та же шкала 0-100, что и 5 базовых статов (просто не в
+  // statMeta, см. комментарий в PreviewStatBar) — игрок ожидал бар и для неё, не только плоский
+  // текст. "Казна" остаётся плоским текстом (шкала -100..100, другой формат), но получает
+  // рублёвую аннотацию ниже.
+  const initiativeDelta = deltas.find(([s]) => s === "initiative");
+  const otherDeltas = deltas.filter(([s]) => !statMeta[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak");
 
   const econNotes = computeEconomyForecastNotes(currentStats, preview.statDeltasPreview);
 
@@ -1346,27 +1359,36 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
       )}
       <div style={{ background: "#1f2733", borderRadius: 4, padding: "8px 12px", marginBottom: 12 }}>
         <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>ПРОГНОЗ ИЗМЕНЕНИЙ</div>
-        {coreDeltas.length === 0 && otherDeltas.length === 0
+        {coreDeltas.length === 0 && otherDeltas.length === 0 && !initiativeDelta
           ? <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>
           : (
             <>
-              {coreDeltas.length > 0 && (
+              {(coreDeltas.length > 0 || initiativeDelta) && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: otherDeltas.length > 0 ? 10 : 0 }}>
                   {coreDeltas.map(([stat, delta]) => (
                     <PreviewStatBar key={stat} statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
                   ))}
+                  {initiativeDelta && (
+                    <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={currentStats?.initiative ?? 100} delta={initiativeDelta[1]} />
+                  )}
                 </div>
               )}
               {otherDeltas.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                   {otherDeltas.map(([stat, delta]) => {
                     const note = econNotes[stat];
+                    // БАЛАНС (2026-07-04): "Казна" тут — это ОЧКИ (условная стата 0-100/−100..100),
+                    // не деньги. Добавляем рублёвый эквивалент тем же курсом, что и вкладка «Казна»
+                    // (TREASURY_PER_TRILLION) — раньше цена указа в очках нигде не переводилась в ₽.
+                    const rubHint = stat === "treasury" ? `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн` : null;
+                    const noteChannelLabel = stat === "treasury" ? "казна" : stat === "gdp_growth" ? "рост ВВП" : stat === "employment" ? "занятость" : ALL_STAT_LABELS[stat] ?? stat;
                     return (
                       <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
                         {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+                        {rubHint && <span style={{ opacity: 0.7, fontWeight: 400 }}> ({rubHint})</span>}
                         {note && (
                           <span style={{ display: "block", fontSize: 9.5, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                            ⤷ вклад в экономику/мес: {fmtEcoEffect(note.before)} → {fmtEcoEffect(note.after)}
+                            ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoEffect(note.before)} → {fmtEcoEffect(note.after)}/мес
                           </span>
                         )}
                       </span>
@@ -4499,12 +4521,15 @@ function EndMonthForecastPanel({ stats }) {
     });
   }
 
+  // БАЛАНС (2026-07-04): раньше totalDrain суммировал ЛЮБОЙ отрицательный delta из ЛЮБОГО
+  // impact (Экономика, Одобрение, Казна, Армия — всё вперемешку, разные "валюты" очков) в одно
+  // число "≈X/мес авто" — игрок принял его за прогноз по экономике конкретно, а на деле это была
+  // смесь нескольких статов. Теперь считаем "Экономика" отдельно (это и есть то, о чём спрашивал
+  // игрок) и отдельно отмечаем, что есть ещё влияние на другие статы, а не сваливаем всё в одну кучу.
   const activeCount = mechanisms.filter(m => m.active === true).length;
-  const totalDrain = mechanisms
-    .filter(m => m.active === true)
-    .flatMap(m => m.impacts)
-    .filter(i => i.delta !== null && i.delta < 0)
-    .reduce((s, i) => s + i.delta, 0);
+  const activeImpacts = mechanisms.filter(m => m.active === true).flatMap(m => m.impacts).filter(i => i.delta !== null);
+  const economyDrain = activeImpacts.filter(i => i.label === "Экономика" && i.delta < 0).reduce((s, i) => s + i.delta, 0);
+  const otherNegativeLabels = new Set(activeImpacts.filter(i => i.label !== "Экономика" && i.delta < 0).map(i => i.label));
 
   const severityColor = { crit: "#a8313a", bad: "#9c5a1a", good: "#4a6b5c", random: "#5a4a8a" };
   const severityBg = { crit: "#fde8e8", bad: "#fdf3e8", good: "#e8f5e8", random: "#f0eef8" };
@@ -4522,9 +4547,14 @@ function EndMonthForecastPanel({ stats }) {
               {activeCount} активно
             </span>
           )}
-          {totalDrain < 0 && (
-            <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
-              ≈{totalDrain}/мес авто
+          {economyDrain < 0 && (
+            <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }} title="Только эффект на Экономику — другие статы считаются отдельно">
+              экономика ≈{economyDrain}/мес авто
+            </span>
+          )}
+          {otherNegativeLabels.size > 0 && (
+            <span style={{ fontSize: 9, background: "#f0eef8", color: "#5a4a8a", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}>
+              + {otherNegativeLabels.size} др. стат{otherNegativeLabels.size > 1 ? "ы" : "а"}
             </span>
           )}
         </div>
@@ -6583,7 +6613,11 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         </div>
         {gdpGrowthEvents.length > 0 && (
           <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "10px 14px", marginBottom: 10 }}>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a7a60", marginBottom: 6 }}>ПОСЛЕДНИЙ ВКЛАД В РОСТ ВВП</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.1em", color: "#8a7a60", marginBottom: 4 }}>ПОСЛЕДНИЙ ВКЛАД В РОСТ ВВП</div>
+            <div className="doc-font" style={{ fontSize: 10.5, color: "#8a7a60", marginBottom: 6, lineHeight: 1.3 }}>
+              Это подстата «Рост ВВП», не сама Экономика — указы двигают ТОЛЬКО её напрямую. В Экономику она перетекает
+              постепенно, в конце месяца, и только если отклонение от базового уровня накопилось и держится (см. ниже).
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {gdpGrowthEvents.map((ev, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
@@ -6597,24 +6631,25 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         <EndMonthForecastPanel stats={stats} />
       </div>
 
-      {/* Баланс: доходы и расходы */}
+      {/* Баланс: доходы и расходы — очки + рублёвый эквивалент тем же курсом T, что и казна/
+          резервы (см. TREASURY_PER_TRILLION) — раньше строки были только в абстрактных очках. */}
       <div style={sectionStyle}>
         <div style={labelStyle}>МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)</div>
         <div style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4 }}>
           <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
             <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a6a4a" }}>+ Налоговый доход (экономика {Math.round(eco)})</span>
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#3a6a4a", fontWeight: 700 }}>+{economyIncome}</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#3a6a4a", fontWeight: 700 }}>+{economyIncome} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(economyIncome * T).toFixed(1)} трлн)</span></span>
           </div>
           {taxIncome > 0 && (
             <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
               <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#3a6a4a" }}>+ Налоговые политики</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#3a6a4a", fontWeight: 700 }}>+{taxIncome}</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#3a6a4a", fontWeight: 700 }}>+{taxIncome} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(taxIncome * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           {programUpkeep > 0 && (
             <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
               <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Содержание программ ({activePolicies.length} активных)</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{programUpkeep}</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{programUpkeep} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(programUpkeep * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           {(oilIncomeT !== 0 || fxIncomeT !== 0) && (
@@ -6623,32 +6658,32 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 {(oilIncomeT + fxIncomeT) >= 0 ? "+" : "−"} Нефть и курс (${ oilPriceT.toFixed(0)} / ₽{usdRubT.toFixed(0)})
               </span>
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: (oilIncomeT + fxIncomeT) >= 0 ? "#3a6a4a" : "#8a3030", fontWeight: 700 }}>
-                {(oilIncomeT + fxIncomeT) >= 0 ? "+" : ""}{oilIncomeT + fxIncomeT}
+                {(oilIncomeT + fxIncomeT) >= 0 ? "+" : ""}{oilIncomeT + fxIncomeT} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈{(oilIncomeT + fxIncomeT) >= 0 ? "+" : ""}₽{((oilIncomeT + fxIncomeT) * T).toFixed(1)} трлн)</span>
               </span>
             </div>
           )}
           {ofzDebt > 0 && (
             <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
               <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Обслуживание ОФЗ ({ofzCount} выпуска)</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{ofzDebt}</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{ofzDebt} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(ofzDebt * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           {corruptionDrainT > 0 && (
             <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
-              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Коррупционные потери (уровень {Math.round(corrLevelT)})</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{corruptionDrainT}</span>
+              <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Коррупционные потери (внутренний балл {Math.round(corrLevelT)}, CPI {corruptionCpiEquivalent(corrLevelT)})</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{corruptionDrainT} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(corruptionDrainT * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           {territoryUpkeepT > 0 && (
             <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #e0dac8" }}>
               <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#8a3030" }}>− Содержание отвоёванных территорий</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{territoryUpkeepT}</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#8a3030", fontWeight: 700 }}>−{territoryUpkeepT} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(territoryUpkeepT * T).toFixed(1)} трлн)</span></span>
             </div>
           )}
           <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#5a5040", letterSpacing: "0.06em" }}>ИТОГ</span>
             <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 700, color: projectedNet >= 0 ? "#2a6a3a" : "#8a2020" }}>
-              {projectedNet >= 0 ? "+" : ""}{projectedNet} пунктов/мес.
+              {projectedNet >= 0 ? "+" : ""}{projectedNet} пунктов/мес. <span style={{ fontSize: 10, fontWeight: 400 }}>(≈{projectedNet >= 0 ? "+" : ""}₽{(projectedNet * T).toFixed(1)} трлн)</span>
             </span>
           </div>
         </div>
