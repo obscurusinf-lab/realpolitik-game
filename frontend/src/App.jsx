@@ -2036,6 +2036,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [loaded, setLoaded] = useState(false);
   const [showWelcome, setShowWelcome] = useState(initialShowWelcome);
   const [showFeedback, setShowFeedback] = useState(false);
+  // Ликбез — отдельная кнопка в шапке (не таб в скролл-баре): всегда на виду независимо от
+  // текущей вкладки, на мобильной и десктопной версии одинаково (Петя, 2026-07-04).
+  const [showWiki, setShowWiki] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
   const [draftInput, setDraftInput] = useState("");
@@ -2406,12 +2409,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const tabs = [
     { id: "overview", label: "Обстановка", icon: Globe2 },
-    // Ликбез — второй таб, сразу после «Обстановки»: раньше был последним в скролл-баре
-    // (Петя: "расположить где-то поудобнее, не в конце, чтоб всегда был на виду") — это
-    // справочник по правилам, к нему логично обращаться до/во время знакомства с остальными
-    // вкладками, а не после того, как игрок долистал до конца длинного списка табов.
-    ...(assistMode !== "hardcore" ? [{ id: "wiki", label: "📖 Ликбез", icon: ChevronRight }] : []),
-    { id: "kremlin", label: "🏰 Кремль", icon: Castle },
+    { id: "kremlin", label: "⭐ Кремль", icon: Castle },
     { id: "treasury", label: "💰 Казна", icon: Landmark },
     { id: "map", label: "Карта", icon: Globe2 },
     { id: "stats", label: "Показатели", icon: Shield },
@@ -2460,6 +2458,19 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         <WelcomeModal state={state} playerName={playerName} onClose={() => setShowWelcome(false)} />
       )}
       {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} gameId={gameId} />}
+      {showWiki && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(13,16,22,0.9)", zIndex: 3500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setShowWiki(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#f5f1e6", borderRadius: 8, width: "min(95vw,760px)", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
+            <div style={{ position: "sticky", top: 0, background: "#1a1f2c", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 1 }}>
+              <span className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#c8a857" }}>ЛИКБЕЗ</span>
+              <button onClick={() => setShowWiki(false)} style={{ background: "none", border: "none", color: "#a8a294", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: "18px 20px 24px" }}>
+              <WikiTab />
+            </div>
+          </div>
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=PT+Serif:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
@@ -2493,6 +2504,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>⚠ АЛЬФА</span>
               <Lock size={20} color={NK.accent} />
             </div>
+            {assistMode !== "hardcore" && (
+              <button onClick={() => setShowWiki(true)}
+                style={{ background: "transparent", border: `1px solid ${NK.accent}`, borderRadius: 3, color: NK.accent, fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}
+              >
+                📖 ЛИКБЕЗ
+              </button>
+            )}
             <button onClick={() => setShowFeedback(true)}
               style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer" }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
@@ -2578,7 +2596,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         {tab === "treasury" && <TreasuryTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "newsfeed" && <NewsfeedTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "log" && <LogTab state={state} />}
-        {tab === "wiki" && <WikiTab dark={isNuclearWorld} />}
       </div>
 
       {/* Mission panel — always visible above action area */}
@@ -3291,7 +3308,7 @@ function WelcomeModal({ state, playerName, onClose }) {
             </div>
           </BriefSection>
 
-          <BriefSection id="decisiontypes" label="🏰 ВКЛАДКА «КРЕМЛЬ»" color="#9c8347">
+          <BriefSection id="decisiontypes" label="⭐ ВКЛАДКА «КРЕМЛЬ»" color="#9c8347">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
               {[
                 { label: "⚔️ Военное", desc: "Разведка, удары, наступления, оборона — от 15 до 80 инициативы.", color: "#9c6347" },
