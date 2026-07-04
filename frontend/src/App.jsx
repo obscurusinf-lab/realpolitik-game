@@ -1073,6 +1073,43 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
   const coreDeltas = deltas.filter(([s]) => statMeta[s]);
   const otherDeltas = deltas.filter(([s]) => !statMeta[s] && !s.startsWith("_") && s !== "military_streak");
 
+  // ЧЕСТНЫЙ прогноз давления на экономику: с тех пор как RULES_TABLE перестала бить по economy
+  // напрямую у военных/дипломатии/шпионажа/большинства указов (см. rules-engine.js), их влияние
+  // на экономику идёт ТОЛЬКО через gdp_growth/employment/казну — и в этом самом превью раньше
+  // становилось невидимым: военная операция показывала "Армия +3, Рост ВВП −2" без намёка, что
+  // это вообще что-то значит для экономики. Считаем по ТЕМ ЖЕ формулам и делителям, что бэкенд
+  // (turns.js, секции "РОСТ ВВП → ЭКОНОМИКА" / "ЗАНЯТОСТЬ → ЭКОНОМИКА" / "СПИРАЛЬ КАЗНА") —
+  // не гадаем число, а честно показываем, во что переведётся ЭТО отклонение в конце месяца,
+  // если продержится (округление то же самое).
+  const econNotes = {};
+  const gdpDelta = preview.statDeltasPreview?.gdp_growth;
+  if (typeof gdpDelta === "number" && gdpDelta !== 0) {
+    const before = currentStats?.gdp_growth ?? 36;
+    const after = Math.max(0, Math.min(100, before + gdpDelta));
+    const effBefore = Math.round((before - 36) / 8);
+    const effAfter = Math.round((after - 36) / 8);
+    if (effBefore !== effAfter) econNotes.gdp_growth = { before: effBefore, after: effAfter };
+  }
+  const emplDelta = preview.statDeltasPreview?.employment;
+  if (typeof emplDelta === "number" && emplDelta !== 0) {
+    const before = currentStats?.employment ?? 74;
+    const after = Math.max(0, Math.min(100, before + emplDelta));
+    const effBefore = Math.round((before - 74) / 10);
+    const effAfter = Math.round((after - 74) / 10);
+    if (effBefore !== effAfter) econNotes.employment = { before: effBefore, after: effAfter };
+  }
+  const treasuryDelta = preview.statDeltasPreview?.treasury;
+  if (typeof treasuryDelta === "number" && treasuryDelta !== 0) {
+    const economyNow = currentStats?.economy ?? 50;
+    const before = currentStats?.treasury ?? 52;
+    const after = Math.max(-100, Math.min(100, before + treasuryDelta));
+    const treasuryEffect = (t) => t < 0 ? -2 : t < 15 ? -1 : (t > 65 && economyNow < 82) ? 1 : 0;
+    const effBefore = treasuryEffect(before);
+    const effAfter = treasuryEffect(after);
+    if (effBefore !== effAfter) econNotes.treasury = { before: effBefore, after: effAfter };
+  }
+  const fmtEcoEffect = (n) => `${n > 0 ? "+" : ""}${n}`;
+
   async function handleArgue() {
     if (!argumentText.trim() || sendingArg) return;
     setSendingArg(true);
@@ -1213,11 +1250,19 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
               )}
               {otherDeltas.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                  {otherDeltas.map(([stat, delta]) => (
-                    <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
-                      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
-                    </span>
-                  ))}
+                  {otherDeltas.map(([stat, delta]) => {
+                    const note = econNotes[stat];
+                    return (
+                      <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
+                        {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+                        {note && (
+                          <span style={{ display: "block", fontSize: 9.5, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
+                            ⤷ вклад в экономику/мес: {fmtEcoEffect(note.before)} → {fmtEcoEffect(note.after)}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </>
