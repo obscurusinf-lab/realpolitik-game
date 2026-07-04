@@ -342,11 +342,10 @@ function rollExposure({ exposureRisk, gameId, turnNumber, actionType }) {
 }
 
 /**
- * Вычисляет изменение peace_progress на основе типа действия и состояния армии.
- * Военные эскалации могут УСКОРИТЬ мир — если армия сильная (>70).
+ * Вычисляет изменение peace_progress на основе типа действия.
+ * Военное наступление ВСЕГДА откатывает мирный трек — независимо от силы армии.
  */
 function computePeaceProgressDelta({ action_type, severity, armyValue, seed }) {
-  const armyStrong = armyValue >= 70;
   const sevMultiplier = { 1: 0.5, 2: 0.8, 3: 1.0 }[severity] || 0.8;
   const jitter = (seededFraction(seed + "peace") - 0.5) * 0.3;
   const eff = Math.min(1, Math.max(0, sevMultiplier + jitter));
@@ -354,7 +353,7 @@ function computePeaceProgressDelta({ action_type, severity, armyValue, seed }) {
   if (action_type === "diplo_peace") return Math.round(10 + 10 * eff); // +10..+20
   if (action_type === "diplo_negotiate") return Math.round(4 + 4 * eff); // +4..+8
   if (CATEGORY_GROUP.military_offensive_like.has(action_type)) {
-    return armyStrong ? Math.round(4 + 6 * eff) : Math.round(-(5 + 7 * eff)); // +4..+10 / -5..-12
+    return -Math.round(5 + 7 * eff); // -5..-12
   }
   if (CATEGORY_GROUP.military_defensive_like.has(action_type)) return Math.round(1 + 2 * eff); // +1..+3
   if (action_type === "diplo_pressure") return Math.round(-(3 + 4 * eff)); // -3..-7
