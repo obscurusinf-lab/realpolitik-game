@@ -495,7 +495,10 @@ ${historyLines || "(история пуста)"}
         return reply.code(409).send({ error: "На это событие уже был дан ответ" });
       }
 
-      const { delta, outcome, outcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType);
+      // turnN может отсутствовать у старых фронтендов — подстраховываемся числом уже
+      // записанных ответов, чтобы сид всё равно был уникален для этой партии/попытки.
+      const uaSeed = `${gameId}:${turnN ?? Object.keys(responded).length}:${responseType}`;
+      const { delta, outcome, outcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType, uaSeed);
 
       for (const [k, v] of Object.entries(delta)) {
         if (k === "peace_progress") {

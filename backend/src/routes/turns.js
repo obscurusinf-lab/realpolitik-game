@@ -688,6 +688,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
         if (territoryMoraleDelta) {
           newStats.army_morale = Math.max(0, (newStats.army_morale ?? 50) + territoryMoraleDelta);
+          statDeltas.army_morale = (statDeltas.army_morale ?? 0) + territoryMoraleDelta;
         }
       }
       // --- конец территорий ---
@@ -2650,7 +2651,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // инициативы/риск war_escalation_counter при "retaliate", как и было здесь).
       const { resolveUkraineResponse } = require("../rules/rules-engine");
       const clamp = (v) => Math.max(0, Math.min(100, v));
-      const { delta, outcome, outcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType);
+      const uaSeed = `${gameId}:${turnN}:${responseType}`;
+      const { delta, outcome, outcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType, uaSeed);
       for (const [k, v] of Object.entries(delta)) {
         if (k === "peace_progress") {
           newStats.peace_progress = Math.max(0, Math.min(100, (newStats.peace_progress ?? 0) + v));

@@ -470,8 +470,11 @@ function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameI
     const armyQuality = ((stats.army_morale ?? 50) + (stats.readiness ?? 50) + (stats.veterans ?? 50)) / 3;
     // Интенсивность ответа зависит от западной поддержки (diplomacy_vs_west прокси = relations с США/ЕС)
     const resistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
-    // Украина контратакует преимущественно на слабых флангах (Харьков, Херсон)
-    const contestedKeys = ["kharkiv_control", "kherson_control", "zaporizhzhia_control"];
+    // БАЛАНС (2026-07-04): раньше контратака могла зацепить только Харьков/Херсон/Запорожье —
+    // Донецк и Луганск (основная ось наступления) не встречали сопротивления НИКОГДА, независимо
+    // от интенсивности боёв, из-за чего наступление там ощущалось как беспрепятственное. Теперь
+    // ВСУ может контратаковать на любом фронте.
+    const contestedKeys = TERRITORY_KEYS;
     const numContested = Math.min(contestedKeys.length, 1 + Math.floor(seededFraction(seed + ":count") * resistanceIntensity));
     // Детерминированная "перетасовка": сортируем по сидованному скору вместо Math.random()+sort.
     const shuffled = contestedKeys
@@ -744,9 +747,14 @@ const UA_RESPONSE_TIERS = {
     ],
   },
 };
-function resolveUkraineResponse(responseType) {
+// БАЛАНС (2026-07-04): раньше бросок здесь был Math.random() — единственное место в модуле,
+// нарушавшее собственный же принцип детерминизма (см. комментарий к seededFraction выше):
+// один и тот же (responseType, seed) должен давать один и тот же результат для честного
+// сравнения партий, а не зависеть от того, в какой момент вызван Math.random(). seed передаёт
+// вызывающий код (gameId:turnN:responseType) — он же используется остальными seeded-функциями.
+function resolveUkraineResponse(responseType, seed) {
   const config = UA_RESPONSE_TIERS[responseType] || UA_RESPONSE_TIERS.accept;
-  const roll = Math.random();
+  const roll = seed ? seededFraction(`${seed}:uaResponse`) : Math.random();
   let cumulative = 0;
   let picked = config.tiers[config.tiers.length - 1];
   for (const tier of config.tiers) {
