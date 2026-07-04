@@ -1014,6 +1014,19 @@ function reservesUsdBillion(rubTrillion, usdRubRate) {
 // физически создаёт/уничтожает деньги. Держать в синхроне с backend/src/rules/rules-engine.js
 // (TREASURY_PER_TRILLION) — общего модуля между backend/frontend нет.
 const TREASURY_PER_TRILLION = 0.13;
+// Карточки категорий («Кремль») пишут цену очками ("15 иниц. / 3 казны") — игрок явно видит
+// эту цену перед выбором, поэтому после пересчёта курса казны (см. выше) стоит явно показать
+// и реалистичный рублёвый эквивалент рядом, а не только очки. Мелкие действия (разведка,
+// переговоры) теперь честно уходят в млрд, а не трлн — раньше по курсу 0.8 казалось, что даже
+// разведоперация стоит триллионы.
+function formatCategoryCost(costStr) {
+  if (!costStr) return costStr;
+  const m = costStr.match(/(\d+(?:\.\d+)?)\s*казны/);
+  if (!m) return costStr;
+  const rubT = parseFloat(m[1]) * TREASURY_PER_TRILLION;
+  const rubLabel = rubT >= 1 ? `≈₽${rubT.toFixed(1)} трлн` : `≈₽${Math.round(rubT * 1000)} млрд`;
+  return `${costStr} (${rubLabel})`;
+}
 // Общий форматтер для substat-карточек (инфляция/ВВП/занятость показываются в %,
 // остальное — сырым баллом 0-100). Используется во всех местах, где рендерятся substats.
 function formatSubstatValue(key, value) {
@@ -5721,7 +5734,7 @@ function KremlinTab({ state, onSelectCategory }) {
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                    {card.cost && <span className="mono-font" style={{ fontSize: 9, color: "#c8a857", whiteSpace: "nowrap" }}>{card.cost}</span>}
+                    {card.cost && <span className="mono-font" style={{ fontSize: 9, color: "#c8a857", whiteSpace: "nowrap" }}>{formatCategoryCost(card.cost)}</span>}
                     <span style={{ color: "#c8a857", fontSize: 13, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
                   </div>
                 </div>
