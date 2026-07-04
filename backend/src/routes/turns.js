@@ -1580,6 +1580,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const activePolicies = (game.policies || []).filter(p => p.status !== "cancelled");
       const rawTaxIncome = activePolicies.reduce((s, p) => s + (Number(p.budget_income) || 0), 0);
       const programUpkeep = activePolicies.reduce((s, p) => s + (Number(p.budget_upkeep) || 0), 0);
+      // НЕДОВОЛЬСТВО ДЕЙСТВУЮЩИМИ ПОЛИТИКАМИ: некоторые политики (например, повышение НДС до 22%,
+      // утильсбора) пополняют казну (budget_income выше), но пока действуют — вызывают постоянное
+      // недовольство населения, не только штраф ПРИ ОТМЕНЕ (cancel_penalty — это другое: цена за то,
+      // чтобы их убрать). Раньше поля approval_upkeep не существовало вовсе — только budget_income/
+      // budget_upkeep читались помесячно, поэтому давно принятые непопулярные меры не создавали
+      // вообще никакого ощутимого недовольства, только доход.
+      const approvalUpkeep = activePolicies.reduce((s, p) => s + (Number(p.approval_upkeep) || 0), 0);
+      if (approvalUpkeep) {
+        newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + approvalUpkeep));
+      }
       // ОФЗ: обслуживание долга (вычитается из казны каждый месяц). Стоимость 1 выпуска
       // компаундится вместе с ключевой ставкой ЦБ — см. treasury.js/ofzMonthlyCostPerBond.
       const ofzCount = newStats.ofz_count ?? 0;

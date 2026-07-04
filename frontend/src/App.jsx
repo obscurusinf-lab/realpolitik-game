@@ -4404,7 +4404,7 @@ function impactPercent(label, delta, stats) {
   return Math.round((delta / current) * 100);
 }
 
-function EndMonthForecastPanel({ stats }) {
+function EndMonthForecastPanel({ stats, policies }) {
   const [open, setOpen] = useState(false);
   const mil = stats.military ?? 50;
   const inf = stats.inflation ?? 64;
@@ -4503,7 +4503,7 @@ function EndMonthForecastPanel({ stats }) {
     mechanisms.push({
       active: true, severity: "crit",
       name: "Дефицит казны",
-      trigger: `Казна ${trs} < 0 — критический дефицит`,
+      trigger: `Казна ${trs} (≈₽${(trs * TREASURY_PER_TRILLION).toFixed(1)} трлн) < 0 — критический дефицит`,
       impacts: [{ label: "Экономика", delta: -2 }, { label: "Инфляция", delta: +2 }, { label: "Стабильность", delta: -1 }],
       fix: "Срочно: откажитесь от части госпрограмм, погасите ОФЗ, проведите 2–3 указа «Жёсткой экономии». Дефицит разгоняет инфляцию → двойной удар.",
     });
@@ -4511,7 +4511,7 @@ function EndMonthForecastPanel({ stats }) {
     mechanisms.push({
       active: true, severity: "bad",
       name: "Низкая казна",
-      trigger: `Казна ${trs} < 15 — вынужденная аустерити`,
+      trigger: `Казна ${trs} (≈₽${(trs * TREASURY_PER_TRILLION).toFixed(1)} трлн) < 15 — вынужденная аустерити`,
       impacts: [{ label: "Экономика", delta: -1 }],
       fix: "Экономика >50 даёт ~40 дохода в мес. Снизьте расходы (госпрограммы, ОФЗ) или проведите налоговые указы.",
     });
@@ -4519,7 +4519,7 @@ function EndMonthForecastPanel({ stats }) {
     mechanisms.push({
       active: true, severity: "good",
       name: "Профицит казны",
-      trigger: `Казна ${trs} > 65 — есть ресурс для инвестиций`,
+      trigger: `Казна ${trs} (≈₽${(trs * TREASURY_PER_TRILLION).toFixed(1)} трлн) > 65 — есть ресурс для инвестиций`,
       impacts: [{ label: "Экономика", delta: +1 }],
       fix: null,
     });
@@ -4697,6 +4697,32 @@ function EndMonthForecastPanel({ stats }) {
     }
   }
 
+  // 9.6. Недовольство действующими политиками: некоторые политики (НДС до 22%, утильсбор)
+  // пополняют казну, но пока действуют — вызывают постоянное недовольство. Раньше такого канала
+  // не было вообще — только доход в казну, без цены за него (см. approval_upkeep в turns.js).
+  {
+    const activePol = (policies || []).filter(p => p.status !== "cancelled");
+    const approvalUpkeep = activePol.reduce((s, p) => s + (Number(p.approval_upkeep) || 0), 0);
+    const dragPolicies = activePol.filter(p => Number(p.approval_upkeep) < 0);
+    if (approvalUpkeep !== 0) {
+      mechanisms.push({
+        active: true, severity: approvalUpkeep <= -3 ? "bad" : "random",
+        name: "Недовольство политиками",
+        trigger: dragPolicies.map(p => p.title).join(", ") || "непопулярные меры остаются в силе",
+        impacts: [{ label: "Одобрение", delta: approvalUpkeep }],
+        fix: "Отмена политики останавливает это недовольство, но убирает и доход в казну (см. вкладку «Политики»).",
+      });
+    } else {
+      mechanisms.push({
+        active: false,
+        name: "Недовольство политиками",
+        trigger: "нет действующих политик с постоянным недовольством",
+        impacts: [],
+        fix: null,
+      });
+    }
+  }
+
   // 9.5. Организационный рост: все базовые статы здоровы и в этом месяце не сработал ни один
   // автоматический минус на экономику — устойчивое правление даёт скромную отдачу.
   // БАЛАНС (2026-07-04): раньше не смотрел на коррупцию — здоровое, но насквозь коррумпированное
@@ -4850,10 +4876,17 @@ function EndMonthForecastPanel({ stats }) {
                       const chipColor = isNeg ? "#a8313a" : isPos ? "#4a6b5c" : "#5a4a8a";
                       const chipBg = isNeg ? "#fde8e8" : isPos ? "#e8f5e8" : "#f0eef8";
                       const pct = impactPercent(imp.label, imp.delta, stats);
+                      // БАЛАНС (2026-07-04): «Казна» тут — очки условной шкалы 0-100/−100..100, не
+                      // деньги. Раньше конец-месяца прогноз (ОФЗ, коррупционная утечка) показывал
+                      // только очки — везде в TreasuryTab рядом с очками уже давно есть ₽-эквивалент
+                      // (TREASURY_PER_TRILLION), тут его не было ни разу.
+                      const rubHint = imp.label === "Казна" && imp.delta !== null
+                        ? `${imp.delta > 0 ? "+" : ""}₽${(imp.delta * TREASURY_PER_TRILLION).toFixed(1)} трлн` : null;
                       return (
                         <span key={j} className="mono-font" style={{ fontSize: 10, background: chipBg, color: chipColor, borderRadius: 3, padding: "2px 7px", fontWeight: 700 }}>
                           {imp.label}{imp.delta !== null ? ` ${imp.delta > 0 ? "+" : ""}${imp.delta}` : ""}
                           {pct !== null && <span style={{ opacity: 0.75, fontWeight: 400 }}> ({pct > 0 ? "+" : ""}{pct}%)</span>}
+                          {rubHint && <span style={{ opacity: 0.75, fontWeight: 400 }}> ({rubHint})</span>}
                         </span>
                       );
                     })}
@@ -5086,7 +5119,7 @@ function StatsTab({ state, gameId }) {
 
   return (
     <>
-      <EndMonthForecastPanel stats={state.stats} />
+      <EndMonthForecastPanel stats={state.stats} policies={state.policies} />
       <div style={{ display: "grid", gap: 10 }}>
         {Object.entries(state.stats).filter(([key]) => statMeta[key]).map(([key, value]) => {
           const meta = statMeta[key];
@@ -5295,21 +5328,53 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
             <span className="mono-font" style={{ fontSize: 8, padding: "3px 8px", borderRadius: 3, background: isCancelled ? "#d8d2bf" : "#dce5dc", color: statusColor, flexShrink: 0, letterSpacing: "0.06em" }}>{statusLabel}</span>
           </div>
 
-          {/* Прогресс */}
+          {/* Прогресс — только если у политики вообще есть срок (target_turn). Постоянные меры
+              (например, уже введённые в реальности налоги — НДС22, утильсбор) действуют бессрочно,
+              пока их не отменят: показывать для них "прогресс" было бы неверно (раньше без этой
+              проверки прогресс-бар для таких политик залипал на 100%, будто она вот-вот завершится). */}
           {!isCancelled && (
             <div style={{ background: "#ece7d8", borderRadius: 4, padding: "12px 14px", marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ПРОГРЕСС ИСПОЛНЕНИЯ</span>
-                <span className="mono-font" style={{ fontSize: 9, color: "#5c5648", fontWeight: 700 }}>{progress}%</span>
-              </div>
-              <div style={{ height: 8, background: "#d8d2bf", borderRadius: 4, overflow: "hidden" }}>
-                <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
-              </div>
+              {policy.target_turn != null ? (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ПРОГРЕСС ИСПОЛНЕНИЯ</span>
+                    <span className="mono-font" style={{ fontSize: 9, color: "#5c5648", fontWeight: 700 }}>{progress}%</span>
+                  </div>
+                  <div style={{ height: 8, background: "#d8d2bf", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
+                  </div>
+                </>
+              ) : (
+                <div className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>БЕССРОЧНО — действует, пока не отменена</div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
                 <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Введён: Ход {policy.turn}</span>
                 {turnsLeft !== null && (
                   <span className="mono-font" style={{ fontSize: 8, color: turnsLeft <= 1 ? "#a8313a" : "#5c5648", fontWeight: turnsLeft <= 1 ? 700 : 400 }}>
                     {turnsLeft === 0 ? "ЗАВЕРШАЕТСЯ" : `Осталось: ${turnsLeft} ход.`} (Ход {policy.target_turn})
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Пока действует: реальный помесячный эффект (доход/расход казны, недовольство) — раньше
+              этой информации не было вообще, был только "effect_stats" (косметическое "при успехе
+              вырастут", ничего не значащее численно) и cancel_penalty (что будет ПРИ ОТМЕНЕ). Игрок
+              не мог увидеть, что политика ПРЯМО СЕЙЧАС даёт доход и/или тянет вниз одобрение. */}
+          {!isCancelled && (Number(policy.budget_income) || Number(policy.budget_upkeep) || Number(policy.approval_upkeep)) && (
+            <div style={{ background: "#e8e4d4", border: "1px solid #9c8347", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 8, color: "#7a6a30", marginBottom: 5 }}>ПОКА ДЕЙСТВУЕТ (каждый месяц)</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 12px" }}>
+                {Number(policy.budget_income) > 0 && (
+                  <span className="doc-font" style={{ fontSize: 13, color: "#2f6f5f", fontWeight: 700 }}>Казна +{policy.budget_income}</span>
+                )}
+                {Number(policy.budget_upkeep) > 0 && (
+                  <span className="doc-font" style={{ fontSize: 13, color: "#a8313a", fontWeight: 700 }}>Казна −{policy.budget_upkeep}</span>
+                )}
+                {Number(policy.approval_upkeep) !== 0 && (
+                  <span className="doc-font" style={{ fontSize: 13, color: Number(policy.approval_upkeep) < 0 ? "#a8313a" : "#2f6f5f", fontWeight: 700 }}>
+                    Одобрение {Number(policy.approval_upkeep) > 0 ? "+" : ""}{policy.approval_upkeep}
                   </span>
                 )}
               </div>
@@ -6281,16 +6346,32 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
         {boosts.length > 0 && (
           <div className="doc-font" style={{ fontSize: 11.5, color: "#2f6f5f", marginBottom: 7 }}>при успехе: {boosts.join(" · ")}</div>
         )}
+        {(Number(policy.budget_income) || Number(policy.budget_upkeep) || Number(policy.approval_upkeep)) ? (
+          <div className="doc-font" style={{ fontSize: 11.5, marginBottom: 7 }}>
+            пока действует:{" "}
+            {Number(policy.budget_income) > 0 && <span style={{ color: "#2f6f5f", fontWeight: 700 }}>казна +{policy.budget_income}/мес</span>}
+            {Number(policy.budget_upkeep) > 0 && <span style={{ color: "#a8313a", fontWeight: 700 }}> · казна −{policy.budget_upkeep}/мес</span>}
+            {Number(policy.approval_upkeep) !== 0 && (
+              <span style={{ color: Number(policy.approval_upkeep) < 0 ? "#a8313a" : "#2f6f5f", fontWeight: 700 }}> · одобрение {Number(policy.approval_upkeep) > 0 ? "+" : ""}{policy.approval_upkeep}/мес</span>
+            )}
+          </div>
+        ) : null}
         <div style={{ marginBottom: 8 }}>
-          <div style={{ height: 5, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
-            <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {policy.turn} → {policy.target_turn || "?"}</span>
-            <span className="mono-font" style={{ fontSize: 8, color: turnsLeft !== null && turnsLeft <= 1 ? "#a8313a" : "#8a8472" }}>
-              {turnsLeft !== null ? (turnsLeft === 0 ? "завершается" : `ост. ${turnsLeft} х.`) : `${progress}%`}
-            </span>
-          </div>
+          {policy.target_turn != null ? (
+            <>
+              <div style={{ height: 5, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
+                <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {policy.turn} → {policy.target_turn}</span>
+                <span className="mono-font" style={{ fontSize: 8, color: turnsLeft !== null && turnsLeft <= 1 ? "#a8313a" : "#8a8472" }}>
+                  {turnsLeft === 0 ? "завершается" : `ост. ${turnsLeft} х.`}
+                </span>
+              </div>
+            </>
+          ) : (
+            <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {policy.turn} · бессрочно</span>
+          )}
         </div>
         <ul style={{ margin: 0, paddingLeft: 16 }}>
           {(policy.items || []).slice(0, 2).map((item, j) => (
@@ -6911,7 +6992,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             </div>
           </div>
         )}
-        <EndMonthForecastPanel stats={stats} />
+        <EndMonthForecastPanel stats={stats} policies={state.policies} />
       </div>
 
       {/* Баланс: доходы и расходы — очки + рублёвый эквивалент тем же курсом T, что и казна/

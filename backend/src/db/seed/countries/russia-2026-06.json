@@ -368,10 +368,9 @@
       "title": "Повышение утилизационного сбора",
       "category": "decree",
       "turn": -2,
-      "target_turn": 10,
-      "duration_turns": 12,
+      "target_turn": null,
+      "duration_turns": null,
       "status": "active",
-      "completion_conditions": "Резервы > 55",
       "effect_stats": {
         "reserves": 2,
         "economy": 1
@@ -388,16 +387,16 @@
         "Дополнительные доходы бюджета — сотни млрд руб. в год"
       ],
       "newsfeed_keyword": "утильсбор",
-      "budget_income": 3
+      "budget_income": 3,
+      "approval_upkeep": -1
     },
     {
       "title": "Повышение НДС до 22%",
       "category": "reform",
       "turn": -1,
-      "target_turn": 11,
-      "duration_turns": 12,
+      "target_turn": null,
+      "duration_turns": null,
       "status": "active",
-      "completion_conditions": "Резервы > 60",
       "effect_stats": {
         "reserves": 3,
         "economy": 1
@@ -415,16 +414,16 @@
         "Повышенная нагрузка на потребителей и малый бизнес"
       ],
       "newsfeed_keyword": "НДС",
-      "budget_income": 6
+      "budget_income": 6,
+      "approval_upkeep": -2
     },
     {
       "title": "Снижение порога НДС для ИП (с 60 до 20 млн ₽)",
       "category": "reform",
       "turn": -1,
-      "target_turn": 11,
-      "duration_turns": 12,
+      "target_turn": null,
+      "duration_turns": null,
       "status": "active",
-      "completion_conditions": "Резервы > 58",
       "effect_stats": {
         "reserves": 2,
         "economy": 1
@@ -441,7 +440,8 @@
         "Риск ухода части предпринимателей в тень"
       ],
       "newsfeed_keyword": "ИП",
-      "budget_income": 3
+      "budget_income": 3,
+      "approval_upkeep": -1
     }
   ],
   "initial_newsfeed": [
