@@ -1028,7 +1028,35 @@ function TrendIcon({ trend }) {
   return <Minus size={13} color="#8a8472" />;
 }
 
-function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjectionWithdrawn }) {
+// Мини-бар с "призраком" прогноза: текущее значение сплошной заливкой, изменение —
+// полупрозрачной полосой поверх до проектной отметки (тонкая линия = где окажется стата
+// после подтверждения). Наглядно показывает "какие будут изменения" прямо на шкале,
+// а не только числом рядом.
+function PreviewStatBar({ statKey, current, delta }) {
+  const meta = statMeta[statKey];
+  if (!meta) return null;
+  const projected = Math.max(0, Math.min(100, current + delta));
+  const good = delta > 0;
+  const lo = Math.min(current, projected);
+  const hi = Math.max(current, projected);
+  return (
+    <div style={{ minWidth: 130, flex: "1 1 130px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+        <span className="mono-font" style={{ fontSize: 9.5, color: "#8a8fa0" }}>{meta.label}</span>
+        <span className="mono-font" style={{ fontSize: 10.5, fontWeight: 700, color: good ? "#7fae93" : "#c47a7a" }}>
+          {current}→{projected} ({delta > 0 ? "+" : ""}{delta})
+        </span>
+      </div>
+      <div style={{ position: "relative", height: 7, background: "#2a3040", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${lo}%`, background: meta.color }} />
+        <div style={{ position: "absolute", left: `${lo}%`, top: 0, height: "100%", width: `${hi - lo}%`, background: good ? "#7fae9377" : "#c47a7a77" }} />
+        <div style={{ position: "absolute", left: `${projected}%`, top: -1, width: 2, height: 9, background: "#ece7d8" }} />
+      </div>
+    </div>
+  );
+}
+
+function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, gameId, onObjectionWithdrawn }) {
   if (!preview) return null;
 
   const [objection, setObjection] = useState(preview.advisorObjection || null);
@@ -1039,6 +1067,11 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
   const [revisedNote, setRevisedNote] = useState(null);
 
   const deltas = Object.entries(preview.statDeltasPreview || {}).filter(([, d]) => d !== 0);
+  // 5 базовых статов показываем барами с "призраком" прогноза (нужно текущее значение —
+  // остальные (субметрики, казна, территории) остаются плоским списком ниже, у них нет
+  // единой шкалы 0-100 с барами на этом экране.
+  const coreDeltas = deltas.filter(([s]) => statMeta[s]);
+  const otherDeltas = deltas.filter(([s]) => !statMeta[s] && !s.startsWith("_") && s !== "military_streak");
 
   async function handleArgue() {
     if (!argumentText.trim() || sendingArg) return;
@@ -1167,16 +1200,29 @@ function PreviewCard({ preview, onConfirm, onCancel, confirming, gameId, onObjec
       )}
       <div style={{ background: "#1f2733", borderRadius: 4, padding: "8px 12px", marginBottom: 12 }}>
         <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>ПРОГНОЗ ИЗМЕНЕНИЙ</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {deltas.filter(([s]) => !s.startsWith("_") && s !== "military_streak").length === 0
-            ? <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>
-            : deltas.filter(([s]) => !s.startsWith("_") && s !== "military_streak").map(([stat, delta]) => (
-              <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
-                {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
-              </span>
-            ))
-          }
-        </div>
+        {coreDeltas.length === 0 && otherDeltas.length === 0
+          ? <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>
+          : (
+            <>
+              {coreDeltas.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: otherDeltas.length > 0 ? 10 : 0 }}>
+                  {coreDeltas.map(([stat, delta]) => (
+                    <PreviewStatBar key={stat} statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
+                  ))}
+                </div>
+              )}
+              {otherDeltas.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {otherDeltas.map(([stat, delta]) => (
+                    <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
+                      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          )
+        }
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
@@ -2145,7 +2191,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       </div>
 
       {preview ? (
-        <PreviewCard preview={preview} onConfirm={handleConfirmClick} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} />
+        <PreviewCard preview={preview} currentStats={state?.stats} onConfirm={handleConfirmClick} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} />
       ) : (
         <div style={{ background: NK.footerBg, borderTop: `2px solid ${NK.footerBorder}`, padding: "14px 16px" }}>
 
@@ -6266,6 +6312,9 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: eco < 35 ? "#c05030" : eco >= 55 ? "#3a7a5a" : "#8a7a40" }}>
               {Math.round(eco)}
             </div>
+            <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
+              <div style={{ width: `${eco}%`, height: "100%", background: eco < 35 ? "#c05030" : eco >= 55 ? "#3a7a5a" : "#8a7a40" }} />
+            </div>
           </div>
           <div style={{ flex: "1 1 120px" }}>
             <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Номинальный ВВП</div>
@@ -6279,11 +6328,17 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: gdpGrowthT < 36 ? "#c05030" : gdpGrowthT > 36 ? "#3a7a5a" : "#8a7a40" }}>
               {formatSubstatValue("gdp_growth", gdpGrowthT)} <span style={{ fontSize: 10, fontWeight: 400 }}>г/г</span>
             </div>
+            <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
+              <div style={{ width: `${gdpGrowthT}%`, height: "100%", background: gdpGrowthT < 36 ? "#c05030" : gdpGrowthT > 36 ? "#3a7a5a" : "#8a7a40" }} />
+            </div>
           </div>
           <div style={{ flex: "1 1 90px" }}>
             <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#5a5040", marginBottom: 2 }}>Занятость</div>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, color: employmentT < 74 ? "#c05030" : employmentT > 74 ? "#3a7a5a" : "#8a7a40" }}>
               {formatSubstatValue("employment", employmentT)}
+            </div>
+            <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginTop: 4 }}>
+              <div style={{ width: `${employmentT}%`, height: "100%", background: employmentT < 74 ? "#c05030" : employmentT > 74 ? "#3a7a5a" : "#8a7a40" }} />
             </div>
           </div>
         </div>
