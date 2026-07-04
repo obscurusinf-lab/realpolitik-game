@@ -335,14 +335,19 @@ function applyOilFxTextImpact(text, newStats) {
 // --- УКРАИНА: стратегия (Claude Haiku) ---
 const UA_STRATEGY_MULTIPLIERS = {
   military:    { drone_strike: 2.5, rail_sabotage: 2, counterattack: 2.5, dnipro_push: 2, weapons_delivery: 2, donbass_breakthrough: 2.5,
-                 diplomatic_offensive: 0.4, war_crimes_tribunal: 0.4, info_warfare: 0.5, soldier_leaks: 0.5, sanctions_push: 0.4 },
-  diplomatic:  { diplomatic_offensive: 3, war_crimes_tribunal: 3, sanctions_push: 1.5, info_warfare: 1.2,
-                 drone_strike: 0.4, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.5, weapons_delivery: 0.7, soldier_leaks: 0.8, donbass_breakthrough: 0.4 },
-  economic:    { sanctions_push: 3.5, diplomatic_offensive: 2, war_crimes_tribunal: 1.5, soldier_leaks: 1.5,
-                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.7, info_warfare: 1, donbass_breakthrough: 0.4 },
-  information: { info_warfare: 3.5, soldier_leaks: 3, diplomatic_offensive: 1.5, war_crimes_tribunal: 1.2,
-                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.6, sanctions_push: 0.8, donbass_breakthrough: 0.4 },
-  hybrid:      {},
+                 black_sea_strike: 2.2, partisan_resistance: 1.5, foreign_volunteers: 1,
+                 diplomatic_offensive: 0.4, war_crimes_tribunal: 0.4, info_warfare: 0.5, soldier_leaks: 0.5, sanctions_push: 0.4,
+                 pow_exchange_pr: 0.5, grain_corridor_pressure: 0.4 },
+  diplomatic:  { diplomatic_offensive: 3, war_crimes_tribunal: 3, sanctions_push: 1.5, info_warfare: 1.2, foreign_volunteers: 2, grain_corridor_pressure: 1.5,
+                 drone_strike: 0.4, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.5, weapons_delivery: 0.7, soldier_leaks: 0.8, donbass_breakthrough: 0.4,
+                 black_sea_strike: 0.5, partisan_resistance: 0.5, pow_exchange_pr: 1.3 },
+  economic:    { sanctions_push: 3.5, diplomatic_offensive: 2, war_crimes_tribunal: 1.5, soldier_leaks: 1.5, grain_corridor_pressure: 3,
+                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.7, info_warfare: 1, donbass_breakthrough: 0.4,
+                 black_sea_strike: 0.6, partisan_resistance: 0.4, foreign_volunteers: 0.7, pow_exchange_pr: 0.6 },
+  information: { info_warfare: 3.5, soldier_leaks: 3, diplomatic_offensive: 1.5, war_crimes_tribunal: 1.2, pow_exchange_pr: 3,
+                 drone_strike: 0.5, counterattack: 0.4, rail_sabotage: 0.5, dnipro_push: 0.4, weapons_delivery: 0.6, sanctions_push: 0.8, donbass_breakthrough: 0.4,
+                 black_sea_strike: 0.5, partisan_resistance: 0.7, foreign_volunteers: 0.8, grain_corridor_pressure: 0.6 },
+  hybrid:      { partisan_resistance: 2.5, black_sea_strike: 1.3, foreign_volunteers: 1.2 },
 };
 
 async function selectUkraineStrategy(stats, recentMoves, callClaudeApi) {
@@ -1006,6 +1011,66 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               { label: "Нанести превентивный удар по складам техники до ввода её в строй", type: "retaliate" },
               { label: "Усилить эшелонированную оборону на потенциально угрожаемых направлениях", type: "defend" },
               { label: "Принять меры по маскировке и рассредоточению собственных позиций", type: "accept" },
+            ],
+          },
+          // Партизаны и тыл
+          {
+            type: "partisan_resistance", weight: don > 85 ? 3 : 1,
+            title: "Партизанская активность в тылу",
+            text: "В Донецкой области подпольная группа совершила нападение на назначенного главу администрации и подожгла колонну снабжения. Местные силовые структуры фиксируют рост диверсионной активности на занятых территориях.",
+            stabilityDelta: -2, donetskDelta: -1,
+            responses: [
+              { label: "Ужесточить комендантский час и провести зачистку подполья", type: "defend" },
+              { label: "Нанести показательные удары по предполагаемым базам подполья", type: "retaliate" },
+              { label: "Расширить социальные программы для населения занятых территорий", type: "accept" },
+            ],
+          },
+          // Черноморский флот
+          {
+            type: "black_sea_strike", weight: mil > 60 ? 2 : 3,
+            title: "Удар морскими дронами по Черноморскому флоту",
+            text: "Украинские безэкипажные катера атаковали корабль Черноморского флота на рейде. Возгорание локализовано, повреждения оцениваются как значительные. Судоходство в районе временно приостановлено.",
+            militaryDelta: -2, army_moraleDelta: -2,
+            responses: [
+              { label: "Усилить противодроновую оборону военно-морских баз", type: "defend" },
+              { label: "Нанести удар по украинским центрам управления морскими дронами", type: "retaliate" },
+              { label: "Рассредоточить корабли по менее уязвимым базам", type: "accept" },
+            ],
+          },
+          // Иностранные добровольцы/инструкторы
+          {
+            type: "foreign_volunteers", weight: peace > 25 ? 1 : 2,
+            title: "НАТО расширяет обучение и добровольческие миссии",
+            text: "Несколько стран НАТО объявили о размещении инструкторов на территории Украины и расширении программ подготовки добровольческих подразделений. Москва расценивает это как опасное приближение к прямому вовлечению альянса.",
+            diplomacyDelta: -2, army_moraleDelta: -1,
+            responses: [
+              { label: "Направить официальное предупреждение странам НАТО через дипломатические каналы", type: "defend" },
+              { label: "Заявить о законности удара по любым иностранным военным объектам на территории Украины", type: "retaliate" },
+              { label: "Не реагировать публично — присутствие инструкторов не меняет расстановку сил", type: "accept" },
+            ],
+          },
+          // Пропаганда вокруг пленных
+          {
+            type: "pow_exchange_pr", weight: 2,
+            title: "Информационная кампания вокруг обмена пленными",
+            text: "После очередного обмена пленными украинская сторона опубликовала видеосвидетельства об условиях содержания российских военнопленных. Материал широко разошёлся в западных СМИ и вызвал резонанс внутри страны.",
+            approvalDelta: -2, stabilityDelta: -1,
+            responses: [
+              { label: "Опубликовать встречные материалы об условиях содержания пленных с украинской стороны", type: "retaliate" },
+              { label: "Обратиться к Красному Кресту с требованием независимой проверки условий содержания", type: "defend" },
+              { label: "Не комментировать — тема быстро уйдёт из повестки", type: "accept" },
+            ],
+          },
+          // Зерновой коридор
+          {
+            type: "grain_corridor_pressure", weight: eco < 55 ? 3 : 1,
+            title: "Давление вокруг зернового коридора",
+            text: "Украина при поддержке Турции и ООН добивается расширения черноморского зернового коридора в обход российского контроля судоходства. Экспортные доходы России от контроля маршрутов оказались под угрозой.",
+            economyDelta: -2, diplomacyDelta: -1,
+            responses: [
+              { label: "Пригрозить возобновлением контроля судоходства в спорных водах", type: "retaliate" },
+              { label: "Договориться о доле в администрировании коридора через Турцию", type: "defend" },
+              { label: "Не мешать — коридор не критичен для собственного экспорта", type: "accept" },
             ],
           },
         ];
