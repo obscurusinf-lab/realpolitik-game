@@ -116,12 +116,12 @@ const INITIATIVE_COST = {
 const CATEGORY_COST = {
   // Военные операции (§2.1)
   mil_recon:                 { initiative: 15, treasury: 3 },
-  mil_tactical:               { initiative: 30, treasury: 8 },
-  mil_operational_offensive:  { initiative: 55, treasury: 20 },
-  mil_operational_defensive:  { initiative: 45, treasury: 15 },
-  mil_strategic_offensive:    { initiative: 80, treasury: 35 },
-  mil_strategic_defensive:    { initiative: 60, treasury: 25 },
-  mil_hybrid:                 { initiative: 40, treasury: 12 },
+  mil_tactical:               { initiative: 30, treasury: 10 },
+  mil_operational_offensive:  { initiative: 55, treasury: 25 },
+  mil_operational_defensive:  { initiative: 45, treasury: 18 },
+  mil_strategic_offensive:    { initiative: 80, treasury: 42 },
+  mil_strategic_defensive:    { initiative: 60, treasury: 30 },
+  mil_hybrid:                 { initiative: 40, treasury: 15 },
   // Дипломатия (§2.3)
   diplo_negotiate:    { initiative: 35, treasury: 5 },
   diplo_treaty:       { initiative: 50, treasury: 10 },
@@ -232,15 +232,24 @@ const MAX_RELATION_DELTA_SPILLOVER = 3;
 // также остаются у нарративных шоков вне этой таблицы (кризисы, санкции, разоблачение шпионажа —
 // см. turns.js) и у null_action/nuclear_strike здесь — это одноразовые события, а не рычаг,
 // доступный игроку каждый ход.
+//
+// ЦЕНА ВОЙНЫ ОКАЗАЛАСЬ СЛИШКОМ МЯГКОЙ (2026-07-04): численная проверка честной "разумной" партии
+// (5 наступлений + 2 econ_stimulus за 7 месяцев) показала economy 52→56 — РОСТ, несмотря на войну.
+// Причина: gdp_growth у mil_operational_offensive двигался всего на -1/ход, а один econ_stimulus
+// (+4) перекрывал урон от четырёх таких операций разом. Военные gdp_growth/employment штрафы
+// углублены (примерно вдвое) и CATEGORY_COST.treasury у военных операций поднят (~20-25%) —
+// теперь казна чаще проседает и подключает существующую спираль казна→экономика. Экономические
+// указы и делители (/8, /10) не трогали — раньше это симметрично усилило бы обе стороны и не
+// исправило бы само соотношение война/лечение.
 const RULES_TABLE = {
   // ---------- ВОЕННЫЕ ОПЕРАЦИИ ----------
   mil_recon:                  { economy:[0,0],   military:[0,1],  stability:[0,0],  diplomacy:[0,0],  approval:[0,0],   elite_satisfaction:[0,0],  corruption:[0,0],  middle_class:[0,0],  lower_class_mood:[0,0],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[0,1],  equipment:[0,0],  readiness:[1,2],  veterans:[0,0],  ally_trust:[0,0],  isolation:[0,0],  social_tension:[0,0],   media_control:[0,0]  },
-  mil_tactical:                { economy:[0,0],   military:[1,3],  stability:[-1,0], diplomacy:[-1,0], approval:[-1,1],  elite_satisfaction:[0,2],  corruption:[0,1],  middle_class:[-1,0], lower_class_mood:[-1,1],  gdp_growth:[-1,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[1,2],  equipment:[0,1],  readiness:[1,2],  veterans:[0,1],  ally_trust:[0,0],  isolation:[0,1],  social_tension:[0,1],   media_control:[0,0]  },
-  mil_operational_offensive:   { economy:[0,0],   military:[1,5],  stability:[-2,0], diplomacy:[-3,0], approval:[-1,2],  elite_satisfaction:[1,3],  corruption:[0,1],  middle_class:[-2,0], lower_class_mood:[-2,1],  gdp_growth:[-2,0], inflation:[1,3],  employment:[-1,0], reserves:[-2,0], army_morale:[1,4],  equipment:[-1,1], readiness:[2,4],  veterans:[1,3],  ally_trust:[-1,0], isolation:[1,3],  social_tension:[1,3],   media_control:[0,1] },
-  mil_operational_defensive:   { economy:[0,0],   military:[0,3],  stability:[1,3],  diplomacy:[0,1],  approval:[1,3],   elite_satisfaction:[0,2],  corruption:[0,0],  middle_class:[0,1],  lower_class_mood:[1,3],   gdp_growth:[-1,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[2,4],  equipment:[0,2],  readiness:[2,4],  veterans:[0,2],  ally_trust:[0,2],  isolation:[-1,0], social_tension:[-1,1],  media_control:[0,1]  },
-  mil_strategic_offensive:     { economy:[0,0],   military:[3,6],  stability:[-3,-1],diplomacy:[-4,-2],approval:[-2,3],  elite_satisfaction:[1,4],  corruption:[0,2],  middle_class:[-3,-1],lower_class_mood:[-3,1],  gdp_growth:[-3,-1],inflation:[2,4],  employment:[-2,-1],reserves:[-3,-1],army_morale:[1,5],  equipment:[-2,1], readiness:[3,5],  veterans:[2,4],  ally_trust:[-2,-1],isolation:[2,4],  social_tension:[2,4],   media_control:[0,2]},
-  mil_strategic_defensive:     { economy:[0,0],   military:[2,5],  stability:[2,4],  diplomacy:[0,2],  approval:[1,4],   elite_satisfaction:[1,3],  corruption:[0,0],  middle_class:[0,2],  lower_class_mood:[1,4],   gdp_growth:[-1,0], inflation:[0,2],  employment:[0,1],  reserves:[-2,-1],army_morale:[2,5],  equipment:[1,3],  readiness:[3,5],  veterans:[1,3],  ally_trust:[1,3],  isolation:[-1,0], social_tension:[-1,1],  media_control:[0,1]  },
-  mil_hybrid:                  { economy:[0,0],   military:[1,3],  stability:[0,1],  diplomacy:[-2,0], approval:[0,1],   elite_satisfaction:[0,1],  corruption:[1,2],  middle_class:[0,0],  lower_class_mood:[0,1],   gdp_growth:[0,0],  inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[1,3],  equipment:[0,1],  readiness:[1,2],  veterans:[0,1],  ally_trust:[-1,0], isolation:[1,3],  social_tension:[0,1],   media_control:[0,1]  },
+  mil_tactical:                { economy:[0,0],   military:[1,3],  stability:[-1,0], diplomacy:[-1,0], approval:[-1,1],  elite_satisfaction:[0,2],  corruption:[0,1],  middle_class:[-1,0], lower_class_mood:[-1,1],  gdp_growth:[-2,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[1,2],  equipment:[0,1],  readiness:[1,2],  veterans:[0,1],  ally_trust:[0,0],  isolation:[0,1],  social_tension:[0,1],   media_control:[0,0]  },
+  mil_operational_offensive:   { economy:[0,0],   military:[1,5],  stability:[-2,0], diplomacy:[-3,0], approval:[-1,2],  elite_satisfaction:[1,3],  corruption:[0,1],  middle_class:[-2,0], lower_class_mood:[-2,1],  gdp_growth:[-4,-1],inflation:[1,3],  employment:[-2,-1],reserves:[-2,0], army_morale:[1,4],  equipment:[-1,1], readiness:[2,4],  veterans:[1,3],  ally_trust:[-1,0], isolation:[1,3],  social_tension:[1,3],   media_control:[0,1] },
+  mil_operational_defensive:   { economy:[0,0],   military:[0,3],  stability:[1,3],  diplomacy:[0,1],  approval:[1,3],   elite_satisfaction:[0,2],  corruption:[0,0],  middle_class:[0,1],  lower_class_mood:[1,3],   gdp_growth:[-2,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[2,4],  equipment:[0,2],  readiness:[2,4],  veterans:[0,2],  ally_trust:[0,2],  isolation:[-1,0], social_tension:[-1,1],  media_control:[0,1]  },
+  mil_strategic_offensive:     { economy:[0,0],   military:[3,6],  stability:[-3,-1],diplomacy:[-4,-2],approval:[-2,3],  elite_satisfaction:[1,4],  corruption:[0,2],  middle_class:[-3,-1],lower_class_mood:[-3,1],  gdp_growth:[-6,-3],inflation:[2,4],  employment:[-4,-2],reserves:[-3,-1],army_morale:[1,5],  equipment:[-2,1], readiness:[3,5],  veterans:[2,4],  ally_trust:[-2,-1],isolation:[2,4],  social_tension:[2,4],   media_control:[0,2]},
+  mil_strategic_defensive:     { economy:[0,0],   military:[2,5],  stability:[2,4],  diplomacy:[0,2],  approval:[1,4],   elite_satisfaction:[1,3],  corruption:[0,0],  middle_class:[0,2],  lower_class_mood:[1,4],   gdp_growth:[-2,-1],inflation:[0,2],  employment:[0,1],  reserves:[-2,-1],army_morale:[2,5],  equipment:[1,3],  readiness:[3,5],  veterans:[1,3],  ally_trust:[1,3],  isolation:[-1,0], social_tension:[-1,1],  media_control:[0,1]  },
+  mil_hybrid:                  { economy:[0,0],   military:[1,3],  stability:[0,1],  diplomacy:[-2,0], approval:[0,1],   elite_satisfaction:[0,1],  corruption:[1,2],  middle_class:[0,0],  lower_class_mood:[0,1],   gdp_growth:[-1,0], inflation:[0,1],  employment:[0,0],  reserves:[-1,0], army_morale:[1,3],  equipment:[0,1],  readiness:[1,2],  veterans:[0,1],  ally_trust:[-1,0], isolation:[1,3],  social_tension:[0,1],   media_control:[0,1]  },
 
   // ---------- ШПИОНАЖ ----------
   covert_disinfo:              { economy:[0,0],   military:[0,0],  stability:[0,1],  diplomacy:[-1,1], approval:[0,1],   elite_satisfaction:[0,1],  corruption:[0,1],  middle_class:[0,0],  lower_class_mood:[0,1],   gdp_growth:[0,0],  inflation:[0,0],  employment:[0,0],  reserves:[0,0],  army_morale:[0,0],  equipment:[0,0],  readiness:[0,0],  veterans:[0,0],  ally_trust:[-1,0], isolation:[0,1],  social_tension:[0,1],   media_control:[1,2]  },
