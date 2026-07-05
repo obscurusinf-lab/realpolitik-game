@@ -1127,6 +1127,19 @@ const ALL_STAT_LABELS = {
   ua_army: "Армия ВСУ", ua_west_support: "Поддержка Запада", ua_morale: "Боевой дух ВСУ",
 };
 
+// Группировка дельт превью по подкатегориям (Петя, 2026-07-05: "много полей в прогнозе — можно
+// разбить на подкатегории?"). Переиспользует ТУ ЖЕ группировку, что уже есть в SUBSTAT_META
+// (economy/military/diplomacy/stability/approval — там суб-статы уже привязаны к своему базовому
+// стату для вкладки "Показатели"), просто раньше в превью дельты шли одним плоским потоком.
+const DELTA_GROUPS = [
+  { key: "economy",   label: "Экономика",  stats: ["economy", "gdp_growth", "employment", "inflation", "reserves", "treasury"] },
+  { key: "military",  label: "Военные",    stats: ["military", "army_morale", "equipment", "readiness", "veterans", "donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"] },
+  { key: "diplomacy", label: "Дипломатия", stats: ["diplomacy", "ally_trust", "isolation", "peace_progress"] },
+  { key: "stability", label: "Стабильность", stats: ["stability", "social_tension", "media_control"] },
+  { key: "approval",  label: "Общество",   stats: ["approval", "elite_satisfaction", "corruption", "middle_class", "lower_class_mood"] },
+  { key: "resources", label: "Ресурсы",    stats: ["initiative"] },
+];
+
 // Разведданные по Украине — отдельная панель в StatsTab (не влияет на условия победы игрока)
 const UA_STAT_META = {
   ua_army:         { label: "Армия ВСУ",          icon: Swords,   color: "#7a8fae", desc: "Боевая мощь ВСУ — растёт от западных поставок, падает от ударов" },
@@ -1442,18 +1455,6 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
   const [revisedNote, setRevisedNote] = useState(null);
 
   const deltas = Object.entries(preview.statDeltasPreview || {}).filter(([, d]) => d !== 0);
-  // 5 базовых статов показываем барами с "призраком" прогноза (нужно текущее значение —
-  // остальные (субметрики, казна, территории) остаются плоским списком ниже, у них нет
-  // единой шкалы 0-100 с барами на этом экране.
-  const coreDeltas = deltas.filter(([s]) => statMeta[s]);
-  // БАЛАНС (2026-07-04): субметрики/территории/мирный трек/"Инициатива" — все 0-100 внутри, как и
-  // 5 базовых статов (просто не в statMeta, см. EXTRA_BAR_META выше и комментарий в
-  // PreviewStatBar) — игрок попросил бары и для них, не только плоский текст. "Казна" остаётся
-  // плоским текстом (шкала -100..100, другой формат), но получает рублёвую аннотацию ниже.
-  const initiativeDelta = deltas.find(([s]) => s === "initiative");
-  const barExtraDeltas = deltas.filter(([s]) => EXTRA_BAR_META[s]);
-  const otherDeltas = deltas.filter(([s]) => !statMeta[s] && !EXTRA_BAR_META[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak");
-
   const econNotes = computeEconomyForecastNotes(currentStats, preview.statDeltasPreview);
 
   async function handleArgue() {
@@ -1593,71 +1594,82 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
             </div>
           </div>
         )}
-        {coreDeltas.length === 0 && otherDeltas.length === 0 && barExtraDeltas.length === 0 && !initiativeDelta
-          ? <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>
-          : (
-            <>
-              {(coreDeltas.length > 0 || initiativeDelta || barExtraDeltas.length > 0) && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: otherDeltas.length > 0 ? 10 : 0 }}>
-                  {coreDeltas.map(([stat, delta]) => {
-                    const note = econNotes[stat];
-                    const noteChannelLabel = stat === "military" ? "армию" : ALL_STAT_LABELS[stat] ?? stat;
-                    return (
-                      <div key={stat}>
-                        <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
-                        {note && (
-                          <div className="mono-font" style={{ fontSize: 9, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                            ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoNote(note)}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {initiativeDelta && (
-                    <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={currentStats?.initiative ?? 100} delta={initiativeDelta[1]} />
+        {(() => {
+          // Рендер одного пункта дельты — бар для 5 базовых статов/суб-статов (0-100 шкала),
+          // плоский текст для остального (казна: -100..100, другой масштаб). Общая функция вместо
+          // дублирования JSX в каждой подкатегории (Петя, 2026-07-05: "разбить на подкатегории").
+          function renderDeltaItem(stat, delta) {
+            const note = econNotes[stat];
+            const noteChannelLabel = stat === "military" ? "армию"
+              : stat === "gdp_growth" ? "рост ВВП" : stat === "employment" ? "занятость"
+              : stat === "inflation" ? "инфляцию" : stat === "treasury" ? "казна"
+              : ALL_STAT_LABELS[stat] ?? EXTRA_BAR_META[stat]?.label ?? stat;
+            if (stat === "initiative") {
+              return <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={currentStats?.initiative ?? 100} delta={delta} />;
+            }
+            if (statMeta[stat] || EXTRA_BAR_META[stat]) {
+              return (
+                <div key={stat}>
+                  <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
+                  {note && (
+                    <div className="mono-font" style={{ fontSize: 9, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
+                      ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoNote(note)}
+                    </div>
                   )}
-                  {barExtraDeltas.map(([stat, delta]) => {
-                    const note = econNotes[stat];
-                    const noteChannelLabel = stat === "gdp_growth" ? "рост ВВП" : stat === "employment" ? "занятость" : stat === "inflation" ? "инфляцию" : EXTRA_BAR_META[stat]?.label ?? stat;
-                    return (
-                      <div key={stat}>
-                        <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
-                        {note && (
-                          <div className="mono-font" style={{ fontSize: 9, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                            ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoNote(note)}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
                 </div>
-              )}
-              {otherDeltas.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                  {otherDeltas.map(([stat, delta]) => {
-                    const note = econNotes[stat];
-                    // БАЛАНС (2026-07-04): "Казна" тут — это ОЧКИ (условная стата 0-100/−100..100),
-                    // не деньги. Добавляем рублёвый эквивалент тем же курсом, что и вкладка «Казна»
-                    // (TREASURY_PER_TRILLION) — раньше цена указа в очках нигде не переводилась в ₽.
-                    const rubHint = stat === "treasury" ? `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн` : null;
-                    const noteChannelLabel = stat === "treasury" ? "казна" : ALL_STAT_LABELS[stat] ?? stat;
-                    return (
-                      <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
-                        {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
-                        {rubHint && <span style={{ opacity: 0.7, fontWeight: 400 }}> ({rubHint})</span>}
-                        {note && (
-                          <span style={{ display: "block", fontSize: 9.5, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                            ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoNote(note)}
-                          </span>
-                        )}
-                      </span>
-                    );
-                  })}
+              );
+            }
+            // БАЛАНС (2026-07-04): "Казна" тут — это ОЧКИ (условная стата 0-100/−100..100), не
+            // деньги. Добавляем рублёвый эквивалент тем же курсом, что и вкладка «Казна»
+            // (TREASURY_PER_TRILLION) — раньше цена указа в очках нигде не переводилась в ₽.
+            const rubHint = stat === "treasury" ? `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн` : null;
+            return (
+              <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
+                {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+                {rubHint && <span style={{ opacity: 0.7, fontWeight: 400 }}> ({rubHint})</span>}
+                {note && (
+                  <span style={{ display: "block", fontSize: 9.5, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
+                    ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoNote(note)}
+                  </span>
+                )}
+              </span>
+            );
+          }
+
+          const groupedKeys = new Set();
+          const groupSections = DELTA_GROUPS.map(group => {
+            const items = deltas.filter(([s]) => group.stats.includes(s));
+            items.forEach(([s]) => groupedKeys.add(s));
+            return { ...group, items };
+          }).filter(g => g.items.length > 0);
+          // Подстраховка: любой стат вне известных подкатегорий (напр. будущая новая стата) не
+          // пропадает молча — попадает в "Прочее", а не теряется.
+          const leftover = deltas.filter(([s]) => !groupedKeys.has(s) && !s.startsWith("_") && s !== "military_streak");
+
+          if (groupSections.length === 0 && leftover.length === 0) {
+            return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>;
+          }
+          return (
+            <>
+              {groupSections.map(group => (
+                <div key={group.key} style={{ marginBottom: 10 }}>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#6a7080", letterSpacing: "0.06em", marginBottom: 4, textTransform: "uppercase" }}>{group.label}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    {group.items.map(([stat, delta]) => renderDeltaItem(stat, delta))}
+                  </div>
+                </div>
+              ))}
+              {leftover.length > 0 && (
+                <div>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#6a7080", letterSpacing: "0.06em", marginBottom: 4, textTransform: "uppercase" }}>Прочее</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    {leftover.map(([stat, delta]) => renderDeltaItem(stat, delta))}
+                  </div>
                 </div>
               )}
             </>
-          )
-        }
+          );
+        })()}
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
