@@ -5,6 +5,8 @@
  * Один вызов Claude → все пять мнений, чтобы не множить API-запросы.
  */
 
+const { TREASURY_PER_TRILLION } = require("../rules/rules-engine");
+
 const ADVISORS = [
   {
     id: "defense",
@@ -192,7 +194,7 @@ function buildEconIndicators(stats) {
   return `• Нефть Brent: $${oil}/барр. (цена отсечения бюджета $${OIL_BUDGET_CUTOFF}) → ${oilEffect}/мес
 • Курс USD/RUB: ₽${fx} (база ₽${FX_BASE}) → ${fxEffect}
 • Инфляция: ${inflPct.toFixed(1)}% г/г (индекс ${inflScore}) — ${inflWarning}
-• Казна: ${(treasury * 0.8).toFixed(1)} трлн ₽ — ${treasuryNote}
+• Казна: ${(treasury * TREASURY_PER_TRILLION).toFixed(1)} трлн ₽ — ${treasuryNote}
 Рычаги: указ об экономическом стимулировании поднимает экономику +1..+3, но при дефиците казны или инфляции >73 этот рост гасится. Нефть дороже цены отсечения — профицит бюджета. Слабый рубль (>${FX_BASE + 10}₽/$) разгоняет инфляцию.`;
 }
 
