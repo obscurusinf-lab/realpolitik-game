@@ -1881,22 +1881,44 @@ function TerritoryPanel({ stats }) {
 }
 
 // ---------- EndGameScreen ----------
+// Приглушённая, десатурированная палитра — вайб премиального политического триллера
+// (House of Cards / "24"), не мобильная игра-ачивка. Ни один цвет не "светится".
 const OUTCOME_COLORS = {
-  victory:          { bg: "#0a1f0a", border: "#4caf50", title: "#81c784", glow: "rgba(76,175,80,0.15)" },
-  victory_military: { bg: "#0a0f1f", border: "#5c8af5", title: "#90caf9", glow: "rgba(92,138,245,0.15)" },
-  victory_combined: { bg: "#0a1a16", border: "#26a69a", title: "#80cbc4", glow: "rgba(38,166,154,0.18)" },
-  partial_peace:    { bg: "#0f1f0a", border: "#8bc34a", title: "#aed581", glow: "rgba(139,195,74,0.15)" },
-  partial:          { bg: "#1a1500", border: "#c9aa71", title: "#c9aa71", glow: "rgba(201,170,113,0.15)" },
-  partial_military: { bg: "#0f1525", border: "#7986cb", title: "#9fa8da", glow: "rgba(121,134,203,0.15)" },
-  defeat_time:      { bg: "#1a1000", border: "#ff8c00", title: "#ffb74d", glow: "rgba(255,140,0,0.1)" },
-  defeat_coup:      { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
-  defeat_collapse:  { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
-  defeat_unrest:    { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
-  defeat_isolation: { bg: "#1a0010", border: "#ab47bc", title: "#ce93d8", glow: "rgba(171,71,188,0.1)" },
-  defeat_war:       { bg: "#1a0500", border: "#ff5722", title: "#ff8a65", glow: "rgba(255,87,34,0.1)" },
-  defeat_military_collapse: { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
-  defeat_donbass_lost:      { bg: "#1a0000", border: "#ef5350", title: "#ef9a9a", glow: "rgba(239,83,80,0.1)" },
+  victory:          { bg: "#0d1611", border: "#4f7d5c", title: "#c3d6c8" },
+  victory_military: { bg: "#0c1220", border: "#4a6690", title: "#c3cede" },
+  victory_combined: { bg: "#0c1917", border: "#3f7a72", title: "#bdd6d2" },
+  partial_peace:    { bg: "#10160c", border: "#6a8047", title: "#cdd6bd" },
+  partial:          { bg: "#181307", border: "#8a7346", title: "#d6c9a8" },
+  partial_military: { bg: "#0e1220", border: "#5b6690", title: "#c3c9de" },
+  defeat_time:      { bg: "#170f05", border: "#8a5a28", title: "#d6b385" },
+  defeat_coup:      { bg: "#170707", border: "#8a3a3d", title: "#d9a3a3" },
+  defeat_collapse:  { bg: "#170707", border: "#8a3a3d", title: "#d9a3a3" },
+  defeat_unrest:    { bg: "#170707", border: "#8a3a3d", title: "#d9a3a3" },
+  defeat_isolation: { bg: "#150710", border: "#7a4a80", title: "#cdb0d1" },
+  defeat_war:       { bg: "#170905", border: "#8a4a2e", title: "#d6a685" },
+  defeat_military_collapse: { bg: "#170707", border: "#8a3a3d", title: "#d9a3a3" },
+  defeat_donbass_lost:      { bg: "#170707", border: "#8a3a3d", title: "#d9a3a3" },
 };
+
+// Зернистая плёночная текстура (SVG feTurbulence) — вместо "светящегося овала" даёт
+// холодную кинематографичную атмосферу, как цветокоррекция в сериале, а не WordArt.
+const FILM_GRAIN_BG = `url("data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>`
+)}")`;
+
+// Тонкая HUD-скобка по углу экрана — единственный "технический" акцент экрана конца
+// партии (Петя, 2026-07-05: атмосфера современной войны/дипломатии, но без полноэкранной
+// генеративной картинки и без английского текста — только рамка вокруг реального контента).
+function HudCorner({ pos, color }) {
+  const size = 26, offset = 18, edge = `1px solid ${color}`;
+  const posStyles = {
+    tl: { top: offset, left: offset, borderTop: edge, borderLeft: edge },
+    tr: { top: offset, right: offset, borderTop: edge, borderRight: edge },
+    bl: { bottom: offset, left: offset, borderBottom: edge, borderLeft: edge },
+    br: { bottom: offset, right: offset, borderBottom: edge, borderRight: edge },
+  };
+  return <div style={{ position: "absolute", width: size, height: size, opacity: 0.4, pointerEvents: "none", ...posStyles[pos] }} />;
+}
 
 function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
   const [legacy, setLegacy] = useState(null);
@@ -1915,24 +1937,45 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999,
-      background: `radial-gradient(ellipse at center, ${colors.glow} 0%, #0a0a12 70%)`,
+      background: "linear-gradient(180deg, #0b0c10 0%, #08090b 55%, #060708 100%)",
+      boxShadow: "inset 0 0 220px 40px rgba(0,0,0,0.65)",
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
       overflowY: "auto", padding: "40px 20px",
     }}>
+      {/* "Жалюзи" — тонкие диагональные полосы света, как в кабинете при жалюзи (House of Cards) */}
+      <div style={{
+        position: "absolute", inset: 0, pointerEvents: "none",
+        backgroundImage: "repeating-linear-gradient(115deg, rgba(255,255,255,0.028) 0px, rgba(255,255,255,0.028) 2px, transparent 2px, transparent 46px)",
+      }} />
+      {/* Плёночное зерно вместо чистого плоского цвета — холодная, не "гейминговая" фактура */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", backgroundImage: FILM_GRAIN_BG, opacity: 0.05, mixBlendMode: "overlay" }} />
+      <HudCorner pos="tl" color={colors.border} />
+      <HudCorner pos="tr" color={colors.border} />
+      <HudCorner pos="bl" color={colors.border} />
+      <HudCorner pos="br" color={colors.border} />
+
+      {/* Строка сводки — реальные данные партии, не декоративные цифры */}
+      <div className="mono-font" style={{
+        position: "relative", fontSize: 10, letterSpacing: "0.14em", color: "#6b7280",
+        marginBottom: 26, textAlign: "center",
+      }}>
+        ДЕЛО № {(gameId || "").slice(0, 8).toUpperCase()} · ХОД {turn}/24 · СТАТУС: ЗАВЕРШЕНО
+      </div>
+
       {/* Header */}
-      <div style={{ textAlign: "center", marginBottom: 32, maxWidth: 700 }}>
-        <div style={{ fontSize: 11, letterSpacing: 4, color: "#555", marginBottom: 10, fontFamily: "monospace" }}>
+      <div style={{ position: "relative", textAlign: "center", marginBottom: 32, maxWidth: 700 }}>
+        <div style={{ fontSize: 11, letterSpacing: 4, color: "#555", marginBottom: 14, fontFamily: "monospace" }}>
           {isVictory ? "— КОНЕЦ ПАРТИИ —" : "— ИГРА ОКОНЧЕНА —"}
         </div>
         <div style={{
-          fontSize: 28, fontWeight: 700, letterSpacing: 2, color: colors.title,
-          fontFamily: "'PT Serif',serif", textTransform: "uppercase", marginBottom: 12,
-          textShadow: `0 0 30px ${colors.title}44`,
+          fontSize: 27, fontWeight: 700, letterSpacing: 3, color: "#e4e6ea",
+          fontFamily: "'PT Serif',serif", textTransform: "uppercase", marginBottom: 14,
         }}>
           {outcomeTitle}
         </div>
+        <div style={{ width: 56, height: 1, background: colors.border, margin: "0 auto 16px", opacity: 0.8 }} />
         {legacy?.verdict && (
-          <div style={{ fontSize: 15, color: "#bbb", fontFamily: "'PT Serif',serif", lineHeight: 1.6, fontStyle: "italic" }}>
+          <div style={{ fontSize: 15, color: "#9a9a9e", fontFamily: "'PT Serif',serif", lineHeight: 1.6, fontStyle: "italic" }}>
             "{legacy.verdict}"
           </div>
         )}
@@ -2007,8 +2050,8 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
         </div>
       )}
 
-      {/* Stats summary */}
-      <div style={{ maxWidth: 720, width: "100%", marginTop: 24, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+      {/* Stats summary — плитки-"показания", тонкая верхняя засечка в цвете исхода */}
+      <div style={{ position: "relative", maxWidth: 720, width: "100%", marginTop: 24, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
         {[
           { label: "Экономика", key: "economy" },
           { label: "Армия", key: "military" },
@@ -2021,21 +2064,21 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
           const clr = val >= 65 ? "#81c784" : val >= 40 ? "#ffb74d" : "#ef9a9a";
           return (
             <div key={s.key} style={{
-              background: "#111827", border: "1px solid #2a2a3e", borderRadius: 6,
-              padding: "10px 16px", textAlign: "center", minWidth: 90,
+              background: "#111827", border: "1px solid #2a2a3e", borderTop: `2px solid ${colors.border}66`,
+              borderRadius: 4, padding: "10px 16px", textAlign: "center", minWidth: 90,
             }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: clr }}>{val}</div>
-              <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>{s.label}</div>
+              <div className="mono-font" style={{ fontSize: 9, color: "#666", marginTop: 2, letterSpacing: "0.04em", textTransform: "uppercase" }}>{s.label}</div>
             </div>
           );
         })}
       </div>
 
-      <div style={{ marginTop: 36, marginBottom: 20 }}>
+      <div style={{ position: "relative", marginTop: 36, marginBottom: 20 }}>
         <button onClick={onRestart} style={{
-          background: colors.border, color: "#000", border: "none", borderRadius: 4,
-          padding: "12px 32px", fontSize: 14, fontWeight: 700, cursor: "pointer",
-          fontFamily: "'PT Serif',serif", letterSpacing: 1,
+          background: "transparent", color: "#e4e6ea", border: `1px solid ${colors.border}`, borderRadius: 2,
+          padding: "12px 32px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'PT Serif',serif", letterSpacing: 2,
         }}>
           НОВАЯ ПАРТИЯ
         </button>
