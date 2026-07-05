@@ -22,7 +22,22 @@
  */
 
 const { classifyTurn } = require("../ai/gamemaster");
+const { generateUkraineAction } = require("../ai/ukraine-action");
 // verifyToken injected via options
+
+// Масштабирует базовые (баланс-тестированные) дельты действия Украины по magnitude ИИ (0-1) —
+// 0 даёт 0.6x эффекта, 1 даёт 1.4x. Диапазон намеренно узкий: ИИ управляет ЧТО происходит
+// и КАК это описано, но не может разбалансировать игру произвольными цифрами.
+function scaleUaDeltas(base, magnitude) {
+  const scale = 0.6 + magnitude * 0.8;
+  const out = {};
+  for (const [k, v] of Object.entries(base)) {
+    if (k.endsWith("Delta") && typeof v === "number") {
+      out[k] = Math.round(v * scale);
+    }
+  }
+  return out;
+}
 
 // Инфляция хранится как внутренний индекс давления 0–100 (старт 64), не проценты.
 // Игроку в текстах ленты нужен правдоподобный г/г % — держим формулу синхронной
@@ -1202,12 +1217,42 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           fastify.log.info({ gameId, uaStrategy }, "Ukraine strategy selected");
           const mults = UA_STRATEGY_MULTIPLIERS[uaStrategy] || {};
           const weightedActions = UA_ACTIONS.map(a => ({ ...a, weight: a.weight * (mults[a.type] ?? 1) }));
-          const totalWeight = weightedActions.reduce((s, a) => s + a.weight, 0);
-          let rnd = Math.random() * totalWeight;
-          uaAction = weightedActions[0];
-          for (const a of weightedActions) {
-            rnd -= a.weight;
-            if (rnd <= 0) { uaAction = a; break; }
+
+          // ИИ-выбор (Петя, 2026-07-06: "действия украины должны быть продиктованы ИИ, а не
+          // детерминированы, иначе зачем нам ии????"). ИИ выбирает ТОЛЬКО из типов с weight>0
+          // (та же контекстная фильтрация, что раньше использовалась только для Math.random()) и
+          // пишет заголовок/текст/magnitude — числовые дельты по-прежнему берутся из
+          // баланс-тестированных базовых значений UA_ACTIONS, просто масштабируются по magnitude
+          // (см. scaleUaDeltas ниже). При сбое ИИ (сеть/невалидный JSON/незнакомый тип) —
+          // откат на старый Math.random()-выбор, поведение не хуже, чем было до этой правки.
+          const recentUaRes = await client.query(
+            `SELECT source FROM newsfeed_items WHERE game_id = $1 AND item_type = 'ukraine_action' ORDER BY id DESC LIMIT 3`,
+            [gameId]
+          );
+          const recentUaTitles = recentUaRes.rows.map(r => r.source);
+          const validTypes = weightedActions.filter(a => a.weight > 0).map(a => ({ type: a.type, title: a.title }));
+          const aiAction = await generateUkraineAction({
+            stats: newStats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi,
+          });
+
+          if (aiAction) {
+            const base = UA_ACTIONS.find(a => a.type === aiAction.action_type);
+            fastify.log.info({ gameId, uaAction: aiAction.action_type, magnitude: aiAction.magnitude }, "Ukraine action AI-generated");
+            uaAction = {
+              ...scaleUaDeltas(base, aiAction.magnitude),
+              type: base.type,
+              title: aiAction.title,
+              text: aiAction.text,
+              responses: base.responses,
+            };
+          } else {
+            const totalWeight = weightedActions.reduce((s, a) => s + a.weight, 0);
+            let rnd = Math.random() * totalWeight;
+            uaAction = weightedActions[0];
+            for (const a of weightedActions) {
+              rnd -= a.weight;
+              if (rnd <= 0) { uaAction = a; break; }
+            }
           }
         }
 
