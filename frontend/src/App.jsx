@@ -1942,13 +1942,15 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
       overflowY: "auto", padding: "40px 20px",
     }}>
-      {/* "Жалюзи" — тонкие диагональные полосы света, как в кабинете при жалюзи (House of Cards) */}
+      {/* "Жалюзи" — диагональные полосы света, как в кабинете при жалюзи (House of Cards).
+          Первая версия (0.028 непрозрачности) оказалась НЕВИДИМОЙ на реальном экране/после
+          сжатия скриншота — Петя не увидел вообще ничего, "просто тёмный экран". Усилено. */}
       <div style={{
         position: "absolute", inset: 0, pointerEvents: "none",
-        backgroundImage: "repeating-linear-gradient(115deg, rgba(255,255,255,0.028) 0px, rgba(255,255,255,0.028) 2px, transparent 2px, transparent 46px)",
+        backgroundImage: "repeating-linear-gradient(115deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.09) 3px, transparent 3px, transparent 40px)",
       }} />
-      {/* Плёночное зерно вместо чистого плоского цвета — холодная, не "гейминговая" фактура */}
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", backgroundImage: FILM_GRAIN_BG, opacity: 0.05, mixBlendMode: "overlay" }} />
+      {/* Плёночное зерно — без mix-blend-mode (он непредсказуемо гасил полосы жалюзи под собой) */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", backgroundImage: FILM_GRAIN_BG, opacity: 0.06 }} />
       <HudCorner pos="tl" color={colors.border} />
       <HudCorner pos="tr" color={colors.border} />
       <HudCorner pos="bl" color={colors.border} />
