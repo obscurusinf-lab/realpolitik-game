@@ -1318,8 +1318,18 @@ function computeEconomyForecastNotes(beforeStats, statDeltas) {
   {
     const before = beforeStats?.gdp_growth ?? 36;
     const after = Math.max(0, Math.min(100, before + gdpDelta));
-    const effBefore = Math.round((before - 36) / 8);
-    const effAfter = Math.round((after - 36) / 8);
+    // Стагнация/спад ВВП (Петя, 2026-07-05, добавлено в backend/turns.js в тот же день) —
+    // отдельный канал поверх обычного компаундинга: рост ≤1% г/г — это уже штраф, не ноль.
+    // Раньше этот файл не обновили вместе с бэкендом — прогноз в превью не совпадал с тем,
+    // что реально применится в конце месяца.
+    const gdpEffectRaw = (v) => {
+      const pct = 1 + (v - 36) * 0.3;
+      const compound = Math.round((v - 36) / 8);
+      const stagnation = pct <= 1 ? Math.min(-1, Math.round((pct - 1) / 2)) : 0;
+      return compound + stagnation;
+    };
+    const effBefore = gdpEffectRaw(before);
+    const effAfter = gdpEffectRaw(after);
     if (effAfter !== 0 || effBefore !== 0) notes.gdp_growth = { before: effBefore, after: effAfter };
   }
   const emplDelta = statDeltas?.employment ?? 0;
@@ -1363,6 +1373,17 @@ function computeEconomyForecastNotes(beforeStats, statDeltas) {
     const effBefore = inflEconEffect(before);
     const effAfter = inflEconEffect(after);
     if (effAfter !== 0 || effBefore !== 0) notes.inflation = { before: effBefore, after: effAfter };
+  }
+  // Суммарный прогноз по ВСЕМ каналам сразу (Петя, 2026-07-05: "включить экономику в список
+  // эффектов после действия, пояснить, что это не напрямую от действия, а от побочных эффектов") —
+  // раньше это пояснение пряталось мелким текстом ПОД каждым отдельным статом (ВВП/занятость/...),
+  // легко было не заметить, что экономика вообще собирается двигаться. Один явный итог.
+  const channels = Object.values(notes);
+  if (channels.length > 0) {
+    notes.total = {
+      before: channels.reduce((s, n) => s + n.before, 0),
+      after: channels.reduce((s, n) => s + n.after, 0),
+    };
   }
   return notes;
 }
@@ -1562,6 +1583,16 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
       )}
       <div style={{ background: "#1f2733", borderRadius: 4, padding: "8px 12px", marginBottom: 12 }}>
         <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>ПРОГНОЗ ИЗМЕНЕНИЙ</div>
+        {econNotes.total && (
+          <div style={{ background: "#161b26", border: `1px solid ${econNotes.total.after < 0 ? "#4a2a2a" : econNotes.total.after > 0 ? "#2a4a30" : "#2a3040"}`, borderRadius: 4, padding: "7px 10px", marginBottom: 10 }}>
+            <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: econNotes.total.after < 0 ? "#c47a7a" : econNotes.total.after > 0 ? "#7fae93" : "#8a8fa0" }}>
+              Экономика: {fmtEcoNote(econNotes.total)}
+            </span>
+            <div className="mono-font" style={{ fontSize: 9, color: "#8a8fa0", marginTop: 2 }}>
+              ⤷ не от самого решения напрямую — с лагом, через побочные каналы (ВВП/занятость/армия/инфляция) ниже
+            </div>
+          </div>
+        )}
         {coreDeltas.length === 0 && otherDeltas.length === 0 && barExtraDeltas.length === 0 && !initiativeDelta
           ? <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>
           : (
