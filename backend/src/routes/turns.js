@@ -298,8 +298,15 @@ function generateFinalChapterEvent(stats, month) {
 }
 
 // --- НЕФТЬ/ВАЛЮТА: реакция на текст новости ---
+// stats.fx_floating (Петя, 2026-07-05: "отпустить курс рубля" — переключатель рядом с кнопкой
+// ФНБ в Казне, см. treasury.js toggle-fx-regime): по умолчанию false — ЦБ управляет курсом,
+// гасит валютные шоки резервами (как и раньше, только теперь видимо в сводке месяца). true —
+// курс отпущен: шок проходит ПОЛНОСТЬЮ, резервы не тратятся вообще, но и не защищают —
+// более сильный курс даёт больший валютный доход казны (fxIncome ниже) ценой большей инфляции
+// (см. шкалируемый канал курс→инфляция ниже, вместо старого плоского +0.5).
 function dampenFxShock(fxDeltaRaw, newStats) {
   if (!fxDeltaRaw || fxDeltaRaw <= 0) return fxDeltaRaw || 0;
+  if (newStats.fx_floating) return Math.round(fxDeltaRaw * 10) / 10;
   const reservesNow = newStats.reserves ?? 48;
   const dampening = reservesNow > 70 ? 0.45 : reservesNow > 45 ? 0.25 : reservesNow > 20 ? 0.1 : 0;
   if (dampening <= 0) return fxDeltaRaw;
@@ -1509,6 +1516,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       let oilNow = Math.max(35, Math.min(120, oilBefore + oilReversion + (Math.random() * 6 - 3))); // возврат к цели + дрейф ±3$
       let fxNow = Math.max(55, Math.min(140, fxBefore + fxReversion + (Math.random() * 4 - 2)));    // возврат к базе + дрейф ±2₽
       let marketEventLine = "";
+      let fxRegimeLine = ""; // прозрачность: гашение резервами или "курс отпущен" — см. блок валютного шока ниже
 
       // Сценарная дуга: эскалация толкает цену вверх, пока не наступит сделка США-Иран
       if (!oilDealAlreadyReached && completedMonth >= OIL_DEAL_TURN) {
@@ -1540,7 +1548,18 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         ];
         const ev = MARKET_EVENTS[Math.floor(Math.random() * MARKET_EVENTS.length)];
         if (ev.oilDelta) oilNow = Math.max(35, Math.min(120, oilNow + ev.oilDelta));
-        if (ev.fxDelta) fxNow = Math.max(55, Math.min(140, fxNow + dampenFxShock(ev.fxDelta, newStats)));
+        if (ev.fxDelta) {
+          // Прозрачность курсового шока (Петя, 2026-07-05): раньше гашение резервами было
+          // невидимо игроку — тот же паттерн, что уже чинили для автономных событий/дипломатии.
+          const reservesBeforeShock = newStats.reserves ?? 48;
+          fxNow = Math.max(55, Math.min(140, fxNow + dampenFxShock(ev.fxDelta, newStats)));
+          const reservesSpentOnShock = reservesBeforeShock - (newStats.reserves ?? reservesBeforeShock);
+          if (newStats.fx_floating) {
+            fxRegimeLine = " Курс отпущен в свободное плавание — шок не сглажен резервами.";
+          } else if (reservesSpentOnShock > 0) {
+            fxRegimeLine = ` ЦБ смягчил курсовой шок из резервов (−${reservesSpentOnShock} резервов).`;
+          }
+        }
         marketEventLine = ev.text;
         await client.query(
           `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -1569,8 +1588,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const sanctionDiscount = Math.max(0, rawSanctionDiscount - allyMitigation);
       const oilIncome = Math.round((newStats.oil_price - OIL_BUDGET_CUTOFF) * 0.7 * (1 - sanctionDiscount));
       const fxIncome = Math.round((newStats.usd_rub - FX_BASELINE) * 0.4);
-      if (newStats.usd_rub > FX_BASELINE + 10) {
-        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.5);
+      // Курс→инфляция (Петя, 2026-07-05): раньше был плоский +0.5 при курсе выше базы+10,
+      // независимо от размера отклонения — не давало разницы между лёгким и катастрофическим
+      // ослаблением рубля. Теперь шкалируется от величины отклонения — именно этот канал даёт
+      // "отпущенному" курсу реальную цену (без демпфера резервами скачки крупнее, значит и
+      // инфляция ощутимо выше), а не просто фиксированный штраф.
+      const fxOverThreshold = Math.max(0, newStats.usd_rub - FX_BASELINE - 10);
+      const fxInflationEffect = fxOverThreshold > 0 ? Math.round((fxOverThreshold / 8) * 10) / 10 : 0;
+      if (fxInflationEffect) {
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + fxInflationEffect);
       }
 
       // --- РЕЗЕРВЫ: помесячный дрейф + излишек нефтедоходов + уязвимость при низком уровне ---
@@ -2197,7 +2223,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
          (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
           economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
           economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "") +
-         inflationLine + allyMitigationLine]
+         inflationLine + allyMitigationLine + fxRegimeLine]
       );
 
       // ПРОЗРАЧНАЯ СВОДКА: игрок видел прогноз при подписи хода, но реальный итог месяца

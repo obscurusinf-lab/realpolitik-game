@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 
 // БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
@@ -6933,6 +6933,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const [error, setError] = useState(null);
   const [statHistory, setStatHistory] = useState(null);
   const [confirmReserves, setConfirmReserves] = useState(false);
+  const [confirmFxRegime, setConfirmFxRegime] = useState(false);
 
   useEffect(() => {
     fetchStatHistory(gameId).then(d => setStatHistory(d.history || [])).catch(() => {});
@@ -7027,6 +7028,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   async function handleConvertReserves() {
     setLoading("convert_reserves"); setError(null);
     try { await convertReserves(gameId); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
+  async function handleToggleFxRegime() {
+    setLoading("fx_regime"); setError(null);
+    try { await toggleFxRegime(gameId); onRefresh?.(); }
     catch (e) { setError(e.message); }
     finally { setLoading(null); }
   }
@@ -7590,6 +7598,94 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         );
       })()}
 
+      {/* Курсовая политика (Петя, 2026-07-05: "отпустить курс рубля" — рядом с ФНБ, т.к. резерв его и регулирует) */}
+      {(() => {
+        const floating = !!stats.fx_floating;
+        const initiativeF = stats.initiative ?? 100;
+        const canToggle = initiativeF >= 15;
+        return (
+          <div style={sectionStyle}>
+            <div style={labelStyle}>КУРСОВАЯ ПОЛИТИКА</div>
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontFamily: "'PT Serif',serif", fontSize: 14, color: "#ece7d8" }}>
+                    {floating ? "Плавающий курс" : "Управляемый курс"}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 3, maxWidth: 340 }}>
+                    {floating
+                      ? "Резервы НЕ гасят курсовые шоки — сильнее валютный доход казны при ослаблении рубля, но и заметно выше инфляция"
+                      : "ЦБ гасит курсовые шоки резервами — курс стабильнее, инфляция ниже, но и валютный доход от слабого рубля скромнее"}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setConfirmFxRegime(true)}
+                disabled={!canToggle || loading === "fx_regime"}
+                style={{
+                  width: "100%", background: !canToggle ? "#1a2030" : floating ? "#1a2030" : "#1a1208",
+                  border: `1px solid ${!canToggle ? "#2a3040" : floating ? "#3a5070" : "#8a6020"}`,
+                  color: !canToggle ? "#3a4050" : floating ? "#7a9ec0" : "#c09050",
+                  borderRadius: 3, padding: "9px 12px",
+                  fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: !canToggle ? "not-allowed" : "pointer",
+                  textAlign: "left",
+                }}
+              >
+                {loading === "fx_regime" ? "Переключение…" : floating ? "⚙ Вернуться к управляемому курсу (⚡15)" : "⚙ Отпустить курс в свободное плавание (⚡15)"}
+              </button>
+              {!canToggle && (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: "#5a6070", marginTop: 5 }}>
+                  Недостаточно инициативы (нужно ⚡15).
+                </div>
+              )}
+              {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
+            </div>
+
+            {confirmFxRegime && (
+              <div onClick={() => setConfirmFxRegime(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+                <div onClick={e => e.stopPropagation()} style={{ background: "#1a1f2c", border: "1px solid #3a4156", borderRadius: 6, maxWidth: 560, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+                  <div style={{ background: "#14181f", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347" }}>ПОДТВЕРДИТЕ: КУРСОВАЯ ПОЛИТИКА</span>
+                    <button onClick={() => setConfirmFxRegime(false)} style={{ background: "none", border: "none", color: "#a8a294", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+                  </div>
+                  <div style={{ padding: "18px 20px" }}>
+                    <div style={{ fontFamily: "'PT Serif',serif", fontSize: 14, color: "#cdd3e0", lineHeight: 1.5, marginBottom: 14 }}>
+                      {floating
+                        ? "Вы собираетесь вернуться к управляемому курсу — ЦБ снова будет тратить резервы на сглаживание валютных шоков."
+                        : "Вы собираетесь отпустить курс рубля в свободное плавание — ЦБ перестанет использовать резервы для сглаживания шоков."}
+                    </div>
+                    <div style={{ background: "#2a1f14", border: "1px solid #5a4520", borderRadius: 4, padding: "10px 12px", marginBottom: 16 }}>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#c8a857", letterSpacing: "0.06em", marginBottom: 6 }}>ПОСЛЕДСТВИЯ</div>
+                      <div style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#d8b890", lineHeight: 1.6 }}>
+                        − ⚡15 очков инициативы<br/>
+                        {floating
+                          ? <>+ Резервы снова защищают курс от резких шоков<br/>− Валютный доход казны от слабого рубля станет скромнее<br/>+ Инфляция от курсовых скачков будет ниже</>
+                          : <>− Резервы больше не тратятся на защиту курса — шоки проходят полностью<br/>+ Более сильный валютный доход казны при ослаблении рубля<br/>− Инфляция от курсовых скачков будет заметно выше</>}
+                        <br/>Можно переключить обратно в любой момент за ту же цену.
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                      <button
+                        onClick={() => setConfirmFxRegime(false)}
+                        style={{ background: "none", border: "1px solid #3a4156", color: "#a8a294", borderRadius: 3, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        onClick={() => { setConfirmFxRegime(false); handleToggleFxRegime(); }}
+                        style={{ background: "#1a1208", border: "1px solid #8a6020", color: "#c09050", borderRadius: 3, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: "pointer" }}
+                      >
+                        {floating ? "Вернуться к управляемому курсу" : "Отпустить курс"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Инфляция */}
       {(() => {
         const inf = stats.inflation ?? 64;
@@ -7943,7 +8039,7 @@ function WikiTab({ dark = false }) {
       <div style={S.p}><span style={S.b}>ОФЗ (госдолг)</span> — быстрый способ пополнить казну на 20 пунктов, но не бесплатный обед: пока выпуск активен, он не двигает инфляцию мгновенно, а увеличивает её будущий помесячный рост (+0.3 давления инфляции/мес. за каждый активный выпуск) и забирает на обслуживание 2–4 пункта казны в месяц (зависит от ключевой ставки ЦБ — чем она выше, тем дороже долг). Погашение стоит 22 пункта (премия за досрочный выкуп выше суммы, которую вы получили) и снимает −0.3 инфляции/мес. — взять и тут же погасить выпуск всегда оставляет чистый минус в казне, это не бесплатный манёвр.</div>
       <div style={S.p}><span style={S.b}>Ключевая ставка ЦБ</span> — президент не может менять её напрямую, это решение главы Центробанка. Ставка сама дрейфует к цели, зависящей от инфляции и типа главы ЦБ («голубь» держит ставку ниже, «ястреб» — выше). Высокая ставка (&gt;17%) душит инфляцию, но и экономику; низкая (&lt;11%) — наоборот. Игрок может разово «надавить» на ЦБ (риск утечки в прессу — удар по изоляции и рейтингу) или один раз за игру сменить главу на «голубя»/«ястреба».</div>
       <div style={S.p}><span style={S.b}>Коррупция</span> — выше 50 баллов начинает напрямую и нелинейно съедать казну каждый месяц (чем выше уровень, тем больше потери). В интерфейсе показана в реальных единицах: индекс восприятия коррупции по методике Transparency International (0-100, где выше — чище; балл 55, старт партии, соответствует ≈26/100 — реальному месту России в их рейтинге) и ежемесячная утечка бюджета в ₽ трлн. Можно запустить антикоррупционную кампанию (раз в месяц, стоит инициативы и казны) — обычно снижает коррупцию на 6–10 пунктов, но элиты этим недовольны; есть небольшой шанс показательного процесса (доп. рост одобрения) или провала расследования (саботаж элитами, эффект слабее).</div>
-      <div style={S.p}><span style={S.b}>Резервы (ФНБ/ЗВР)</span> — не просто фоновое число, а буфер ЦБ для защиты рубля (одновременно это же — Фонд национального благосостояния, из которого можно вручную пополнить казну). Каждый месяц резервы немного растут при профиците торгового баланса (дорогая нефть + выгодный курс) и тают при дефиците, а высокая изоляция дополнительно размывает их (заморозка зарубежных активов). Когда рубль резко слабеет от шоковых новостей, резервы автоматически гасят часть удара по курсу — чем их больше, тем сильнее демпфер (но и резервы при этом расходуются); ниже 20 защищаться уже нечем, и курс летит без тормозов, а сама нехватка резервов разгоняет инфляцию ещё на пункт в месяц. В интерфейсе резервы показаны в реальных деньгах (₽ трлн): 100 баллов ≈ ₽13 трлн — исторический пик ФНБ (февраль 2022), 0 — резервы исчерпаны. В Казне доступна кнопка «Распечатать ФНБ в казну» — переводит часть резервов в казну (⚡20 инициативы, +0.3 инфляции); нажатие открывает окно подтверждения с полным списком последствий, ниже определённого остатка (защитный минимум ЦБ) конвертация заблокирована.</div>
+      <div style={S.p}><span style={S.b}>Резервы (ФНБ/ЗВР)</span> — не просто фоновое число, а буфер ЦБ для защиты рубля (одновременно это же — Фонд национального благосостояния, из которого можно вручную пополнить казну). Каждый месяц резервы немного растут при профиците торгового баланса (дорогая нефть + выгодный курс) и тают при дефиците, а высокая изоляция дополнительно размывает их (заморозка зарубежных активов). Когда рубль резко слабеет от шоковых новостей, резервы автоматически гасят часть удара по курсу — чем их больше, тем сильнее демпфер (но и резервы при этом расходуются); ниже 20 защищаться уже нечем, и курс летит без тормозов, а сама нехватка резервов разгоняет инфляцию ещё на пункт в месяц. В интерфейсе резервы показаны в реальных деньгах (₽ трлн): 100 баллов ≈ ₽13 трлн — исторический пик ФНБ (февраль 2022), 0 — резервы исчерпаны. В Казне доступна кнопка «Распечатать ФНБ в казну» — переводит часть резервов в казну (⚡20 инициативы, +0.3 инфляции); нажатие открывает окно подтверждения с полным списком последствий, ниже определённого остатка (защитный минимум ЦБ) конвертация заблокирована. Рядом — переключатель <span style={S.b}>«Курсовая политика»</span> (⚡15 инициативы): по умолчанию курс управляемый (резервы гасят шоки, как описано выше), но его можно отпустить в свободное плавание — тогда резервы не тратятся на защиту курса вообще, зато более сильные колебания рубля дают больший валютный доход казне при ослаблении, ценой заметно более высокой инфляции. Переключать можно сколько угодно раз за партию.</div>
 
       <div style={S.h}>ПОКАЗАТЕЛИ</div>
       <div style={S.p}><span style={S.b}>Экономика</span> — общее состояние народного хозяйства. Ниже 30 — поражение (коллапс). Влияет на доход казны: при экономике выше 50 — доход растёт, ниже — падает. Это индикатор, а не рычаг: военные операции, дипломатия, шпионаж и большинство указов не бьют по экономике напрямую — их реальное влияние идёт через рост ВВП, занятость, инфляцию и резервы, которые эти действия и двигают. Прямо управляют экономикой только экономические указы (стимул, экономия, контрсанкции, инфраструктура, технологии) — это их прямое назначение.</div>

@@ -7,6 +7,7 @@
  * POST /games/:gameId/treasury/cb-replace    — смена главы ЦБ (body: {type:"soft"|"hawkish"})
  * POST /games/:gameId/treasury/anti-corruption — антикоррупционная кампания
  * POST /games/:gameId/treasury/convert-reserves — конвертация ФНБ в казну (1 раз/мес, лимит, инфл. след)
+ * POST /games/:gameId/treasury/toggle-fx-regime — переключить управляемый/плавающий курс рубля
  *
  * Механика ОФЗ:
  *   - Максимум 3 активных выпуска (stats.ofz_count)
@@ -32,6 +33,16 @@
  *   - Эффект: коррупция −(6..10), но элиты недовольны (-3 elite_satisfaction)
  *   - 25% шанс "показательного процесса": доп. одобрение +3 (PR-эффект)
  *   - 15% шанс провала: коррупция −2 (слабее) и стабильность −1 (саботаж расследования элитами)
+ *
+ * Механика курсовой политики (Петя, 2026-07-05 — "отпустить курс рубля"):
+ *   - stats.fx_floating — false (по умолчанию) = управляемый курс: ЦБ гасит валютные шоки резервами
+ *     (см. dampenFxShock в turns.js) — как и раньше, но теперь видимо в сводке "Бюджет за месяц".
+ *   - true = плавающий курс: шоки проходят БЕЗ демпфера — резервы не тратятся, но и не защищают.
+ *     Более сильные колебания курса => больше валютного дохода казны при ослаблении рубля
+ *     (fxIncome = (usd_rub−80)×0.4), но и заметно больше инфляции (шкалируемый канал в turns.js,
+ *     раньше был плоский +0.5 независимо от размера отклонения).
+ *   - Переключение стоит ⚡15 инициативы (это политическое решение, не бесплатный тумблер),
+ *     можно включать/выключать сколько угодно раз за партию.
  */
 
 const OFZ_TREASURY_GAIN = 20;        // немедленный прирост казны
@@ -39,6 +50,7 @@ const OFZ_MAX_COUNT = 3;             // максимум активных вып
 const OFZ_REPAY_COST = 22;           // сколько казны нужно для погашения (выше суммы выпуска — премия за досрочный выкуп)
 const RESERVES_CONVERT_AMOUNT = 10;  // сколько резервов конвертируется в казну за 1 раз
 const RESERVES_CONVERT_MIN_LEFT = 15; // ниже этого уровня резервов конвертация запрещена
+const FX_REGIME_TOGGLE_COST = 15;    // инициатива за смену курсовой политики (управляемый ⇄ плавающий)
 
 // Компаундинг: стоимость обслуживания 1 выпуска ОФЗ растёт вместе с ключевой ставкой ЦБ.
 // При базовой ставке ~18.5% даёт те же −3/мес, что и раньше при фиксированной стоимости.
@@ -250,6 +262,50 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       await client.query("ROLLBACK");
       fastify.log.error(err);
       return reply.code(500).send({ error: "Ошибка конвертации резервов" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // ---------- КУРСОВАЯ ПОЛИТИКА (управляемый ⇄ плавающий курс) ----------
+  fastify.post("/games/:gameId/treasury/toggle-fx-regime", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const newStats = { ...game.stats };
+      const initiative = typeof newStats.initiative === "number" ? newStats.initiative : 100;
+      if (initiative < FX_REGIME_TOGGLE_COST) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: `Недостаточно инициативы (нужно ${FX_REGIME_TOGGLE_COST}).` });
+      }
+
+      const wasFloating = !!newStats.fx_floating;
+      newStats.fx_floating = !wasFloating;
+      newStats.initiative = initiative - FX_REGIME_TOGGLE_COST;
+
+      await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+
+      const newsText = newStats.fx_floating
+        ? "ЦБ объявил о переходе к свободному курсообразованию: резервы больше не будут использоваться для сглаживания курсовых шоков. Более сильные колебания рубля увеличат валютный доход бюджета при ослаблении, но и разгонят инфляцию сильнее прежнего."
+        : "ЦБ возвращается к управляемому курсу: резервы вновь будут гасить резкие курсовые шоки, ограничивая как инфляционные риски, так и потенциальный валютный доход бюджета.";
+      await client.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        [gameId, game.current_turn + 1, "ЦБ РФ", newsText]
+      );
+
+      await client.query("COMMIT");
+      return reply.send({ fxFloating: newStats.fx_floating, initiative: newStats.initiative });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Ошибка смены курсовой политики" });
     } finally {
       client.release();
     }
