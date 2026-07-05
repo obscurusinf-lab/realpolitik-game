@@ -2597,6 +2597,20 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         .tab-btn:focus-visible, button:focus-visible { outline: 2px solid ${NK.accent}; outline-offset: 2px; }
         .scroll-hide::-webkit-scrollbar { height: 4px; }
         .scroll-hide::-webkit-scrollbar-thumb { background: #3a4156; }
+        /* Виджеты-дашборд (Казна, react-grid-layout) — подсветка при захвате, крупнее ручка
+           ресайза для пальца (Петя, 2026-07-05: "на мобильной нужно ушко + подсветка + ресайз") */
+        .react-grid-item.react-draggable-dragging {
+          box-shadow: 0 0 0 2px #9c8347, 0 12px 28px rgba(0,0,0,0.5) !important;
+          opacity: 0.92;
+        }
+        .react-grid-item.resizing {
+          box-shadow: 0 0 0 2px #4a7a5a !important;
+        }
+        .react-resizable-handle {
+          width: 30px !important;
+          height: 30px !important;
+          opacity: 0.6;
+        }
       `}</style>
 
       {isNuclearWorld && (
@@ -2782,8 +2796,19 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           </div>
 
           {turnError && (
-            <div className="doc-font" style={{ color: "#e09090", fontSize: 12.5, marginBottom: 8 }}>
-              Ошибка: {turnError}
+            <div className="doc-font" style={{
+              color: "#e09090", fontSize: 12.5, marginBottom: 8, background: "#1a0c0c",
+              border: "1px solid #5a2020", borderRadius: 4, padding: "8px 10px",
+              display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10,
+            }}>
+              <span>Ошибка: {turnError}</span>
+              <button
+                onClick={() => setTurnError(null)}
+                title="Закрыть"
+                style={{ background: "none", border: "none", color: "#e09090", cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0, padding: 0 }}
+              >
+                ×
+              </button>
             </div>
           )}
 
@@ -7140,7 +7165,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     >
       {/* Казна: текущий уровень */}
       <div key="treasury" style={sectionStyle}>
-        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ</div>
+        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ</div>
         <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: "1px solid #2a3040" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
             <div>
@@ -7177,7 +7202,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           Показываем в реалистичных единицах (₽/$/%%), а не в сырых баллах 0-100 —
           балл остаётся внутри для баланса, но игроку он ничего не говорит. */}
       <div key="economy" style={sectionStyle}>
-        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ</div>
+        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ</div>
         <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 90px" }}>
             <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#a8a294", marginBottom: 2 }}>Экономика</div>
@@ -7237,7 +7262,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
       {/* Баланс: доходы и расходы — очки + рублёвый эквивалент тем же курсом T, что и казна/
           резервы (см. TREASURY_PER_TRILLION) — раньше строки были только в абстрактных очках. */}
       <div key="balance" style={sectionStyle}>
-        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)</div>
+        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)</div>
         <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4 }}>
           <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
             <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a8a6a" }}>+ Налоговый доход (экономика {Math.round(eco)})</span>
@@ -7294,7 +7319,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
       {/* ОФЗ: долговые инструменты */}
       <div key="ofz" style={sectionStyle}>
-        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ</div>
+        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ</div>
         <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: `1px solid ${ofzCount > 0 ? "#5a3a10" : "#2a3040"}` }}>
           {/* Слоты выпусков */}
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
@@ -7383,7 +7408,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
         return (
           <div key="keyrate" style={sectionStyle}>
-            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>КЛЮЧЕВАЯ СТАВКА ЦБ</div>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>КЛЮЧЕВАЯ СТАВКА ЦБ</div>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
 
               {/* Текущая ставка */}
@@ -7520,7 +7545,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const corrDrainRubT = corruptionDrainRubTrillion(corruptionDrainT);
         return (
           <div key="corruption" style={sectionStyle}>
-            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>КОРРУПЦИЯ</div>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>КОРРУПЦИЯ</div>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
@@ -7600,7 +7625,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const headroomRubT = Math.max(0, reservesRubT - floorRubT);
         return (
           <div key="reserves" style={sectionStyle}>
-            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>РЕЗЕРВЫ (ФНБ)</div>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>РЕЗЕРВЫ (ФНБ)</div>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
@@ -7698,7 +7723,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const canToggle = initiativeF >= 15;
         return (
           <div key="fxregime" style={sectionStyle}>
-            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>КУРСОВАЯ ПОЛИТИКА</div>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>КУРСОВАЯ ПОЛИТИКА</div>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div>
@@ -7789,7 +7814,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const stormPct = inflationPercent(70); // порог штрафов в человеческом %
         return (
           <div key="inflation" style={sectionStyle}>
-            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
             <div style={{ background: inf > 70 ? "#1a0c08" : "#14181f", border: `1px solid ${inf > 70 ? "#7a3020" : "#2a3040"}`, borderRadius: 4, padding: "12px 14px" }}>
               {/* Значение + бар */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -7871,7 +7896,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
         return (
           <div key="oilfx" style={sectionStyle}>
-            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>НЕФТЕДОХОДЫ И ВАЛЮТА</div>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab", display: "flex", alignItems: "center", gap: 6, touchAction: "none" }}><span aria-hidden="true" style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0 }}>⠿</span>НЕФТЕДОХОДЫ И ВАЛЮТА</div>
 
             {/* Котировки */}
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10 }}>

@@ -435,13 +435,27 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     }
 
     // Проверяем хватает ли инициативы
-    const { INITIATIVE_COST, INITIATIVE_REGEN_PER_TURN, INITIATIVE_MAX } = require("../rules/rules-engine");
+    const { INITIATIVE_COST, INITIATIVE_REGEN_PER_TURN, INITIATIVE_MAX, CATEGORY_COST } = require("../rules/rules-engine");
     const initiativeCheck = await db.query(`SELECT gs.stats FROM game_state gs WHERE gs.game_id = $1`, [gameId]);
     // military_blocked_this_month проверяется ПОСЛЕ классификации (ниже, рядом с gmClassification) —
     // разведка (mil_recon) исключена из этого конкретного блока (см. комментарий там). Остальные два
     // военных лимита (1 операция/мес, блок после передышки) не зависят от подкатегории — их можно
     // проверить сразу, до классификации.
     let statsForMilitaryCheck = null;
+    let availableInitForPreciseCheck = null;
+    // БАГ (Петя, 2026-07-05, найден на живой партии): эта проверка раньше сравнивала доступную
+    // инициативу с ФИКСИРОВАННОЙ ценой всего режима (INITIATIVE_COST.military=55), хотя внутри
+    // режима "military" разведка (mil_recon) стоит всего 15 — до classifyTurn() мы ещё не знаем,
+    // что игрок описал именно разведку, а не полноценную операцию. Из-за этого дешёвая разведка
+    // ложно блокировалась ошибкой "недостаточно инициативы", хотя реально хватало с запасом.
+    // Решение: тут — только ГРУБЫЙ пре-фильтр по МИНИМАЛЬНОЙ цене категории в этом режиме (чтобы
+    // не тратить вызов ИИ, если игроку не хватит денег вообще ни на что), точная проверка — ниже,
+    // сразу после классификации, тем же паттерном, что уже применён для military_blocked_this_month.
+    const MODE_CATEGORY_PREFIX = { military: "mil_", intel: "covert_", diplomacy_op: "diplo_" };
+    const modePrefix = MODE_CATEGORY_PREFIX[actionMode];
+    const cheapestInMode = modePrefix
+      ? Math.min(...Object.entries(CATEGORY_COST).filter(([k]) => k.startsWith(modePrefix)).map(([, v]) => v.initiative))
+      : null;
     if (initiativeCheck.rowCount > 0) {
       const currentStats = initiativeCheck.rows[0].stats;
       const currentInit = typeof currentStats.initiative === "number" ? currentStats.initiative : INITIATIVE_MAX;
@@ -449,7 +463,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Carryover может поднять её выше 100, поэтому не срезаем INITIATIVE_MAX при проверке.
       const { MULTI_ACTION_TURNS } = require("../rules/rules-engine");
       const availableInit = MULTI_ACTION_TURNS ? currentInit : Math.min(INITIATIVE_MAX, currentInit + INITIATIVE_REGEN_PER_TURN);
-      const cost = INITIATIVE_COST[actionMode];
+      availableInitForPreciseCheck = availableInit;
+      const cost = cheapestInMode ?? INITIATIVE_COST[actionMode];
       if (availableInit < cost) {
         return reply.code(400).send({ error: `Недостаточно инициативы. Нужно ${cost}, доступно ${availableInit}. Завершите месяц чтобы восстановить.` });
       }
@@ -526,6 +541,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // чтобы превью и подтверждение не расходились.
     if (statsForMilitaryCheck?.military_blocked_this_month && gmClassification.action_type !== "mil_recon") {
       return reply.code(400).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
+    }
+
+    // Точная проверка инициативы — теперь по РЕАЛЬНОЙ цене классифицированной категории
+    // (CATEGORY_COST[action_type]), а не по грубой оценке всего режима, как выше. Именно этот
+    // чек не даёт дешёвой разведке (mil_recon=15) ложно упираться в цену всего режима (55).
+    if (availableInitForPreciseCheck !== null) {
+      const preciseCost = CATEGORY_COST[gmClassification.action_type]?.initiative ?? INITIATIVE_COST[actionMode];
+      if (availableInitForPreciseCheck < preciseCost) {
+        return reply.code(400).send({ error: `Недостаточно инициативы. Нужно ${preciseCost}, доступно ${availableInitForPreciseCheck}. Завершите месяц чтобы восстановить.` });
+      }
     }
 
     // Раскрытие тайных операций (covert_*) считается внутри applyTurn (rules-engine.js) —
@@ -887,8 +912,18 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
 
       // --- ДЕЙСТВИЯ УКРАИНЫ ---
-      // Украина выполняет одно действие каждый ход — в зависимости от состояния игры
-      {
+      // Украина выполняет одно действие каждый МЕСЯЦ — в зависимости от состояния игры.
+      // БАГ (Петя, 2026-07-05, найден на живой партии — "Украина два раза одно и то же делает"):
+      // этот блок физически живёт в /turns/confirm, который в MULTI_ACTION_TURNS может вызываться
+      // НЕСКОЛЬКО раз за месяц (несколько подписанных указов до "Завершить месяц") — точно та же
+      // категория бага, что уже описана в комментарии выше (внутренние кризисы/военно-экономическое
+      // давление/вмешательство третьих акторов), просто этот конкретный блок тогда пропустили при
+      // переносе. Полный перенос в /turns/end-month рискованно делать не глядя (async AI-вызов
+      // selectUkraineStrategy + другие переменные внутри /turns/confirm) — вместо переноса применён
+      // тот же паттерн флага "уже сработало в этом месяце", что уже используется для
+      // ofz_used_this_month/anticorruption_used/reserves_converted_this_month (сбрасывается в
+      // end-month вместе с остальными флагами).
+      if (!newStats.ukraine_action_this_month) {
         const mil = newStats.military ?? 50;
         const eco = newStats.economy ?? 50;
         const peace = newStats.peace_progress ?? 0;
@@ -1220,6 +1255,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
            JSON.stringify({ type: uaAction.type, responses: uaAction.responses, deltas: appliedDeltas })]
         );
         fastify.log.info({ gameId, uaAction: uaAction.type }, "Ukraine action fired");
+        newStats.ukraine_action_this_month = true;
       }
       // --- конец действий Украины ---
 
@@ -1743,6 +1779,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       delete newStats.anticorruption_used;
       // Сбрасываем флаг конвертации резервов
       delete newStats.reserves_converted_this_month;
+      // Сбрасываем флаг действия Украины (см. комментарий у ukraine_action_this_month в /turns/confirm)
+      delete newStats.ukraine_action_this_month;
 
       // --- КЛЮЧЕВАЯ СТАВКА ЦБ (автономная логика) ---
       // ЦБ медленно тянет ставку к целевому значению, зависящему от инфляции.
