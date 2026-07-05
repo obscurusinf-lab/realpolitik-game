@@ -2106,6 +2106,15 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [state, setState] = useState(null);
   const [assistMode, setAssistMode] = useState("advisor"); // закреплён на старте партии: "advisor" | "hardcore"
   const [tab, setTab] = useState("overview");
+  // Порядок вкладок — перетаскивание мышью, как в браузере (Петя, 2026-07-05). Храним только
+  // порядок id в localStorage (не сами вкладки — их список меняется между версиями игры).
+  const [tabOrder, setTabOrder] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("rp_tab_order") || "null");
+      return Array.isArray(saved) ? saved : null;
+    } catch { return null; }
+  });
+  const [draggedTabId, setDraggedTabId] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [showWelcome, setShowWelcome] = useState(initialShowWelcome);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -2498,6 +2507,26 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     { id: "log", label: "Журнал", icon: ScrollText },
   ];
 
+  // Применяем сохранённый порядок, но защищаемся от устаревшего списка id (новая вкладка
+  // добавилась в игру, а в localStorage её ещё нет — просто дописываем в конец).
+  const tabIds = tabs.map(t => t.id);
+  const savedOrderIds = tabOrder ? tabOrder.filter(id => tabIds.includes(id)) : null;
+  const missingTabIds = tabIds.filter(id => !savedOrderIds?.includes(id));
+  const orderedTabIds = savedOrderIds ? [...savedOrderIds, ...missingTabIds] : tabIds;
+  const orderedTabs = orderedTabIds.map(id => tabs.find(t => t.id === id));
+
+  function handleTabDrop(overId) {
+    if (!draggedTabId || draggedTabId === overId) { setDraggedTabId(null); return; }
+    const ids = orderedTabs.map(t => t.id);
+    const fromIdx = ids.indexOf(draggedTabId);
+    const toIdx = ids.indexOf(overId);
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, draggedTabId);
+    setTabOrder(ids);
+    localStorage.setItem("rp_tab_order", JSON.stringify(ids));
+    setDraggedTabId(null);
+  }
+
   const isNuclearWorld = (state.newsfeed || []).some(n => n.type === "nuclear_reaction");
   const NK = isNuclearWorld ? {
     pageBg: "#0d0505",
@@ -2615,19 +2644,27 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       </div>
 
       <div className="scroll-hide" style={{ display: "flex", gap: 2, padding: "10px 16px 0", overflowX: "auto", background: NK.tabBarBg }}>
-        {tabs.map((t) => {
+        {orderedTabs.map((t) => {
           const Icon = t.icon;
           const active = tab === t.id;
+          const dragging = draggedTabId === t.id;
           return (
             <button
               key={t.id}
               className="tab-btn"
+              draggable
+              onDragStart={() => setDraggedTabId(t.id)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleTabDrop(t.id)}
+              onDragEnd={() => setDraggedTabId(null)}
               onClick={() => setTab(t.id)}
+              title="Перетащите, чтобы изменить порядок вкладок"
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "9px 14px",
                 background: active ? NK.tabActiveBg : "transparent", color: active ? NK.tabActiveColor : NK.tabInactiveColor,
                 border: "none", borderRadius: "6px 6px 0 0", fontFamily: "'PT Serif',serif",
-                fontSize: 13, fontWeight: active ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+                fontSize: 13, fontWeight: active ? 700 : 400, cursor: "grab", whiteSpace: "nowrap", flexShrink: 0,
+                opacity: dragging ? 0.4 : 1,
               }}
             >
               <Icon size={14} />
@@ -4031,6 +4068,7 @@ function OverviewTab({ state }) {
         </Modal>
       )}
 
+      <MarketTicker stats={state.stats || {}} />
       <NewsVideoPanel state={state} />
 
       <div style={{ borderLeft: "3px solid #a8313a", paddingLeft: 12, marginBottom: 14 }}>
@@ -4738,25 +4776,30 @@ function EndMonthForecastPanel({ stats, policies }) {
   }
 
   // 7. Рост ВВП → экономика (компаундинг относительно старта партии) + перегрев → инфляция
+  //    + стагнация/спад (Петя, 2026-07-05): рост ≤1% г/г — уже больная экономика, не нейтраль.
   {
     const gdp = stats.gdp_growth ?? 36;
     const gdpEffect = Math.round((gdp - 36) / 8);
     const gdpOverheat = gdp > 60 ? Math.round((gdp - 60) / 20) : 0;
     const gdpPct = gdpGrowthPercent(gdp);
     const gdpPctStr = `${gdpPct >= 0 ? "+" : ""}${gdpPct.toFixed(1)}%`;
-    if (gdpEffect !== 0 || gdpOverheat !== 0) {
+    const gdpStagnation = gdpPct <= 1 ? Math.min(-1, Math.round((gdpPct - 1) / 2)) : 0;
+    if (gdpEffect !== 0 || gdpOverheat !== 0 || gdpStagnation !== 0) {
       const impacts = [];
       if (gdpEffect) impacts.push({ label: "Экономика", delta: gdpEffect });
+      if (gdpStagnation) impacts.push({ label: "Экономика (стагнация/спад)", delta: gdpStagnation });
       if (gdpOverheat) impacts.push({ label: "Инфляция (перегрев)", delta: gdpOverheat });
       mechanisms.push({
-        active: true, severity: gdpOverheat > 0 ? "bad" : gdpEffect > 0 ? "good" : "bad",
+        active: true, severity: gdpOverheat > 0 ? "bad" : gdpStagnation < 0 ? "bad" : gdpEffect > 0 ? "good" : "bad",
         name: "Рост ВВП",
         trigger: gdpOverheat > 0
           ? `Рост ВВП ${gdpPctStr} г/г — перегрев экономики выше потенциала разгоняет инфляцию`
+          : gdpStagnation < 0
+          ? `Рост ВВП ${gdpPctStr} г/г — стагнация/спад: слабый или отрицательный рост душит экономику сам по себе`
           : `Рост ВВП ${gdpPctStr} г/г (старт партии: +1%) — отклонение компаундится в экономику`,
         impacts,
-        fix: gdpEffect < 0
-          ? "Устойчивый спад ВВП подтачивает экономику каждый месяц. Реформы и стимулирующие указы поднимают gdp_growth."
+        fix: gdpStagnation < 0
+          ? "Рост ВВП на уровне старта партии (+1% г/г) или ниже — это уже стагнация, экономика теряет каждый месяц. Нужен рост ЗАМЕТНО выше +1%, чтобы штраф исчез — реформы и стимулирующие указы поднимают gdp_growth."
           : gdpOverheat > 0
           ? "Рост ВВП выше 60 баллов даёт всё те же плюсы к экономике, но дополнительно разгоняет инфляцию — как перегрев спроса без роста предложения в реальности."
           : "Устойчивый рост ВВП постепенно усиливает экономику — держите курс.",
@@ -5111,6 +5154,13 @@ function getPassiveEffects(key, stats) {
     if (gdpEffect) {
       effects.push({ sign: gdpEffect > 0 ? 1 : -1, value: Math.abs(gdpEffect), text: `Рост ВВП vs старт партии (${gdpGrowthPercent(gdp).toFixed(1)}% г/г)` });
       if (gdpEffect < 0) hadNegative = true;
+    }
+    // Стагнация/спад ВВП (Петя, 2026-07-05): рост ≤1% г/г — уже штраф, не просто "нет бонуса"
+    const gdpPctBadge = gdpGrowthPercent(gdp);
+    const gdpStagnationBadge = gdpPctBadge <= 1 ? Math.min(-1, Math.round((gdpPctBadge - 1) / 2)) : 0;
+    if (gdpStagnationBadge) {
+      effects.push({ sign: -1, value: Math.abs(gdpStagnationBadge), text: `Стагнация/спад ВВП (${gdpPctBadge.toFixed(1)}% г/г ≤ 1%)` });
+      hadNegative = true;
     }
     const emplEconomyEffect = Math.round((empl - 74) / 10);
     if (emplEconomyEffect) {
@@ -7894,6 +7944,30 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   );
 }
 
+// Тикер нефть/курс — раньше жил только внутри NewsfeedTab («Лента»), но игрок читает
+// «вкладку новостей» как «Обстановка» (там же LIVE-панель) и не видел его там вообще —
+// вынесен в отдельный компонент, используется в ОБЕИХ вкладках (Петя, 2026-07-05).
+function MarketTicker({ stats }) {
+  const oilPrice = stats.oil_price ?? 85;
+  const usdRub = stats.usd_rub ?? 80;
+  const EUR_USD_RATE = 1.08; // фиксированный кросс-курс евро/доллар для отображения (в игре нет отдельной статы под евро)
+  const eurRub = usdRub * EUR_USD_RATE;
+  const oilTickerColor = oilPrice >= 80 ? "#4a7a5a" : oilPrice >= 55 ? "#9c8347" : "#c03030";
+  const fxTickerColor = usdRub <= 75 ? "#4a7a5a" : usdRub <= 95 ? "#9c8347" : "#c03030";
+  return (
+    <div style={{
+      display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center",
+      background: "#14181f", border: "1px solid #2a3040", borderRadius: 4,
+      padding: "8px 14px", marginBottom: 12,
+    }}>
+      <span className="mono-font" style={{ fontSize: 11, color: oilTickerColor }}>🛢 Brent ${oilPrice.toFixed(0)}</span>
+      <span className="mono-font" style={{ fontSize: 11, color: fxTickerColor }}>$ {usdRub.toFixed(1)}₽</span>
+      <span className="mono-font" style={{ fontSize: 11, color: fxTickerColor }}>€ {eurRub.toFixed(1)}₽</span>
+      {stats.fx_floating && <span className="mono-font" style={{ fontSize: 9.5, color: "#7a9ec0" }}>⚙ курс в свободном плавании</span>}
+    </div>
+  );
+}
+
 function NewsfeedTab({ state, gameId, onRefresh }) {
   const [respondedMap, setRespondedMap] = useState(() => state.stats?.ukraine_responses || {});
 
@@ -7908,23 +7982,7 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
   }
 
   const stats = state.stats || {};
-  const oilPrice = stats.oil_price ?? 85;
-  const usdRub = stats.usd_rub ?? 80;
-  const EUR_USD_RATE = 1.08; // фиксированный кросс-курс евро/доллар для отображения (в игре нет отдельной статы под евро)
-  const eurRub = usdRub * EUR_USD_RATE;
-  const oilTickerColor = oilPrice >= 80 ? "#4a7a5a" : oilPrice >= 55 ? "#9c8347" : "#c03030";
-  const fxTickerColor = usdRub <= 75 ? "#4a7a5a" : usdRub <= 95 ? "#9c8347" : "#c03030";
-  const marketTicker = (
-    <div style={{
-      display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center",
-      background: "#14181f", border: "1px solid #2a3040", borderRadius: 4,
-      padding: "8px 14px", marginBottom: 12,
-    }}>
-      <span className="mono-font" style={{ fontSize: 11, color: oilTickerColor }}>🛢 Brent ${oilPrice.toFixed(0)}</span>
-      <span className="mono-font" style={{ fontSize: 11, color: fxTickerColor }}>$ {usdRub.toFixed(1)}₽</span>
-      <span className="mono-font" style={{ fontSize: 11, color: fxTickerColor }}>€ {eurRub.toFixed(1)}₽</span>
-    </div>
-  );
+  const marketTicker = <MarketTicker stats={stats} />;
 
   if (!state.newsfeed?.length) {
     return (
@@ -8072,7 +8130,7 @@ function WikiTab({ dark = false }) {
       <div style={S.p}><span style={S.b}>Нефть Brent</span> — бюджет свёрстан по цене отсечения $65/барр. (как и в реальном бюджетном правиле РФ): при любой цене выше $65 казна получает реальный доход, просто меньше при более низкой цене. Старт партии — $85 (военная надбавка на фоне ирано-американской эскалации): цена растёт первые 5-6 ходов, затем происходит временная сделка США-Иран — иранская нефть возвращается на рынок, и цена резко падает к довоенному уровню ~$68. Геополитика и ОПЕК+ двигают цену и после этого. Текущая цена и курс доллара/евро всегда видны сверху — не только в Казне, но и на вкладке Новости.</div>
       <div style={S.p}><span style={S.b}>Курс USD/RUB</span> — слабый рубль (выше ₽80) увеличивает рублёвые доходы от экспорта, но разгоняет инфляцию через импорт.</div>
       <div style={S.p}><span style={S.b}>Инфляция</span> — когда индекс выше 73, каждый месяц давит на экономику. Снижается от ключевой ставки и стабилизации курса. Растёт от дефицита, военных трат, слабого рубля. Рынок труда тоже слегка влияет: перегретая занятость (выше стартовых 95%) немного разгоняет инфляцию через рост зарплат, а высокая безработица — наоборот, охлаждает её (эффект намеренно мягкий).</div>
-      <div style={S.p}><span style={S.b}>Рост ВВП и занятость</span> — оба показателя переведены в реальные единицы вместо абстрактных баллов: рост ВВП — в % год к году (старт партии ≈1%), занятость — в % рабочей силы (старт ≈95%, с запасом для роста). Экономика в целом также отображается в номинальном ВВП (₽ трлн / $ трлн), пересчитанном по текущему курсу — всё это видно на вкладке Казна с разбивкой, что именно двигает показатель в последний месяц. Рост ВВП не откатывается назад, в отличие от нефти или курса — устойчивое вложение в экономику копится навсегда. Но выше 60 баллов рост входит в «перегрев»: экономика физически не может производить больше своего потенциала, и дальнейший рост просто разгоняет инфляцию вместо новых товаров — это не блокирует рост, но даёт ему реальную цену. Устойчивое отклонение обоих показателей от стартового уровня партии постепенно компаундится в саму Экономику — это и есть основной канал, через который действия президента доходят до неё не мгновенно, а с лагом в несколько ходов.</div>
+      <div style={S.p}><span style={S.b}>Рост ВВП и занятость</span> — оба показателя переведены в реальные единицы вместо абстрактных баллов: рост ВВП — в % год к году (старт партии ≈1%), занятость — в % рабочей силы (старт ≈95%, с запасом для роста). Экономика в целом также отображается в номинальном ВВП (₽ трлн / $ трлн), пересчитанном по текущему курсу — всё это видно на вкладке Казна с разбивкой, что именно двигает показатель в последний месяц. Рост ВВП не откатывается назад, в отличие от нефти или курса — устойчивое вложение в экономику копится навсегда. Но выше 60 баллов рост входит в «перегрев»: экономика физически не может производить больше своего потенциала, и дальнейший рост просто разгоняет инфляцию вместо новых товаров — это не блокирует рост, но даёт ему реальную цену. Устойчивое отклонение обоих показателей от стартового уровня партии постепенно компаундится в саму Экономику — это и есть основной канал, через который действия президента доходят до неё не мгновенно, а с лагом в несколько ходов. Рост ВВП ≤1% г/г (уровень старта партии или ниже) — это уже стагнация или спад, а не нейтральное состояние: экономика получает отдельный видимый штраф каждый месяц, растущий по мере ухода в минус — реальная экономика не бывает здоровой без роста, простого "не падать" недостаточно.</div>
       <div style={S.p}><span style={S.b}>Потолок месячной эрозии экономики</span> — все автоматические потери за один месяц (высокая ключевая ставка, военное бремя, инфляционный шок, дефицит казны, случайные кризисы) суммарно ограничены −6 пунктов. Резкий обвал экономики за один ход больше не случится: если суммарные потери превышают потолок, разница возвращается экономике. В конце месяца новость от «Минэкономразвития» показывает точную разбивку: что именно и сколько списало экономику.</div>
       <div style={S.p}><span style={S.b}>Организационный рост</span> — если экономика, стабильность, дипломатия и рейтинг одновременно выше 55, коррупция под контролем (CPI ≥28 — см. ниже про направление CPI) и в этом месяце не сработал ни один автоматический минус на экономику (ставка ЦБ, военное бремя, инфляция, дефицит казны, спад ВВП или занятости, коррупционная утечка) — экономика получает +1 пункт сама по себе, +2, если все четыре показателя выше 70. Устойчивое здоровое правление должно давать отдачу, а не просто «не терять очки»: коррумпированное правление, даже с хорошими цифрами по остальным статам, не считается «здоровым».</div>
       <div style={S.p}><span style={S.b}>Коррупция и CPI — осторожно, направления разные.</span> На вкладке Казна и в других местах видны ДВА числа коррупции: «внутренний балл» (0-100, тот же, что двигает игровую механику и заполняет шкалу — <b>выше = хуже</b>, больше коррупции) и «CPI» (индекс восприятия коррупции по методике Transparency International, реалистичный диапазон ~10-46 — <b>выше = ЛУЧШЕ</b>, меньше коррупции, как и в реальности). Они всегда двигаются в противоположные стороны: балл растёт — CPI падает, и наоборот. Порог «коррупция под контролем» для Организационного роста — внутренний балл ≤50, это соответствует CPI ≥28.</div>

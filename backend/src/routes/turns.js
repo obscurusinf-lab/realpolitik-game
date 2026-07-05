@@ -1693,6 +1693,18 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + gdpEconomyEffect));
         economyAutoEffects.push({ label: "Рост ВВП", delta: gdpEconomyEffect });
       }
+      // СТАГНАЦИЯ/РЕЦЕССИЯ ВВП (Петя, 2026-07-05): справедливо заметил, что рост ВВП около нуля —
+      // это уже признак больной экономики, а не нейтральное состояние. Канал выше округляет эффект
+      // до нуля в широкой "мёртвой зоне" вокруг базы 36 (Math.round при отклонении меньше ±4) —
+      // именно там экономика "стояла на месте" месяцами, хотя реальный рост был слабым/отрицательным.
+      // Реальный % роста (тот же, что видит игрок на карточке ВВП): 1 + (балл−36)×0.3. Если он ≤1% —
+      // отдельный видимый штраф, растущий по мере ухода в минус (не просто "бонуса не будет").
+      const gdpGrowthPct = 1 + (gdpGrowthNow - 36) * 0.3;
+      if (gdpGrowthPct <= 1) {
+        const stagnationPenalty = Math.min(-1, Math.round((gdpGrowthPct - 1) / 2));
+        newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + stagnationPenalty));
+        economyAutoEffects.push({ label: "Стагнация/спад ВВП", delta: stagnationPenalty });
+      }
       // ЗАНЯТОСТЬ → ЭКОНОМИКА: аналогично ВВП — employment раньше двигал только налоговую базу
       // (economyIncome/taxIncome выше) и инфляцию (кривая Филлипса), но не саму economy напрямую,
       // хотя занятость — такая же реальная часть экономического здоровья, как рост ВВП. Делитель
