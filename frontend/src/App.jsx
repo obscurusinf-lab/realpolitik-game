@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
+import { Responsive, WidthProvider } from "react-grid-layout";
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
+const ResponsiveGridLayout = WidthProvider(Responsive);
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 
@@ -6985,6 +6989,21 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const [confirmReserves, setConfirmReserves] = useState(false);
   const [confirmFxRegime, setConfirmFxRegime] = useState(false);
 
+  // Свободное расположение виджетов (Петя, 2026-07-05: "как в дашборде — двигать и менять
+  // размер по всему экрану, не только колонкой вниз"). Пилот на вкладке Казна — react-grid-layout,
+  // раскладка сохраняется в localStorage per-браузер (не per-партия — это личная настройка
+  // экрана игрока, не часть состояния игры).
+  const [treasuryLayout, setTreasuryLayout] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("rp_grid_treasury") || "null");
+      return Array.isArray(saved) ? saved : null;
+    } catch { return null; }
+  });
+  function handleTreasuryLayoutChange(next) {
+    setTreasuryLayout(next);
+    localStorage.setItem("rp_grid_treasury", JSON.stringify(next));
+  }
+
   useEffect(() => {
     fetchStatHistory(gameId).then(d => setStatHistory(d.history || [])).catch(() => {});
   }, [gameId]);
@@ -7089,15 +7108,39 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     finally { setLoading(null); }
   }
 
-  const sectionStyle = { marginBottom: 20 };
+  const sectionStyle = { height: "100%", overflow: "auto", boxSizing: "border-box" };
   const labelStyle = { fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", marginBottom: 8 };
   const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #e0dac8" };
 
+  // Раскладка по умолчанию — тот же порядок и примерный размер, что при вёрстке колонкой,
+  // просто теперь это стартовые координаты, а не жёсткая последовательность.
+  const TREASURY_DEFAULT_LAYOUT = [
+    { i: "treasury",   x: 0, y: 0,  w: 6, h: 8 },
+    { i: "economy",    x: 6, y: 0,  w: 6, h: 8 },
+    { i: "balance",    x: 0, y: 8,  w: 6, h: 10 },
+    { i: "ofz",        x: 6, y: 8,  w: 6, h: 10 },
+    { i: "keyrate",    x: 0, y: 18, w: 6, h: 9 },
+    { i: "corruption", x: 6, y: 18, w: 6, h: 9 },
+    { i: "reserves",   x: 0, y: 27, w: 6, h: 10 },
+    { i: "fxregime",   x: 6, y: 27, w: 6, h: 8 },
+    { i: "inflation",  x: 0, y: 37, w: 6, h: 8 },
+    { i: "oilfx",      x: 6, y: 37, w: 6, h: 10 },
+  ];
+
   return (
-    <div style={{ maxWidth: 560 }}>
+    <ResponsiveGridLayout
+      className="layout"
+      layouts={{ lg: treasuryLayout || TREASURY_DEFAULT_LAYOUT }}
+      breakpoints={{ lg: 900, sm: 0 }}
+      cols={{ lg: 12, sm: 1 }}
+      rowHeight={16}
+      margin={[14, 14]}
+      draggableHandle=".widget-drag-handle"
+      onLayoutChange={(layout, allLayouts) => handleTreasuryLayoutChange(allLayouts.lg || layout)}
+    >
       {/* Казна: текущий уровень */}
-      <div style={sectionStyle}>
-        <div style={labelStyle}>КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ</div>
+      <div key="treasury" style={sectionStyle}>
+        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ</div>
         <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: "1px solid #2a3040" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
             <div>
@@ -7133,8 +7176,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           объясняет EndMonthForecastPanel ниже (та же логика, что и на вкладке Показатели).
           Показываем в реалистичных единицах (₽/$/%%), а не в сырых баллах 0-100 —
           балл остаётся внутри для баланса, но игроку он ничего не говорит. */}
-      <div style={sectionStyle}>
-        <div style={labelStyle}>ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ</div>
+      <div key="economy" style={sectionStyle}>
+        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ</div>
         <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 90px" }}>
             <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#a8a294", marginBottom: 2 }}>Экономика</div>
@@ -7193,8 +7236,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
       {/* Баланс: доходы и расходы — очки + рублёвый эквивалент тем же курсом T, что и казна/
           резервы (см. TREASURY_PER_TRILLION) — раньше строки были только в абстрактных очках. */}
-      <div style={sectionStyle}>
-        <div style={labelStyle}>МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)</div>
+      <div key="balance" style={sectionStyle}>
+        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)</div>
         <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4 }}>
           <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
             <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a8a6a" }}>+ Налоговый доход (экономика {Math.round(eco)})</span>
@@ -7250,8 +7293,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
       </div>
 
       {/* ОФЗ: долговые инструменты */}
-      <div style={sectionStyle}>
-        <div style={labelStyle}>ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ</div>
+      <div key="ofz" style={sectionStyle}>
+        <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ</div>
         <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: `1px solid ${ofzCount > 0 ? "#5a3a10" : "#2a3040"}` }}>
           {/* Слоты выпусков */}
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
@@ -7339,8 +7382,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const rateTrend = keyRate < cbTarget ? "▲ растёт" : keyRate > cbTarget + 0.5 ? "▼ снижается" : "→ стабильна";
 
         return (
-          <div style={sectionStyle}>
-            <div style={labelStyle}>КЛЮЧЕВАЯ СТАВКА ЦБ</div>
+          <div key="keyrate" style={sectionStyle}>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>КЛЮЧЕВАЯ СТАВКА ЦБ</div>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
 
               {/* Текущая ставка */}
@@ -7476,8 +7519,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const corrCpi = corruptionCpiEquivalent(corrLevel);
         const corrDrainRubT = corruptionDrainRubTrillion(corruptionDrainT);
         return (
-          <div style={sectionStyle}>
-            <div style={labelStyle}>КОРРУПЦИЯ</div>
+          <div key="corruption" style={sectionStyle}>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>КОРРУПЦИЯ</div>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
@@ -7556,8 +7599,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const floorRubT = reservesRubTrillion(RESERVES_CONVERT_MIN_LEFT_T);
         const headroomRubT = Math.max(0, reservesRubT - floorRubT);
         return (
-          <div style={sectionStyle}>
-            <div style={labelStyle}>РЕЗЕРВЫ (ФНБ)</div>
+          <div key="reserves" style={sectionStyle}>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>РЕЗЕРВЫ (ФНБ)</div>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
@@ -7654,8 +7697,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const initiativeF = stats.initiative ?? 100;
         const canToggle = initiativeF >= 15;
         return (
-          <div style={sectionStyle}>
-            <div style={labelStyle}>КУРСОВАЯ ПОЛИТИКА</div>
+          <div key="fxregime" style={sectionStyle}>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>КУРСОВАЯ ПОЛИТИКА</div>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div>
@@ -7745,8 +7788,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const pct = inflationPercent(inf);
         const stormPct = inflationPercent(70); // порог штрафов в человеческом %
         return (
-          <div style={sectionStyle}>
-            <div style={labelStyle}>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
+          <div key="inflation" style={sectionStyle}>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ</div>
             <div style={{ background: inf > 70 ? "#1a0c08" : "#14181f", border: `1px solid ${inf > 70 ? "#7a3020" : "#2a3040"}`, borderRadius: 4, padding: "12px 14px" }}>
               {/* Значение + бар */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -7827,8 +7870,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const [showOilAdvice, setShowOilAdvice] = React.useState(false);
 
         return (
-          <div style={sectionStyle}>
-            <div style={labelStyle}>НЕФТЕДОХОДЫ И ВАЛЮТА</div>
+          <div key="oilfx" style={sectionStyle}>
+            <div className="widget-drag-handle" style={{ ...labelStyle, cursor: "grab" }}>НЕФТЕДОХОДЫ И ВАЛЮТА</div>
 
             {/* Котировки */}
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10 }}>
@@ -7940,7 +7983,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           </div>
         );
       })()}
-    </div>
+    </ResponsiveGridLayout>
   );
 }
 
