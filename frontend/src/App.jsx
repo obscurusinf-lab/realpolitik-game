@@ -2106,6 +2106,97 @@ function SpecialActionConfirmModal({ kind, onConfirm, onCancel }) {
   );
 }
 
+// Предупреждение министра финансов Силина (Петя, 2026-07-05: "нужны дисклеймеры от министра
+// финансов, который говорит караул — сейчас нигде не сказано, что всё идёт по пизде"). Данные —
+// то же economySummary, что бэкенд уже кладёт в ответ /turns/end-month (before/after/effects/
+// capped) и что раньше молча уходило только в текст новости "Минэкономразвития: Итоги месяца",
+// легко теряясь среди остальной ленты. Персона Силина — та же, что в advisors.js: сухой
+// бухгалтер, начинает с денег, мрачный юмор, никогда не паникует явно, просто перечисляет риски.
+function FinanceMinisterWarningModal({ summary, onClose }) {
+  const { before, after, effects = [], capped, cap } = summary;
+  const netChange = after - before;
+  const critical = after <= 30; // порог поражения defeat_collapse
+  const severe = after <= 35;
+  const negatives = effects.filter(e => e.delta < 0).sort((a, b) => a.delta - b.delta);
+  const positives = effects.filter(e => e.delta > 0);
+
+  const heading = critical
+    ? "Господин Президент, это уже не «однако необходимо учитывать» — это караул."
+    : severe
+    ? "Господин Президент, цифры больше не позволяют мне быть вежливым."
+    : "Господин Президент, вынужден отвлечь ваше внимание от текущих дел.";
+
+  const closing = critical
+    ? "Ещё один такой месяц — и отчитываться о состоянии казны будет уже не передо мной."
+    : severe
+    ? "Денег на манёвр почти не осталось. Дальше — на ваше усмотрение, но я предупредил."
+    : "Пока не катастрофа, но тренд явно не в нашу пользу — предпочёл сказать прямо, а не дожидаться, пока сами заметите.";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(13,16,22,0.85)", zIndex: 3700, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#1a1f2c", border: `1px solid ${critical ? "#8a3a3d" : "#3a4156"}`, borderRadius: 8, width: "min(94vw,480px)", maxHeight: "86vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
+        <div style={{ background: "#14181f", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `2px solid ${critical ? "#8a3a3d" : "#9c8347"}` }}>
+          <div>
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: critical ? "#e09090" : "#9c8347" }}>СЛУЖЕБНАЯ ЗАПИСКА · МИНФИН</div>
+            <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: "#ece7d8", marginTop: 2 }}>Силин А.Г., министр финансов</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#a8a294", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: "16px 20px 20px" }}>
+          <div className="doc-font" style={{ fontSize: 14, color: "#cdd3e0", lineHeight: 1.55, marginBottom: 14, fontStyle: "italic" }}>
+            «{heading}»
+          </div>
+
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+            <span className="mono-font" style={{ fontSize: 22, fontWeight: 700, color: critical ? "#e09090" : severe ? "#d8a860" : "#cdd3e0" }}>
+              {before} → {after}
+            </span>
+            <span className="mono-font" style={{ fontSize: 12, color: netChange < 0 ? "#e09090" : "#8fbf8f" }}>
+              ({netChange >= 0 ? "+" : ""}{netChange} за месяц)
+            </span>
+          </div>
+
+          {negatives.length > 0 && (
+            <div style={{ background: "#1a0c0c", border: "1px solid #4a2020", borderRadius: 5, padding: "10px 12px", marginBottom: 10 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#e09090", letterSpacing: "0.06em", marginBottom: 6 }}>ЧТО ТЯНЕТ ВНИЗ</div>
+              {negatives.map((e, i) => (
+                <div key={i} className="doc-font" style={{ fontSize: 12.5, color: "#d8b0b0", lineHeight: 1.5, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span>{e.label}</span><span className="mono-font">{e.delta}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {positives.length > 0 && (
+            <div style={{ background: "#0c1a0f", border: "1px solid #204a2a", borderRadius: 5, padding: "10px 12px", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8fbf8f", letterSpacing: "0.06em", marginBottom: 6 }}>ЧТО ЕЩЁ ДЕРЖИТ НА ПЛАВУ</div>
+              {positives.map((e, i) => (
+                <div key={i} className="doc-font" style={{ fontSize: 12.5, color: "#b0d8b8", lineHeight: 1.5, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span>{e.label}</span><span className="mono-font">+{e.delta}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {capped && (
+            <div className="doc-font" style={{ fontSize: 12, color: "#8a8472", fontStyle: "italic", marginBottom: 14 }}>
+              Автоматические потери месяца превысили потолок в −{cap} — часть эффекта уже компенсирована, иначе было бы хуже.
+            </div>
+          )}
+
+          <div className="doc-font" style={{ fontSize: 13, color: "#a8a294", lineHeight: 1.5, marginBottom: 16 }}>
+            {closing}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={onClose} style={{ background: critical ? "#8a3a3d" : "#9c8347", border: "none", borderRadius: 4, padding: "8px 18px", color: "#14181f", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Принято к сведению
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
   const [state, setState] = useState(null);
   const [assistMode, setAssistMode] = useState("advisor"); // закреплён на старте партии: "advisor" | "hardcore"
@@ -2138,6 +2229,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [confirming, setConfirming] = useState(false);
   const [turnError, setTurnError] = useState(null);
   const [endTurnResult, setEndTurnResult] = useState(null);
+  // Предупреждение Силина (Петя, 2026-07-05: "нигде не сказано, что всё идёт по пизде" —
+  // экономика молча проседает, разбивка тонет в ленте новостей). Бэкенд уже отдаёт
+  // economySummary в ответе /turns/end-month (before/after/effects/capped) — раньше фронтенд
+  // просто ничего с этим не делал. Показываем ТОЛЬКО когда месяц реально плохой, не каждый раз.
+  const [financeWarning, setFinanceWarning] = useState(null);
   const [lastActionResult, setLastActionResult] = useState(null); // результат последнего действия (не завершает ход)
   const [sessionTurnStart, setSessionTurnStart] = useState(null); // ход в начале сессии действий
   const [diplomaticReactions, setDiplomaticReactions] = useState(null);
@@ -2413,6 +2509,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         const res = await endMonth(gameId);
         setConfirming(false);
         if (res.gameOutcome) { setLastActionResult(null); setGameOutcome(res.gameOutcome); return; }
+        // Предупреждение Силина — только если месяц реально плохой (заметный спад ИЛИ уже
+        // приближаемся к порогу поражения economy<30), не на каждое небольшое колебание.
+        const es = res.economySummary;
+        if (es && (es.after - es.before <= -2 || es.after <= 35)) {
+          setFinanceWarning(es);
+        }
         // Показываем обзор накопленных за месяц реакций мира / действий Украины
         setEndTurnResult(lastActionResult || { narrative: `Месяц завершён. Наступает месяц ${res.nextMonth}.`, statDeltasPreview: {}, actionMode: "decree" });
         setLastActionResult(null);
@@ -2587,6 +2689,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           onCancel={() => setConfirmSpecialAction(null)}
           onConfirm={() => { const a = confirmSpecialAction.action; setConfirmSpecialAction(null); a(); }}
         />
+      )}
+      {financeWarning && (
+        <FinanceMinisterWarningModal summary={financeWarning} onClose={() => setFinanceWarning(null)} />
       )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=PT+Serif:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
