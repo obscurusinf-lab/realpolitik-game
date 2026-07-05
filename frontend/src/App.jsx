@@ -1900,26 +1900,6 @@ const OUTCOME_COLORS = {
   defeat_donbass_lost:      { bg: "#170707", border: "#8a3a3d", title: "#d9a3a3" },
 };
 
-// Зернистая плёночная текстура (SVG feTurbulence) — вместо "светящегося овала" даёт
-// холодную кинематографичную атмосферу, как цветокоррекция в сериале, а не WordArt.
-const FILM_GRAIN_BG = `url("data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>`
-)}")`;
-
-// Тонкая HUD-скобка по углу экрана — единственный "технический" акцент экрана конца
-// партии (Петя, 2026-07-05: атмосфера современной войны/дипломатии, но без полноэкранной
-// генеративной картинки и без английского текста — только рамка вокруг реального контента).
-function HudCorner({ pos, color }) {
-  const size = 26, offset = 18, edge = `1px solid ${color}`;
-  const posStyles = {
-    tl: { top: offset, left: offset, borderTop: edge, borderLeft: edge },
-    tr: { top: offset, right: offset, borderTop: edge, borderRight: edge },
-    bl: { bottom: offset, left: offset, borderBottom: edge, borderLeft: edge },
-    br: { bottom: offset, right: offset, borderBottom: edge, borderRight: edge },
-  };
-  return <div style={{ position: "absolute", width: size, height: size, opacity: 0.4, pointerEvents: "none", ...posStyles[pos] }} />;
-}
-
 function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
   const [legacy, setLegacy] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1934,63 +1914,45 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
       .finally(() => setLoading(false));
   }, [gameId, outcome]);
 
+  // Та же палитра/структура, что на стартовом экране (main.jsx StartScreen) — Петя явно
+  // одобрил её цвета (тёмно-синий #1a1f2c + кремовый текст + золотой акцент #9c8347) и
+  // спросил, почему не переиспользовать. Исходный цвет акцента заменён на colors.border,
+  // чтобы сохранить смысловую окраску исхода (зелёный/красный/т.д.), сам каркас — идентичен.
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 9999,
-      background: "linear-gradient(180deg, #0b0c10 0%, #08090b 55%, #060708 100%)",
-      boxShadow: "inset 0 0 220px 40px rgba(0,0,0,0.65)",
+      position: "fixed", inset: 0, zIndex: 9999, background: "#1a1f2c",
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
-      overflowY: "auto", padding: "40px 20px",
+      overflowY: "auto",
     }}>
-      {/* "Жалюзи" — диагональные полосы света, как в кабинете при жалюзи (House of Cards).
-          Первая версия (0.028 непрозрачности) оказалась НЕВИДИМОЙ на реальном экране/после
-          сжатия скриншота — Петя не увидел вообще ничего, "просто тёмный экран". Усилено. */}
       <div style={{
-        position: "absolute", inset: 0, pointerEvents: "none",
-        backgroundImage: "repeating-linear-gradient(115deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.09) 3px, transparent 3px, transparent 40px)",
-      }} />
-      {/* Плёночное зерно — без mix-blend-mode (он непредсказуемо гасил полосы жалюзи под собой) */}
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", backgroundImage: FILM_GRAIN_BG, opacity: 0.06 }} />
-      <HudCorner pos="tl" color={colors.border} />
-      <HudCorner pos="tr" color={colors.border} />
-      <HudCorner pos="bl" color={colors.border} />
-      <HudCorner pos="br" color={colors.border} />
-
-      {/* Строка сводки — реальные данные партии, не декоративные цифры */}
-      <div className="mono-font" style={{
-        position: "relative", fontSize: 10, letterSpacing: "0.14em", color: "#6b7280",
-        marginBottom: 26, textAlign: "center",
+        width: "100%", background: "linear-gradient(180deg,#0f1318 0%,#1a1f2c 100%)",
+        borderBottom: `2px solid ${colors.border}`, padding: "32px 20px 24px", textAlign: "center",
       }}>
-        ДЕЛО № {(gameId || "").slice(0, 8).toUpperCase()} · ХОД {turn}/24 · СТАТУС: ЗАВЕРШЕНО
-      </div>
-
-      {/* Header */}
-      <div style={{ position: "relative", textAlign: "center", marginBottom: 32, maxWidth: 700 }}>
-        <div style={{ fontSize: 11, letterSpacing: 4, color: "#555", marginBottom: 14, fontFamily: "monospace" }}>
-          {isVictory ? "— КОНЕЦ ПАРТИИ —" : "— ИГРА ОКОНЧЕНА —"}
+        <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: colors.border, marginBottom: 10 }}>
+          {isVictory ? "ИТОГ ПРАВЛЕНИЯ" : "ИГРА ОКОНЧЕНА"}
         </div>
-        <div style={{
-          fontSize: 27, fontWeight: 700, letterSpacing: 3, color: "#e4e6ea",
-          fontFamily: "'PT Serif',serif", textTransform: "uppercase", marginBottom: 14,
-        }}>
+        <div className="doc-font" style={{ margin: "0 0 6px", fontSize: 32, fontWeight: 700, letterSpacing: "0.02em", color: "#ece7d8", textTransform: "uppercase" }}>
           {outcomeTitle}
         </div>
-        <div style={{ width: 56, height: 1, background: colors.border, margin: "0 auto 16px", opacity: 0.8 }} />
-        {legacy?.verdict && (
-          <div style={{ fontSize: 15, color: "#9a9a9e", fontFamily: "'PT Serif',serif", lineHeight: 1.6, fontStyle: "italic" }}>
-            "{legacy.verdict}"
-          </div>
-        )}
+        <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", letterSpacing: "0.08em" }}>
+          дело № {(gameId || "").slice(0, 8).toUpperCase()} · ход {turn}/24
+        </div>
       </div>
 
+      {legacy?.verdict && (
+        <div className="doc-font" style={{ maxWidth: 700, textAlign: "center", fontSize: 15, color: "#9a9a9e", lineHeight: 1.6, fontStyle: "italic", margin: "24px 20px 0" }}>
+          "{legacy.verdict}"
+        </div>
+      )}
+
       {loading && (
-        <div style={{ color: "#555", fontFamily: "monospace", fontSize: 13, marginBottom: 30 }}>
+        <div style={{ color: "#555", fontFamily: "monospace", fontSize: 13, margin: "30px 20px 0" }}>
           Хроникёр составляет летопись…
         </div>
       )}
 
       {legacy && (
-        <div style={{ maxWidth: 720, width: "100%", display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ maxWidth: 720, width: "100%", padding: "24px 20px 0", display: "flex", flexDirection: "column", gap: 20 }}>
           {/* Title */}
           {legacy.title && (
             <div style={{
@@ -2052,8 +2014,9 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
         </div>
       )}
 
-      {/* Stats summary — плитки-"показания", тонкая верхняя засечка в цвете исхода */}
-      <div style={{ position: "relative", maxWidth: 720, width: "100%", marginTop: 24, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+      {/* Stats summary — та же карточка, что "quote box" на стартовом экране (#1f2733/#2a3040),
+          приглушённые (не мультяшно-яркие) semantic-цвета вместо пастельного зелёного/жёлтого/красного */}
+      <div style={{ maxWidth: 720, width: "100%", padding: "24px 20px 0", display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
         {[
           { label: "Экономика", key: "economy" },
           { label: "Армия", key: "military" },
@@ -2063,24 +2026,24 @@ function EndGameScreen({ outcome, gameId, stats, turn, onRestart }) {
           { label: "Мирный трек", key: "peace_progress" },
         ].map(s => {
           const val = stats?.[s.key] ?? 0;
-          const clr = val >= 65 ? "#81c784" : val >= 40 ? "#ffb74d" : "#ef9a9a";
+          const clr = val >= 65 ? "#8ba88f" : val >= 40 ? "#c2a06a" : "#b57b7b";
           return (
             <div key={s.key} style={{
-              background: "#111827", border: "1px solid #2a2a3e", borderTop: `2px solid ${colors.border}66`,
+              background: "#1f2733", border: "1px solid #2a3040", borderLeft: `3px solid ${colors.border}`,
               borderRadius: 4, padding: "10px 16px", textAlign: "center", minWidth: 90,
             }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: clr }}>{val}</div>
-              <div className="mono-font" style={{ fontSize: 9, color: "#666", marginTop: 2, letterSpacing: "0.04em", textTransform: "uppercase" }}>{s.label}</div>
+              <div className="doc-font" style={{ fontSize: 18, fontWeight: 700, color: clr }}>{val}</div>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2, letterSpacing: "0.04em", textTransform: "uppercase" }}>{s.label}</div>
             </div>
           );
         })}
       </div>
 
-      <div style={{ position: "relative", marginTop: 36, marginBottom: 20 }}>
+      <div style={{ marginTop: 32, marginBottom: 40 }}>
         <button onClick={onRestart} style={{
-          background: "transparent", color: "#e4e6ea", border: `1px solid ${colors.border}`, borderRadius: 2,
-          padding: "12px 32px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-          fontFamily: "'PT Serif',serif", letterSpacing: 2,
+          background: colors.border, color: "#14181f", border: "none", borderRadius: 4,
+          padding: "11px 30px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'PT Serif',serif", letterSpacing: 1,
         }}>
           НОВАЯ ПАРТИЯ
         </button>
