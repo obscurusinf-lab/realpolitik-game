@@ -1449,6 +1449,19 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
   const [advisorReply, setAdvisorReply] = useState(null);
   const [sendingArg, setSendingArg] = useState(false);
   const [revisedNote, setRevisedNote] = useState(null);
+  // Гармошка по категориям прогноза (Петя, 2026-07-06: "разделить все субстаты на категории и
+  // сделать гармошку из каждой") — по умолчанию всё раскрыто (это превью решения, игрок должен
+  // сразу видеть полную картину), сворачивание только по клику. Отслеживаем ЗАКРЫТЫЕ группы
+  // (не открытые) — так "Прочее" (динамический ключ вне DELTA_GROUPS) тоже открыт по умолчанию
+  // без необходимости перечислять его заранее.
+  const [closedGroups, setClosedGroups] = useState(() => new Set());
+  function toggleGroup(key) {
+    setClosedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
   const deltas = Object.entries(preview.statDeltasPreview || {}).filter(([, d]) => d !== 0);
   const econNotes = computeEconomyForecastNotes(currentStats, preview.statDeltasPreview);
@@ -1586,7 +1599,7 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
               Экономика: {fmtEcoNote(econNotes.total)}
             </span>
             <div className="mono-font" style={{ fontSize: 9, color: "#8a8fa0", marginTop: 2 }}>
-              ⤷ не от самого решения напрямую — с лагом, через побочные каналы (ВВП/занятость/армия/инфляция) ниже
+              ⤷ это не прямой эффект указа — экономика отреагирует с лагом через ВВП, занятость, армию и инфляцию (детали ниже)
             </div>
           </div>
         )}
@@ -1596,10 +1609,6 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
           // дублирования JSX в каждой подкатегории (Петя, 2026-07-05: "разбить на подкатегории").
           function renderDeltaItem(stat, delta) {
             const note = econNotes[stat];
-            const noteChannelLabel = stat === "military" ? "армию"
-              : stat === "gdp_growth" ? "рост ВВП" : stat === "employment" ? "занятость"
-              : stat === "inflation" ? "инфляцию" : stat === "treasury" ? "казна"
-              : ALL_STAT_LABELS[stat] ?? EXTRA_BAR_META[stat]?.label ?? stat;
             if (stat === "initiative") {
               return <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={currentStats?.initiative ?? 100} delta={delta} />;
             }
@@ -1609,7 +1618,7 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
                   <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
                   {note && (
                     <div className="mono-font" style={{ fontSize: 9, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                      ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoNote(note)}
+                      ⤷ на экономику подействует не сразу, а к концу месяца: {fmtEcoNote(note)}
                     </div>
                   )}
                 </div>
@@ -1625,7 +1634,7 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
                 {rubHint && <span style={{ opacity: 0.7, fontWeight: 400 }}> ({rubHint})</span>}
                 {note && (
                   <span style={{ display: "block", fontSize: 9.5, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                    ⤷ через {noteChannelLabel} — позже (не сразу) на экономику: {fmtEcoNote(note)}
+                    ⤷ на экономику подействует не сразу, а к концу месяца: {fmtEcoNote(note)}
                   </span>
                 )}
               </span>
@@ -1645,22 +1654,42 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
           if (groupSections.length === 0 && leftover.length === 0) {
             return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>;
           }
+          function groupHeader(key, label) {
+            const isOpen = !closedGroups.has(key);
+            return (
+              <button
+                onClick={() => toggleGroup(key)}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: "none", border: "none", cursor: "pointer", padding: "2px 0",
+                  marginBottom: isOpen ? 4 : 0,
+                }}
+              >
+                <span className="mono-font" style={{ fontSize: 8, color: "#6a7080", letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</span>
+                <span style={{ color: "#6a7080", fontSize: 9, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
+              </button>
+            );
+          }
           return (
             <>
               {groupSections.map(group => (
-                <div key={group.key} style={{ marginBottom: 10 }}>
-                  <div className="mono-font" style={{ fontSize: 8, color: "#6a7080", letterSpacing: "0.06em", marginBottom: 4, textTransform: "uppercase" }}>{group.label}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                    {group.items.map(([stat, delta]) => renderDeltaItem(stat, delta))}
-                  </div>
+                <div key={group.key} style={{ marginBottom: 8 }}>
+                  {groupHeader(group.key, group.label)}
+                  {!closedGroups.has(group.key) && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      {group.items.map(([stat, delta]) => renderDeltaItem(stat, delta))}
+                    </div>
+                  )}
                 </div>
               ))}
               {leftover.length > 0 && (
                 <div>
-                  <div className="mono-font" style={{ fontSize: 8, color: "#6a7080", letterSpacing: "0.06em", marginBottom: 4, textTransform: "uppercase" }}>Прочее</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                    {leftover.map(([stat, delta]) => renderDeltaItem(stat, delta))}
-                  </div>
+                  {groupHeader("leftover", "Прочее")}
+                  {!closedGroups.has("leftover") && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      {leftover.map(([stat, delta]) => renderDeltaItem(stat, delta))}
+                    </div>
+                  )}
                 </div>
               )}
             </>
