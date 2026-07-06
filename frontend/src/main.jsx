@@ -1256,9 +1256,6 @@ function saveActiveGame(game) {
 }
 
 function Root() {
-  if (new URLSearchParams(window.location.search).get("debugTreasury")) {
-    return <App gameId="debugpreview" playerName="Дебаг" onNewGame={() => {}} />;
-  }
   const [game, setGame] = useState(loadActiveGame);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
