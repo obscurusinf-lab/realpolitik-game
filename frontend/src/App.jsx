@@ -37,6 +37,17 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   }, []);
 
   const [ukraineItems, setUkraineItems] = useState([]);
+  // Гармошка по категориям для второстепенных статов (см. тот же паттерн в PreviewCard) —
+  // закрыта по умолчанию, компактная строка вместо баров, чтобы результат хода не превращался
+  // в стену из 10+ полос ради изменений ±1 (Петя, 2026-07-07: "выглядят перегруженно").
+  const [openResultGroups, setOpenResultGroups] = useState(() => new Set());
+  function toggleResultGroup(key) {
+    setOpenResultGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
   // Polling game state пока не появятся world reactions
   useEffect(() => {
@@ -158,28 +169,17 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
               })()}
             </div>
             {(() => {
-              // Субметрики/территории/мирный трек — тоже 0-100, получают бар (см. EXTRA_BAR_META
-              // и PreviewCard). "Казна" и прочее без единой 0-100 шкалы остаются плоским текстом.
-              // "Инициатива" — та же шкала 0-100, что у 5 базовых статов — получает бар отдельно.
-              const initiativeDelta = statDeltas.initiative;
-              const barExtraDeltas = Object.entries(statDeltas).filter(([s, d]) => d !== 0 && EXTRA_BAR_META[s]);
-              const otherDeltas = Object.entries(statDeltas).filter(
-                ([s, d]) => d !== 0 && !statMeta[s] && !EXTRA_BAR_META[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak"
+              // Второстепенные статы (субметрики/территории/мирный трек/инициатива/казна и т.д.,
+              // всё что не входит в 5 базовых статов выше) — тот же аккордеон по категориям, что
+              // и в превью указа (PreviewCard/DeltaGroupsAccordion), свёрнут по умолчанию: раньше
+              // тут была стена из 10+ полос ради изменений ±1 (Петя, 2026-07-07: "перегруженно").
+              const extraEntries = Object.entries(statDeltas).filter(
+                ([s, d]) => d !== 0 && !statMeta[s] && !s.startsWith("_") && s !== "military_streak"
               );
-              if (otherDeltas.length === 0 && barExtraDeltas.length === 0 && !initiativeDelta) return null;
+              if (extraEntries.length === 0) return null;
               return (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
-                  {!!initiativeDelta && (
-                    <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={prevStats?.initiative ?? 100} delta={initiativeDelta} />
-                  )}
-                  {barExtraDeltas.map(([stat, delta]) => (
-                    <PreviewStatBar key={stat} statKey={stat} current={prevStats?.[stat] ?? 50} delta={delta} />
-                  ))}
-                  {otherDeltas.map(([stat, delta]) => (
-                    <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
-                      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
-                    </span>
-                  ))}
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
+                  <DeltaGroupsAccordion deltas={extraEntries} current={prevStats} openGroups={openResultGroups} toggleGroup={toggleResultGroup} />
                 </div>
               );
             })()}
@@ -1143,6 +1143,101 @@ const DELTA_GROUPS = [
   { key: "resources", label: "Ресурсы",    stats: ["initiative"] },
 ];
 
+// Раскладывает плоский список [stat, delta] по DELTA_GROUPS + "Прочее" — общая логика для
+// PreviewCard (превью указа) и EndTurnScreen (результаты хода), обе страдали от одной и той же
+// "перегруженности" (Петя, 2026-07-07), теперь используют один и тот же аккордеон.
+function groupDeltaEntries(deltas) {
+  const groupedKeys = new Set();
+  const groupSections = DELTA_GROUPS.map(group => {
+    const items = deltas.filter(([s]) => group.stats.includes(s));
+    items.forEach(([s]) => groupedKeys.add(s));
+    return { ...group, items };
+  }).filter(g => g.items.length > 0);
+  const leftover = deltas.filter(([s]) => !groupedKeys.has(s) && !s.startsWith("_") && s !== "military_streak");
+  return { groupSections, leftover };
+}
+// Полный рендер пункта дельты (для РАСКРЫТОЙ группы) — бар для 0-100 шкалы, плоский текст для
+// остального (казна: -100..100, другой масштаб).
+function renderStatDeltaItem(stat, delta, current) {
+  if (stat === "initiative") {
+    return <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={current?.initiative ?? 100} delta={delta} />;
+  }
+  if (statMeta[stat] || EXTRA_BAR_META[stat]) {
+    return <PreviewStatBar key={stat} statKey={stat} current={current?.[stat] ?? 50} delta={delta} />;
+  }
+  // "Казна" тут — ОЧКИ (условная стата 0-100/−100..100), не деньги — добавляем рублёвый
+  // эквивалент тем же курсом, что и вкладка «Казна» (TREASURY_PER_TRILLION).
+  const rubHint = stat === "treasury" ? `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн` : null;
+  return (
+    <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
+      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+      {rubHint && <span style={{ opacity: 0.7, fontWeight: 400 }}> ({rubHint})</span>}
+    </span>
+  );
+}
+// Компактная строка (для СВЁРНУТОЙ группы) — только метка ± значение, без баров.
+function renderStatDeltaCompact(stat, delta) {
+  return (
+    <span key={stat} className="mono-font" style={{ fontSize: 10.5, color: deltaColor(stat, delta) }}>
+      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+    </span>
+  );
+}
+// Аккордеон-секция целиком (шапка с компактной сводкой при сворачивании + полный список при
+// раскрытии) — принимает openGroups/toggleGroup, чтобы каждый экран держал своё собственное
+// состояние (открытость групп не должна шариться между превью и результатами хода).
+function DeltaGroupsAccordion({ deltas, current, openGroups, toggleGroup }) {
+  const { groupSections, leftover } = groupDeltaEntries(deltas);
+  if (groupSections.length === 0 && leftover.length === 0) {
+    return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>;
+  }
+  function groupHeader(key, label, items) {
+    const isOpen = openGroups.has(key);
+    return (
+      <button
+        onClick={() => toggleGroup(key)}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "none", border: "none", cursor: "pointer", padding: "2px 0",
+          marginBottom: isOpen ? 4 : 0, gap: 8,
+        }}
+      >
+        <span className="mono-font" style={{ fontSize: 8, color: "#6a7080", letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>{label}</span>
+        {!isOpen && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end", flex: 1, minWidth: 0 }}>
+            {items.map(([stat, delta]) => renderStatDeltaCompact(stat, delta))}
+          </div>
+        )}
+        <span style={{ color: "#6a7080", fontSize: 9, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}>▾</span>
+      </button>
+    );
+  }
+  return (
+    <>
+      {groupSections.map(group => (
+        <div key={group.key} style={{ marginBottom: 8 }}>
+          {groupHeader(group.key, group.label, group.items)}
+          {openGroups.has(group.key) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              {group.items.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+            </div>
+          )}
+        </div>
+      ))}
+      {leftover.length > 0 && (
+        <div>
+          {groupHeader("leftover", "Прочее", leftover)}
+          {openGroups.has("leftover") && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              {leftover.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 // Разведданные по Украине — отдельная панель в StatsTab (не влияет на условия победы игрока)
 const UA_STAT_META = {
   ua_army:         { label: "Армия ВСУ",          icon: Swords,   color: "#7a8fae", desc: "Боевая мощь ВСУ — растёт от западных поставок, падает от ударов" },
@@ -1461,14 +1556,16 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
   const [advisorReply, setAdvisorReply] = useState(null);
   const [sendingArg, setSendingArg] = useState(false);
   const [revisedNote, setRevisedNote] = useState(null);
-  // Гармошка по категориям прогноза (Петя, 2026-07-06: "разделить все субстаты на категории и
-  // сделать гармошку из каждой") — по умолчанию всё раскрыто (это превью решения, игрок должен
-  // сразу видеть полную картину), сворачивание только по клику. Отслеживаем ЗАКРЫТЫЕ группы
-  // (не открытые) — так "Прочее" (динамический ключ вне DELTA_GROUPS) тоже открыт по умолчанию
-  // без необходимости перечислять его заранее.
-  const [closedGroups, setClosedGroups] = useState(() => new Set());
+  // Гармошка по категориям прогноза — по умолчанию ЗАКРЫТА (Петя, 2026-07-07: "выглядят
+  // перегруженно... чтоб игрок был осведомлён, но не был перегружен"): раньше всё было
+  // раскрыто сразу и любое изменение — даже ±1 — получало полновесный бар с повторяющейся
+  // подписью. Теперь свёрнутая группа показывает компактную строку (метка ± значение, без
+  // баров) — обзор за секунду; полные бары с деталями — по клику. Отслеживаем ОТКРЫТЫЕ
+  // группы (не закрытые) — так "Прочее" (динамический ключ вне DELTA_GROUPS) тоже закрыт по
+  // умолчанию без необходимости перечислять его заранее.
+  const [openGroups, setOpenGroups] = useState(() => new Set());
   function toggleGroup(key) {
-    setClosedGroups(prev => {
+    setOpenGroups(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
@@ -1615,98 +1712,10 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
             </div>
           </div>
         )}
-        {(() => {
-          // Рендер одного пункта дельты — бар для 5 базовых статов/суб-статов (0-100 шкала),
-          // плоский текст для остального (казна: -100..100, другой масштаб). Общая функция вместо
-          // дублирования JSX в каждой подкатегории (Петя, 2026-07-05: "разбить на подкатегории").
-          function renderDeltaItem(stat, delta) {
-            const note = econNotes[stat];
-            if (stat === "initiative") {
-              return <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={currentStats?.initiative ?? 100} delta={delta} />;
-            }
-            if (statMeta[stat] || EXTRA_BAR_META[stat]) {
-              return (
-                <div key={stat}>
-                  <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
-                  {note && (
-                    <div className="mono-font" style={{ fontSize: 9, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                      ⤷ на экономику подействует не сразу, а к концу месяца: {fmtEcoNote(note)}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-            // БАЛАНС (2026-07-04): "Казна" тут — это ОЧКИ (условная стата 0-100/−100..100), не
-            // деньги. Добавляем рублёвый эквивалент тем же курсом, что и вкладка «Казна»
-            // (TREASURY_PER_TRILLION) — раньше цена указа в очках нигде не переводилась в ₽.
-            const rubHint = stat === "treasury" ? `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн` : null;
-            return (
-              <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
-                {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
-                {rubHint && <span style={{ opacity: 0.7, fontWeight: 400 }}> ({rubHint})</span>}
-                {note && (
-                  <span style={{ display: "block", fontSize: 9.5, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                    ⤷ на экономику подействует не сразу, а к концу месяца: {fmtEcoNote(note)}
-                  </span>
-                )}
-              </span>
-            );
-          }
-
-          const groupedKeys = new Set();
-          const groupSections = DELTA_GROUPS.map(group => {
-            const items = deltas.filter(([s]) => group.stats.includes(s));
-            items.forEach(([s]) => groupedKeys.add(s));
-            return { ...group, items };
-          }).filter(g => g.items.length > 0);
-          // Подстраховка: любой стат вне известных подкатегорий (напр. будущая новая стата) не
-          // пропадает молча — попадает в "Прочее", а не теряется.
-          const leftover = deltas.filter(([s]) => !groupedKeys.has(s) && !s.startsWith("_") && s !== "military_streak");
-
-          if (groupSections.length === 0 && leftover.length === 0) {
-            return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>;
-          }
-          function groupHeader(key, label) {
-            const isOpen = !closedGroups.has(key);
-            return (
-              <button
-                onClick={() => toggleGroup(key)}
-                style={{
-                  width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: "none", border: "none", cursor: "pointer", padding: "2px 0",
-                  marginBottom: isOpen ? 4 : 0,
-                }}
-              >
-                <span className="mono-font" style={{ fontSize: 8, color: "#6a7080", letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</span>
-                <span style={{ color: "#6a7080", fontSize: 9, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
-              </button>
-            );
-          }
-          return (
-            <>
-              {groupSections.map(group => (
-                <div key={group.key} style={{ marginBottom: 8 }}>
-                  {groupHeader(group.key, group.label)}
-                  {!closedGroups.has(group.key) && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                      {group.items.map(([stat, delta]) => renderDeltaItem(stat, delta))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {leftover.length > 0 && (
-                <div>
-                  {groupHeader("leftover", "Прочее")}
-                  {!closedGroups.has("leftover") && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                      {leftover.map(([stat, delta]) => renderDeltaItem(stat, delta))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          );
-        })()}
+        {/* Пояснение про лаг ("на экономику подействует не сразу...") сказано один раз выше
+            (econNotes.total) — не повторяется под каждым статом ниже, это и было главным
+            источником "перегруженности" (Петя, 2026-07-07). */}
+        <DeltaGroupsAccordion deltas={deltas} current={currentStats} openGroups={openGroups} toggleGroup={toggleGroup} />
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
@@ -8539,17 +8548,60 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
   );
 }
 
+// Чип дельты стата на СВЕТЛОМ фоне Журнала (#ece7d8) — своя пара цветов, не renderStatDeltaCompact/
+// deltaColor (те рассчитаны на тёмные карточки превью/результатов хода — там же прямой текст без
+// фоновой плашки даёт контраст ~2:1 на пергаментном фоне, практически нечитаемо). Пара красный/
+// зелёный + светлая плашка под цвет — тот же паттерн, что уже используется в StatsTab на этом же
+// фоне (там расхождение указ/событие показано так же).
+function LogDeltaChip({ stat, delta }) {
+  const bad = INVERTED_STATS.has(stat) ? delta > 0 : delta < 0;
+  const bg = delta === 0 ? "#eee6d0" : bad ? "#fde8e8" : "#e8f5e8";
+  const color = delta === 0 ? "#8a8472" : bad ? "#a8313a" : "#4a6b5c";
+  return (
+    <span className="mono-font" style={{ fontSize: 10.5, background: bg, color, borderRadius: 3, padding: "1px 6px", fontWeight: 700 }}>
+      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+    </span>
+  );
+}
+
+// Журнал — раньше показывал только нарратив-пересказ хода, но не САМО решение игрока (что
+// именно было подписано) и не его цену/эффект в цифрах (Петя, 2026-07-07: "чтоб можно было
+// посмотреть все свои действия и решения"). Теперь под нарративом — исходный текст указа
+// (то, что игрок реально написал/выбрал) и компактная строка изменений статов за этот ход.
 function LogTab({ state }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      {[...state.log].reverse().map((entry, i) => (
-        <div key={i} style={{ position: "relative", paddingLeft: 18 }}>
-          <div style={{ position: "absolute", left: 0, top: 4, width: 8, height: 8, borderRadius: "50%", background: entry.turn === 0 ? "#9c8347" : "#a8313a" }} />
-          <div className="mono-font" style={{ fontSize: 10, color: "#8a8472", marginBottom: 2 }}>ХОД {entry.turn}</div>
-          <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{entry.title}</div>
-          <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#3a362e" }}>{entry.body}</div>
-        </div>
-      ))}
+      {[...state.log].reverse().map((entry, i) => {
+        const badge = entry.actionMode && ACTION_MODE_BADGE[entry.actionMode];
+        const deltaEntries = entry.statDeltas
+          ? Object.entries(entry.statDeltas).filter(([s, d]) => d !== 0 && !s.startsWith("_") && s !== "military_streak")
+          : [];
+        return (
+          <div key={i} style={{ position: "relative", paddingLeft: 18 }}>
+            <div style={{ position: "absolute", left: 0, top: 4, width: 8, height: 8, borderRadius: "50%", background: entry.turn === 0 ? "#9c8347" : "#a8313a" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+              <span className="mono-font" style={{ fontSize: 10, color: "#8a8472" }}>ХОД {entry.turn}</span>
+              {badge && (
+                <span className="mono-font" style={{ fontSize: 9, color: badge.color, border: `1px solid ${badge.color}`, borderRadius: 3, padding: "1px 6px" }}>
+                  {badge.label}
+                </span>
+              )}
+            </div>
+            <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{entry.title}</div>
+            {entry.decree && (
+              <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#6a6458", fontStyle: "italic", borderLeft: "2px solid #c8a857", paddingLeft: 8, marginBottom: 6 }}>
+                «{entry.decree}»
+              </div>
+            )}
+            <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#3a362e" }}>{entry.body}</div>
+            {deltaEntries.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+                {deltaEntries.map(([stat, delta]) => <LogDeltaChip key={stat} stat={stat} delta={delta} />)}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

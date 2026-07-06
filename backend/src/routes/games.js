@@ -214,7 +214,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     );
 
     const turnsRes = await db.query(
-      `SELECT turn_n, player_input, narrative_text, stat_deltas, created_at
+      `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at
        FROM turns WHERE game_id = $1 ORDER BY turn_n ASC`,
       [gameId]
     );
@@ -233,10 +233,16 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
         title: `Старт партии — ${game.country_name}`,
         body: game.overview?.headline || "Вы приступаете к управлению страной.",
       },
+      // player_input/action_mode/stat_deltas — уже были в turnsRes (запрос выше), просто не
+      // попадали в log; игрок не мог посмотреть свои прошлые решения и их эффект, только
+      // пересказ-нарратив (Петя, 2026-07-07: "чтоб можно было посмотреть все свои действия").
       ...turnsRes.rows.map((r) => ({
         turn: r.turn_n,
         title: `Ход ${r.turn_n}`,
         body: r.narrative_text,
+        decree: r.player_input || null,
+        actionMode: r.action_mode || null,
+        statDeltas: r.stat_deltas || null,
       })),
     ];
 
