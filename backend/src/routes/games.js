@@ -153,6 +153,20 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     return reply.send({ games: res.rows });
   });
 
+  // ---------- POST /games/:gameId/ping — heartbeat, пока вкладка открыта и видима ----------
+  // Индикатор "онлайн" в админке: last_ping_at свежий (< ~45с) значит игрок реально сейчас
+  // смотрит на партию, а не просто когда-то последний раз ходил (это уже есть — updated_at).
+  fastify.post("/games/:gameId/ping", async (request, reply) => {
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { gameId } = request.params;
+    await db.query(
+      `UPDATE games SET last_ping_at = now() WHERE id = $1 AND owner_user_id = $2`,
+      [gameId, payload.userId]
+    );
+    return reply.send({ ok: true });
+  });
+
   // ---------- DELETE /games/:gameId ----------
   fastify.delete("/games/:gameId", async (request, reply) => {
     const payload = verifyToken(request, reply);

@@ -27,6 +27,9 @@ CREATE TABLE games (
   status        TEXT NOT NULL DEFAULT 'active', -- active | collapsed | completed | abandoned
   multiplayer_session_id UUID,                  -- NULL для одиночной партии
   current_turn  INT NOT NULL DEFAULT 0,
+  last_ping_at  TIMESTAMPTZ,                    -- heartbeat от клиента — индикатор "онлайн" в админке
+  ukraine_manual_queue JSONB,                   -- админ пишет действие ЗА Украину — потребляется один раз следующим ходом
+  admin_advisor_notes JSONB NOT NULL DEFAULT '{}'::jsonb, -- { advisorId: "текст" } — админ переопределяет рекомендацию министра
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

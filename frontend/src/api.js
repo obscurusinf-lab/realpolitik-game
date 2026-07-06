@@ -81,6 +81,11 @@ export async function fetchGameState(gameId) {
   return res.json();
 }
 
+// Heartbeat, пока партия открыта и вкладка видима — источник индикатора "онлайн" в админке.
+export async function pingGame(gameId) {
+  try { await fetchWithTimeout(`${API_BASE}/games/${gameId}/ping`, { method: "POST" }, 8000); } catch {}
+}
+
 export async function previewTurn(gameId, playerInput, actionMode = "decree") {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/preview`, {
     method: "POST",

@@ -749,7 +749,26 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     let uaTitle, uaText, uaTypeForNewsfeed, uaResponses;
     const appliedDeltas = {};
 
-    if (willBetray) {
+    // РУЧНОЕ ДЕЙСТВИЕ АДМИНА (2026-07-06) — если админ поставил в очередь действие ЗА Украину
+    // (POST /admin/games/:gameId/ukraine-action), оно заменяет собой вероломство/ИИ/random
+    // ПОЛНОСТЬЮ на этот ход и потребляется один раз (очередь обнуляется сразу же). deltas в
+    // очереди — уже настоящие имена статов (economy/military/...), не *Delta-суффиксные ключи
+    // внутренних UA_ACTIONS/UA_STAT_MAP, поэтому применяются напрямую, без маппинга.
+    const manualQueueRes = await client.query(`SELECT ukraine_manual_queue FROM games WHERE id = $1`, [gameId]);
+    const manualAction = manualQueueRes.rows[0]?.ukraine_manual_queue || null;
+    if (manualAction) {
+      await client.query(`UPDATE games SET ukraine_manual_queue = NULL WHERE id = $1`, [gameId]);
+    }
+
+    if (manualAction) {
+      for (const [statKey, delta] of Object.entries(manualAction.deltas || {})) {
+        newStats[statKey] = Math.max(0, Math.min(100, (newStats[statKey] ?? 50) + Number(delta)));
+        appliedDeltas[statKey] = Number(delta);
+      }
+      uaTitle = manualAction.title; uaText = manualAction.text;
+      uaTypeForNewsfeed = manualAction.action_type || "admin_scripted"; uaResponses = undefined;
+      fastify.log.info({ gameId, turnNumber, actionType: uaTypeForNewsfeed }, "Ukraine action ADMIN-SCRIPTED fired");
+    } else if (willBetray) {
       const uaAction = (betrayalCount === 0) ? firstBetrayal : secondBetrayal;
       newStats.betrayal_count = betrayalCount + 1;
       fastify.log.info({ gameId, turnNumber, betrayalNumber: betrayalCount + 1 }, "Ukraine CEASEFIRE BETRAYAL fired");

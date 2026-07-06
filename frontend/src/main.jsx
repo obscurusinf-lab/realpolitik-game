@@ -634,6 +634,27 @@ function StatBar({ label, value }) {
   );
 }
 
+const UA_ACTION_TYPE_LABEL = {
+  drone_strike: "Удар дронами", rail_sabotage: "Диверсия на ж/д", counterattack: "Контрнаступление",
+  donbass_breakthrough: "Прорыв в Донбассе", dnipro_push: "Удары по Днепру", black_sea_strike: "Удар в Чёрном море",
+  diplomatic_offensive: "Дипломатическое наступление", info_warfare: "Информационная война",
+  sanctions_push: "Давление санкциями", grain_corridor_pressure: "Зерновой коридор",
+  weapons_delivery: "Поставки оружия", foreign_volunteers: "Иностранные добровольцы",
+  partisan_resistance: "Партизанское сопротивление", war_crimes_tribunal: "Трибунал по военным преступлениям",
+  pow_exchange_pr: "PR обмена пленными", soldier_leaks: "Утечка о потерях",
+};
+const UA_DELTA_KEYS = [
+  "economy", "military", "stability", "diplomacy", "approval", "peace_progress",
+  "army_morale", "readiness", "kharkiv_control", "kherson_control", "zaporizhzhia_control", "donetsk_control", "luhansk_control",
+];
+const UA_DELTA_LABEL = {
+  economy: "Экономика", military: "Армия", stability: "Стабильность", diplomacy: "Дипломатия", approval: "Рейтинг",
+  peace_progress: "Мирный трек", army_morale: "Боевой дух", readiness: "Готовность",
+  kharkiv_control: "Харьков", kherson_control: "Херсон", zaporizhzhia_control: "Запорожье",
+  donetsk_control: "Донецк", luhansk_control: "Луганск",
+};
+const ADVISOR_LABEL = { defense: "Белоев (оборона)", foreign: "Лавин (МИД)", finance: "Силин (финансы)", security: "Патров (СБ)", press: "Пестов (пресс)" };
+
 function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stats, initiative, onRefresh }) {
   const [mode, setMode] = useState("event");
   const [text, setText] = useState(""); const [source, setSource] = useState("");
@@ -642,6 +663,11 @@ function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stat
   const [statDeltas, setStatDeltas] = useState({ economy: 0, military: 0, stability: 0, diplomacy: 0, approval: 0 });
   const [statsAbs, setStatsAbs] = useState({ economy: stats?.economy ?? 50, military: stats?.military ?? 50, stability: stats?.stability ?? 50, diplomacy: stats?.diplomacy ?? 50, approval: stats?.approval ?? 50 });
   const [initVal, setInitVal] = useState(initiative ?? 100);
+  const [uaActionType, setUaActionType] = useState("drone_strike");
+  const [uaTitle, setUaTitle] = useState(""); const [uaText, setUaText] = useState("");
+  const [uaDeltas, setUaDeltas] = useState(() => Object.fromEntries(UA_DELTA_KEYS.map(k => [k, 0])));
+  const [advisorId, setAdvisorId] = useState("finance");
+  const [advisorNote, setAdvisorNote] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null); const [error, setError] = useState(null);
 
@@ -671,18 +697,28 @@ function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stat
       } else if (mode === "initiative") {
         await adm(pwd, `/games/${gameId}/set-initiative`, { method: "POST", body: JSON.stringify({ initiative: initVal }) });
         setResult(`Инициатива: ${initVal}`);
+      } else if (mode === "ukraine") {
+        const deltas = Object.fromEntries(Object.entries(uaDeltas).filter(([, v]) => v !== 0));
+        await adm(pwd, `/games/${gameId}/ukraine-action`, { method: "POST", body: JSON.stringify({ action_type: uaActionType, title: uaTitle, text: uaText, deltas }) });
+        setResult("В очереди — сработает как ход Украины на следующем ходу игрока."); setUaTitle(""); setUaText("");
+      } else if (mode === "advisor") {
+        await adm(pwd, `/games/${gameId}/advisor-note`, { method: "POST", body: JSON.stringify({ advisorId, text: advisorNote }) });
+        setResult(advisorNote.trim() ? `Заметка для «${ADVISOR_LABEL[advisorId]}» сохранена.` : `Заметка для «${ADVISOR_LABEL[advisorId]}» очищена.`);
       }
       onRefresh?.();
     } catch (e) { setError(e.message); } finally { setSending(false); }
   }
 
-  const canSend = mode === "event" ? !!text : mode === "foreign" ? (!!country && !!action) : true;
+  const canSend = mode === "event" ? !!text
+    : mode === "foreign" ? (!!country && !!action)
+    : mode === "ukraine" ? (!!uaTitle && !!uaText)
+    : true;
 
   return (
     <div style={{ background: "#0d1118", border: "1px solid #3a4156", borderRadius: 6, padding: 14, marginTop: 8 }}>
       <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 10 }}>⚡ ВМЕШАТЕЛЬСТВО · {gameName} ({countryId}) · ХОД {currentTurn}</div>
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-        {[["event","Событие"],["foreign","Ход страны"],["stats","Статы"],["initiative","Инициатива"]].map(([m,l]) => mBtn(m,l))}
+        {[["event","Событие"],["foreign","Ход страны"],["stats","Статы"],["initiative","Инициатива"],["ukraine","Украина"],["advisor","Советник"]].map(([m,l]) => mBtn(m,l))}
       </div>
       {mode === "event" && <>
         <input style={inp} placeholder="Источник…" value={source} onChange={e => setSource(e.target.value)} />
@@ -724,6 +760,34 @@ function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stat
           <input type="number" style={{ ...numInp, width: 80 }} min={0} max={200} value={initVal} onChange={e => setInitVal(Number(e.target.value))} />
         </div>
       )}
+      {mode === "ukraine" && <>
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 6 }}>
+          Действие ставится в очередь и сработает как ход Украины на следующем ходу игрока (заменяет собой ИИ/случайный выбор на этот раз).
+        </div>
+        <select style={{ ...inp, cursor: "pointer" }} value={uaActionType} onChange={e => setUaActionType(e.target.value)}>
+          {Object.entries(UA_ACTION_TYPE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        <input style={inp} placeholder="Заголовок новости…" value={uaTitle} onChange={e => setUaTitle(e.target.value)} />
+        <textarea style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Текст новости от лица Украины…" value={uaText} onChange={e => setUaText(e.target.value)} />
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 4 }}>Дельты статов (опционально, 0 = не трогать):</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px 12px", marginBottom: 8 }}>
+          {UA_DELTA_KEYS.map(k => (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", width: 78 }}>{UA_DELTA_LABEL[k]}</span>
+              <input type="number" style={numInp} min={-40} max={40} value={uaDeltas[k]} onChange={e => setUaDeltas(p => ({ ...p, [k]: Number(e.target.value) }))} />
+            </label>
+          ))}
+        </div>
+      </>}
+      {mode === "advisor" && <>
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 6 }}>
+          Переопределяет рекомендацию министра на карточке советников — держится, пока не смените текст или не очистите (пустое поле = очистить).
+        </div>
+        <select style={{ ...inp, cursor: "pointer" }} value={advisorId} onChange={e => setAdvisorId(e.target.value)}>
+          {Object.entries(ADVISOR_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        <textarea style={{ ...inp, height: 90, resize: "vertical" }} placeholder="Текст рекомендации от лица министра… (пусто — очистить заметку)" value={advisorNote} onChange={e => setAdvisorNote(e.target.value)} />
+      </>}
       {(mode === "event" || mode === "foreign") && (
         <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
           <input type="checkbox" checked={secret} onChange={e => setSecret(e.target.checked)} />
@@ -789,7 +853,12 @@ function AdminTabPlayers({ pwd }) {
             onMouseEnter={e => { if (selected !== u.id) e.currentTarget.style.background = "#1f2733"; }}
             onMouseLeave={e => { if (selected !== u.id) e.currentTarget.style.background = "transparent"; }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#ece7d8" }}>{u.display_name}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span title={u.online ? "Онлайн сейчас" : "Не в сети"}
+                  style={{ width: 7, height: 7, borderRadius: "50%", background: u.online ? "#5ac97f" : "#3a4156", flexShrink: 0,
+                    boxShadow: u.online ? "0 0 5px #5ac97f" : "none" }} />
+                <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#ece7d8" }}>{u.display_name}</div>
+              </div>
               {u.games_active > 0 && <div style={{ fontSize: 9, background: "#2a3a1a", color: "#7fae93", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>active</div>}
             </div>
             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
@@ -960,7 +1029,12 @@ function AdminTabGames({ pwd }) {
               onClick={() => { setExpanded(isOpen ? null : g.game_id); setIntervene(null); }}>
               <div style={{ fontSize: 18 }}>{COUNTRY_FLAG_MAP[g.country_id] || "🌐"}</div>
               <div style={{ flex: 1 }}>
-                <div className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{g.player_name}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span title={g.online ? "Онлайн сейчас" : "Не в сети"}
+                    style={{ width: 7, height: 7, borderRadius: "50%", background: g.online ? "#5ac97f" : "#3a4156", flexShrink: 0,
+                      boxShadow: g.online ? "0 0 5px #5ac97f" : "none" }} />
+                  <div className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{g.player_name}</div>
+                </div>
                 <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginTop: 2 }}>ход {g.current_turn} · {new Date(g.created_at).toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</div>
               </div>
               <div style={{ display: "flex", gap: 5 }}>

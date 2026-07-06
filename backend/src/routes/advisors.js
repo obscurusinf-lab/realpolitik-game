@@ -14,7 +14,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
     const { playerDraft, actionMode = "decree_reform" } = request.body || {};
 
     const gameRes = await db.query(
-      `SELECT g.current_turn, gs.stats, gs.relations, gs.policies, gs.overview,
+      `SELECT g.current_turn, gs.stats, gs.relations, gs.policies, gs.overview, g.admin_advisor_notes,
               c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
@@ -51,6 +51,16 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
       },
       callClaudeApi,
     });
+
+    // Ручная правка админа (2026-07-06, POST /admin/games/:gameId/advisor-note) — подменяет
+    // текст рекомендации конкретного министра ПОСЛЕ генерации ИИ, персистентно (пока админ не
+    // сменит/не очистит заметку) — не одноразово, в отличие от очереди действия Украины.
+    const notes = game.admin_advisor_notes || {};
+    if (Object.keys(notes).length > 0 && Array.isArray(result.advisors)) {
+      result.advisors = result.advisors.map(a =>
+        notes[a.id] ? { ...a, recommendation: notes[a.id], admin_note: true } : a
+      );
+    }
 
     return reply.send(result);
   });

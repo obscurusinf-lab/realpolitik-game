@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 
 // БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
@@ -2380,6 +2380,17 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     if (new URLSearchParams(window.location.search).get("debugTreasury")) return;
     loadState();
   }, [loadState]);
+
+  // Heartbeat для индикатора "онлайн" в админке — пингуем, пока вкладка реально видима
+  // (не просто открыта в фоне), раз в 25с + сразу при возврате фокуса на вкладку.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("debugTreasury")) return;
+    function pingIfVisible() { if (document.visibilityState === "visible") pingGame(gameId); }
+    pingIfVisible();
+    const interval = setInterval(pingIfVisible, 25000);
+    document.addEventListener("visibilitychange", pingIfVisible);
+    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", pingIfVisible); };
+  }, [gameId]);
 
   // Предзагрузка советников сразу после загрузки игры
   useEffect(() => {
@@ -7205,13 +7216,38 @@ function ofzMonthlyCostPerBondPreview(keyRate) {
 // виджеты, чтобы не осталось дыр. Хитбокс драга — вся строка заголовка (реальный "край" виджета,
 // не крошечная иконка). Растягивание — ручка ⤢ в углу, зажато между компактным минимумом и
 // РЕАЛЬНОЙ высотой контента (scrollHeight).
-function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, draggedId, onDragStart, onDrop, onDragEnd, children }) {
+function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, draggedId, onDragStart, onDrop, children }) {
   const isDragging = draggedId === id;
   const isMini = size === "mini";
   const bodyRef = useRef(null);
   const outerRef = useRef(null);
   const [dragPreviewHeight, setDragPreviewHeight] = useState(null);
+  const [dragOffset, setDragOffset] = useState(null); // {dx,dy} — карточка реально следует за курсором
   const MINI_HEIGHT = 92;
+
+  // Драг за счёт pointer-событий, а не нативного HTML5 draggable — карточка визуально едет
+  // вслед за курсором (translate по дельте), а не молча меняет порядок только на drop. Цель
+  // определяется в момент отпускания через elementsFromPoint (пропускает саму перетаскиваемую
+  // карточку — у неё pointerEvents:none, пока isDragging).
+  function handleHeaderPointerDown(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    onDragStart(id);
+    function onMove(ev) {
+      setDragOffset({ dx: ev.clientX - startX, dy: ev.clientY - startY });
+    }
+    function onUp(ev) {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setDragOffset(null);
+      const hit = document.elementsFromPoint(ev.clientX, ev.clientY)
+        .find(el => el.dataset && el.dataset.widgetId && el.dataset.widgetId !== id);
+      onDrop(id, hit ? hit.dataset.widgetId : null);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
   useEffect(() => {
     const el = outerRef.current;
@@ -7253,26 +7289,23 @@ function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, dragge
   const p = pos || { left: 0, top: 0, width: 320 };
 
   return (
-    <div ref={outerRef} style={{
+    <div ref={outerRef} data-widget-id={id} style={{
       position: "absolute",
       left: p.left, top: p.top, width: p.width,
       background: "linear-gradient(180deg,#242b3d 0%,#1e2433 100%)",
       borderRadius: 18,
-      boxShadow: isDragging ? "0 8px 26px rgba(0,0,0,0.5)" : "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)",
-      transform: isDragging ? "rotate(-1.5deg) scale(1.03)" : "none",
-      zIndex: isDragging ? 5 : 1,
+      boxShadow: isDragging ? "0 12px 30px rgba(0,0,0,0.55)" : "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)",
+      transform: isDragging && dragOffset ? `translate(${dragOffset.dx}px, ${dragOffset.dy}px) rotate(-1.5deg) scale(1.03)` : "none",
+      zIndex: isDragging ? 50 : 1,
+      pointerEvents: isDragging ? "none" : "auto",
       transition: isDragging ? "none" : "left 0.25s ease, top 0.25s ease, width 0.25s ease, box-shadow 0.15s, transform 0.15s",
     }}>
       <div
-        draggable
-        onDragStart={() => onDragStart(id)}
-        onDragOver={e => e.preventDefault()}
-        onDrop={() => onDrop(id)}
-        onDragEnd={onDragEnd}
+        onPointerDown={handleHeaderPointerDown}
         title="Потяните за эту область, чтобы переставить виджет"
         className="mono-font"
         style={{
-          fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", cursor: "grab", userSelect: "none",
+          fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", cursor: "grab", userSelect: "none", touchAction: "none",
           padding: "10px 16px 8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between",
         }}
       >
@@ -7370,13 +7403,16 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     [widgetOrder, cardHeights, treasuryGridWidth]
   );
 
-  function handleWidgetDrop(overId) {
-    if (!draggedWidgetId || draggedWidgetId === overId) { setDraggedWidgetId(null); return; }
+  // fromId передаётся явно самой карточкой (не через draggedWidgetId state) — иначе onUp,
+  // созданный в момент pointerdown, замыкается на handleWidgetDrop ТОГО рендера (ещё до того,
+  // как draggedWidgetId вообще обновился), и на pointerup читает устаревшее null/предыдущее id.
+  function handleWidgetDrop(fromId, overId) {
+    if (!fromId || !overId || fromId === overId) { setDraggedWidgetId(null); return; }
     const ids = [...widgetOrder];
-    const fromIdx = ids.indexOf(draggedWidgetId);
+    const fromIdx = ids.indexOf(fromId);
     const toIdx = ids.indexOf(overId);
     ids.splice(fromIdx, 1);
-    ids.splice(toIdx, 0, draggedWidgetId);
+    ids.splice(toIdx, 0, fromId);
     setWidgetOrder(ids);
     localStorage.setItem("rp_treasury_order", JSON.stringify(ids));
     setDraggedWidgetId(null);
@@ -7499,7 +7535,6 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     return {
       id, pos: widgetPositions[id], onHeightChange: handleCardHeight, size: widgetSizes[id], onSizeChange: setWidgetSize,
       draggedId: draggedWidgetId, onDragStart: setDraggedWidgetId, onDrop: handleWidgetDrop,
-      onDragEnd: () => setDraggedWidgetId(null),
     };
   }
 
@@ -8548,6 +8583,9 @@ function WikiTab({ dark = false }) {
 
       <div style={S.h}>ПРОЗРАЧНОСТЬ ПОКАЗАТЕЛЕЙ</div>
       <div style={S.p}>На экране результата хода каждый показатель разбит по источникам: <span style={S.b}>указ</span> (ваше решение) и <span style={S.b}>события</span> (мировые реакции, кризисы, бюджет). Если экономика упала на 5 при вашем указе на +2 — события дали −7. Это намеренно: мир давит независимо от ваших решений.</div>
+
+      <div style={S.h}>СТРАТЕГИЯ — ГЛАВНЫЙ УРОК</div>
+      <div style={S.p}>Игра не прощает игру в одну ось. Чистое наступление без передышек роняет экономику и заводит казну в дефицитную спираль (дефицит → инфляция → давление на экономику → ещё меньше налогов); чистая дипломатия без армии не защищает от изоляции и внешнего давления; чистая экономика без военной и дипломатической опоры оставляет страну уязвимой. Устойчивая партия — это <span style={S.b}>ротация</span>: одна-две наступательные операции, затем ход на восстановление (передышка/перегруппировка/экономический указ), и снова вперёд. Ключевое — останавливаться <span style={S.b}>до</span> того, как казна или армия уйдут в минус, а не пытаться выправить положение постфактум: реагировать на уже начавшуюся спираль дефицита обычно поздно, предотвратить её дешевле, чем разворачивать.</div>
 
       <div style={S.h}>ПУТИ К ПОБЕДЕ</div>
       <div style={S.p}><span style={S.b}>🏆 Военная победа</span> — взять Донецк и Луганск (100%), ещё 2 из 3 регионов, армия ≥85, все показатели выше 52.</div>
