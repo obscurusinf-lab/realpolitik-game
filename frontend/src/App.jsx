@@ -2333,6 +2333,22 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const [showTreasuryTip, setShowTreasuryTip] = useState(false);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("debugTreasury")) {
+      setState({
+        turn: 5,
+        stats: {
+          economy: 52, military: 60, stability: 66, diplomacy: 48, approval: 63,
+          gdp_growth: 20, employment: 60, inflation: 78, treasury: 40, initiative: 100,
+          reserves: 48, oil_price: 85, usd_rub: 80, key_rate: 18.5, corruption: 55,
+        },
+        policies: [], overview: { headline: "Тест", hotspots: [] }, log: [], newsfeed: [],
+      });
+      setLoaded(true);
+      setTab("treasury");
+    }
+  }, []);
+
   const loadState = useCallback(async () => {
     try {
       const data = await fetchGameState(gameId);
@@ -2361,11 +2377,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }, [gameId]);
 
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("debugTreasury")) return;
     loadState();
   }, [loadState]);
 
   // Предзагрузка советников сразу после загрузки игры
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("debugTreasury")) return;
     if (loaded && state && !advisors && !consulting) {
       handleConsult();
     }
@@ -7177,6 +7195,80 @@ function ofzMonthlyCostPerBondPreview(keyRate) {
   return Math.max(2, Math.round((keyRate ?? 18.5) / 6));
 }
 
+// Карточка-виджет Казны (Петя, 2026-07-06: "убери аккордеон, верни возможность двигать виджеты,
+// сделай их красивыми и объёмными, как на айфоне — хитбоксы это края виджета"). Переставление —
+// тот же паттерн, что уже обкатан для вкладок шапки (tabOrder/draggedTabId/handleTabDrop, см.
+// выше в файле) — обмен позициями через drag ручки ⋮⋮, не свободное 2D-позиционирование (это и
+// было сломано в react-grid-layout). Растягивание — ручка ⤢ в углу, высота зажата между
+// компактным минимумом и РЕАЛЬНОЙ высотой контента (scrollHeight) — дальше конца информации
+// физически не растянуть, в отличие от старой грид-системы с независимой от контента высотой.
+function WidgetCard({ id, label, order, size, onSizeChange, draggedId, onDragStart, onDrop, onDragEnd, children }) {
+  const isDragging = draggedId === id;
+  const isMini = size === "mini";
+  const bodyRef = useRef(null);
+  const [dragPreviewHeight, setDragPreviewHeight] = useState(null);
+  const MINI_HEIGHT = 92;
+
+  function handleResizeStart(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const el = bodyRef.current;
+    const startH = el ? el.getBoundingClientRect().height : MINI_HEIGHT;
+    function onMove(ev) {
+      const fullH = el ? el.scrollHeight : startH; // реальная высота контента, доступна даже пока сама область зажата
+      const next = Math.max(MINI_HEIGHT, Math.min(fullH, startH + (ev.clientY - startY)));
+      setDragPreviewHeight(next);
+    }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setDragPreviewHeight(cur => {
+        if (cur == null) return null;
+        const fullH = el ? el.scrollHeight : startH;
+        const mid = (MINI_HEIGHT + fullH) / 2;
+        onSizeChange(id, cur < mid ? "mini" : "full");
+        return null;
+      });
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  return (
+    <div style={{
+      order,
+      background: "linear-gradient(180deg,#242b3d 0%,#1e2433 100%)",
+      borderRadius: 18,
+      boxShadow: isDragging ? "0 8px 26px rgba(0,0,0,0.5)" : "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)",
+      position: "relative",
+      transform: isDragging ? "rotate(-1.5deg) scale(1.03)" : "none",
+      transition: "box-shadow 0.15s, transform 0.15s",
+    }}>
+      <div
+        draggable
+        onDragStart={() => onDragStart(id)}
+        onDragOver={e => e.preventDefault()}
+        onDrop={() => onDrop(id)}
+        onDragEnd={onDragEnd}
+        title="Перетащите, чтобы изменить порядок"
+        style={{ position: "absolute", top: 10, right: 12, color: "#5a6070", fontSize: 15, letterSpacing: 2, cursor: "grab", padding: 4, zIndex: 2, lineHeight: 1 }}
+      >⋮⋮</div>
+      <div style={{ padding: "12px 34px 14px 16px" }}>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", marginBottom: 8 }}>{label}</div>
+        <div ref={bodyRef} style={{ height: dragPreviewHeight != null ? dragPreviewHeight : (isMini ? MINI_HEIGHT : "auto"), overflow: "hidden" }}>
+          {children}
+        </div>
+      </div>
+      <div
+        onPointerDown={handleResizeStart}
+        title="Потяните, чтобы изменить размер (не дальше конца контента)"
+        style={{ position: "absolute", bottom: 6, right: 6, width: 16, height: 16, cursor: "ns-resize", color: "#5a6070", opacity: 0.6, zIndex: 2, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}
+      >⤢</div>
+    </div>
+  );
+}
+
 function TreasuryTab({ state, gameId, onRefresh }) {
   const stats = state.stats || {};
   const [loading, setLoading] = useState(null);
@@ -7185,22 +7277,50 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const [confirmReserves, setConfirmReserves] = useState(false);
   const [confirmFxRegime, setConfirmFxRegime] = useState(false);
 
-  // Гармошка виджетов Казны (Петя, 2026-07-06: свободный 2D-грид вчера оказался хуже, чем
-  // казалось — фиксированная высота ячейки не совпадает с реальной высотой контента (то пустая
-  // область, то обрезка), хитбокс драга слишком чувствительный, а на деле нужна была именно
-  // гармошка — плотная упаковка + раскрытие по клику. react-grid-layout убран целиком.
-  // Открытые виджеты — per-браузер, не часть состояния партии в БД.
-  const [openWidgets, setOpenWidgets] = useState(() => {
+  // Виджеты Казны — карточки с перестановкой (drag ⋮⋮, тот же паттерн, что уже обкатан для
+  // вкладок шапки — tabOrder/draggedTabId/handleTabDrop) и растягиванием (ручка ⤢, зажато между
+  // компактным минимумом и реальной высотой контента). Аккордеон (был здесь до этого) убран по
+  // просьбе игрока — "давай уберем аккордеон... верни возможность двигать виджеты" (2026-07-06).
+  // Порядок/размер — per-браузер, не часть состояния партии в БД.
+  const TREASURY_WIDGET_IDS = ["treasury", "economy", "balance", "ofz", "keyrate", "corruption", "reserves", "fxregime", "inflation", "oilfx"];
+  const [widgetOrder, setWidgetOrder] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("rp_treasury_open") || "null");
-      return Array.isArray(saved) ? new Set(saved) : new Set(["treasury"]);
-    } catch { return new Set(["treasury"]); }
+      const saved = JSON.parse(localStorage.getItem("rp_treasury_order") || "null");
+      if (Array.isArray(saved)) {
+        const known = saved.filter(id => TREASURY_WIDGET_IDS.includes(id));
+        const missing = TREASURY_WIDGET_IDS.filter(id => !known.includes(id));
+        return [...known, ...missing];
+      }
+    } catch {}
+    return TREASURY_WIDGET_IDS;
   });
-  function toggleWidget(id) {
-    setOpenWidgets(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      localStorage.setItem("rp_treasury_open", JSON.stringify([...next]));
+  const [widgetSizes, setWidgetSizes] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("rp_treasury_size") || "null");
+      return saved && typeof saved === "object" ? saved : {};
+    } catch { return {}; }
+  });
+  const [draggedWidgetId, setDraggedWidgetId] = useState(null);
+
+  function widgetOrderIndex(id) {
+    const idx = widgetOrder.indexOf(id);
+    return idx === -1 ? TREASURY_WIDGET_IDS.indexOf(id) : idx;
+  }
+  function handleWidgetDrop(overId) {
+    if (!draggedWidgetId || draggedWidgetId === overId) { setDraggedWidgetId(null); return; }
+    const ids = [...widgetOrder];
+    const fromIdx = ids.indexOf(draggedWidgetId);
+    const toIdx = ids.indexOf(overId);
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, draggedWidgetId);
+    setWidgetOrder(ids);
+    localStorage.setItem("rp_treasury_order", JSON.stringify(ids));
+    setDraggedWidgetId(null);
+  }
+  function setWidgetSize(id, sz) {
+    setWidgetSizes(prev => {
+      const next = { ...prev, [id]: sz };
+      localStorage.setItem("rp_treasury_size", JSON.stringify(next));
       return next;
     });
   }
@@ -7309,31 +7429,21 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     finally { setLoading(null); }
   }
 
-  // marginBottom вместо height:100% — виджеты пакуются плотно один за другим ("задница к
-  // заднице"), высота каждого — ровно по контенту, ничего не обрезается и не пустует.
-  const sectionStyle = { marginBottom: 8, boxSizing: "border-box" };
   const labelStyle = { fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.12em", color: "#8a8472" };
   const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #e0dac8" };
-  // Шапка-гармошка: клик по всей строке (не крошечная ручка) переключает открыт/закрыт.
-  function accordionHeader(id, label) {
-    const isOpen = openWidgets.has(id);
-    return (
-      <button onClick={() => toggleWidget(id)} style={{
-        width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-        background: "none", border: "none", cursor: "pointer", padding: "6px 2px", marginBottom: isOpen ? 8 : 0,
-      }}>
-        <span style={labelStyle}>{label}</span>
-        <span style={{ color: "#8a8472", fontSize: 10, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
-      </button>
-    );
+  function widgetCardProps(id) {
+    return {
+      id, order: widgetOrderIndex(id), size: widgetSizes[id], onSizeChange: setWidgetSize,
+      draggedId: draggedWidgetId, onDragStart: setDraggedWidgetId, onDrop: handleWidgetDrop,
+      onDragEnd: () => setDraggedWidgetId(null),
+    };
   }
 
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
       {/* Казна: текущий уровень */}
-      <div key="treasury" style={sectionStyle}>
-        {accordionHeader("treasury", "КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ")}
-        <div style={{ display: openWidgets.has("treasury") ? undefined : "none", background: "#14181f", borderRadius: 6, padding: "14px 16px", border: "1px solid #2a3040" }}>
+      <WidgetCard {...widgetCardProps("treasury")} label="КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ">
+        <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: "1px solid #2a3040" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
             <div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 700, color: gaugeColor }}>
@@ -7362,15 +7472,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             </div>
           )}
         </div>
-      </div>
+      </WidgetCard>
 
       {/* Экономика: сама стата + два её драйвера (ВВП, занятость) — почему растёт/падает,
           объясняет EndMonthForecastPanel ниже (та же логика, что и на вкладке Показатели).
           Показываем в реалистичных единицах (₽/$/%%), а не в сырых баллах 0-100 —
           балл остаётся внутри для баланса, но игроку он ничего не говорит. */}
-      <div key="economy" style={sectionStyle}>
-        {accordionHeader("economy", "ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ")}
-        <div style={{ display: openWidgets.has("economy") ? undefined : "none" }}>
+      <WidgetCard {...widgetCardProps("economy")} label="ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ">
         <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 90px" }}>
             <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#a8a294", marginBottom: 2 }}>Экономика</div>
@@ -7425,14 +7533,12 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           </div>
         )}
         <EndMonthForecastPanel stats={stats} policies={state.policies} />
-        </div>
-      </div>
+      </WidgetCard>
 
       {/* Баланс: доходы и расходы — очки + рублёвый эквивалент тем же курсом T, что и казна/
           резервы (см. TREASURY_PER_TRILLION) — раньше строки были только в абстрактных очках. */}
-      <div key="balance" style={sectionStyle}>
-        {accordionHeader("balance", "МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)")}
-        <div style={{ display: openWidgets.has("balance") ? undefined : "none", background: "#14181f", border: "1px solid #2a3040", borderRadius: 4 }}>
+      <WidgetCard {...widgetCardProps("balance")} label="МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)">
+        <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4 }}>
           <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
             <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a8a6a" }}>+ Налоговый доход (экономика {Math.round(eco)})</span>
             <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#5a8a6a", fontWeight: 700 }}>+{economyIncome} <span style={{ fontSize: 9, fontWeight: 400 }}>(≈₽{(economyIncome * T).toFixed(1)} трлн)</span></span>
@@ -7484,12 +7590,11 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             </span>
           </div>
         </div>
-      </div>
+      </WidgetCard>
 
       {/* ОФЗ: долговые инструменты */}
-      <div key="ofz" style={sectionStyle}>
-        {accordionHeader("ofz", "ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ")}
-        <div style={{ display: openWidgets.has("ofz") ? undefined : "none", background: "#14181f", borderRadius: 6, padding: "14px 16px", border: `1px solid ${ofzCount > 0 ? "#5a3a10" : "#2a3040"}` }}>
+      <WidgetCard {...widgetCardProps("ofz")} label="ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ">
+        <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: `1px solid ${ofzCount > 0 ? "#5a3a10" : "#2a3040"}` }}>
           {/* Слоты выпусков */}
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
             {Array.from({ length: OFZ_MAX }).map((_, i) => (
@@ -7548,7 +7653,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           </div>
           {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
         </div>
-      </div>
+      </WidgetCard>
 
       {/* Ключевая ставка ЦБ */}
       {(() => {
@@ -7576,9 +7681,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const rateTrend = keyRate < cbTarget ? "▲ растёт" : keyRate > cbTarget + 0.5 ? "▼ снижается" : "→ стабильна";
 
         return (
-          <div key="keyrate" style={sectionStyle}>
-            {accordionHeader("keyrate", "КЛЮЧЕВАЯ СТАВКА ЦБ")}
-            <div style={{ display: openWidgets.has("keyrate") ? undefined : "none", background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
+          <WidgetCard {...widgetCardProps("keyrate")} label="КЛЮЧЕВАЯ СТАВКА ЦБ">
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
 
               {/* Текущая ставка */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -7700,7 +7804,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
               {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
             </div>
-          </div>
+          </WidgetCard>
         );
       })()}
 
@@ -7713,9 +7817,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const corrCpi = corruptionCpiEquivalent(corrLevel);
         const corrDrainRubT = corruptionDrainRubTrillion(corruptionDrainT);
         return (
-          <div key="corruption" style={sectionStyle}>
-            {accordionHeader("corruption", "КОРРУПЦИЯ")}
-            <div style={{ display: openWidgets.has("corruption") ? undefined : "none", background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
+          <WidgetCard {...widgetCardProps("corruption")} label="КОРРУПЦИЯ">
+            <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 26, fontWeight: 700, color: corrColor, lineHeight: 1 }}>
@@ -7775,7 +7878,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
               {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
             </div>
-          </div>
+          </WidgetCard>
         );
       })()}
 
@@ -7793,9 +7896,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const floorRubT = reservesRubTrillion(RESERVES_CONVERT_MIN_LEFT_T);
         const headroomRubT = Math.max(0, reservesRubT - floorRubT);
         return (
-          <div key="reserves" style={sectionStyle}>
-            {accordionHeader("reserves", "РЕЗЕРВЫ (ФНБ)")}
-            <div style={{ display: openWidgets.has("reserves") ? undefined : "none" }}>
+          <React.Fragment>
+          <WidgetCard {...widgetCardProps("reserves")} label="РЕЗЕРВЫ (ФНБ)">
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
@@ -7842,7 +7944,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
               {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
             </div>
-            </div>
+          </WidgetCard>
 
             {confirmReserves && (
               <div onClick={() => setConfirmReserves(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -7883,7 +7985,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 </div>
               </div>
             )}
-          </div>
+          </React.Fragment>
         );
       })()}
 
@@ -7893,9 +7995,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const initiativeF = stats.initiative ?? 100;
         const canToggle = initiativeF >= 15;
         return (
-          <div key="fxregime" style={sectionStyle}>
-            {accordionHeader("fxregime", "КУРСОВАЯ ПОЛИТИКА")}
-            <div style={{ display: openWidgets.has("fxregime") ? undefined : "none" }}>
+          <React.Fragment>
+          <WidgetCard {...widgetCardProps("fxregime")} label="КУРСОВАЯ ПОЛИТИКА">
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div>
@@ -7930,7 +8031,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               )}
               {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#e09090", marginTop: 8 }}>{error}</div>}
             </div>
-            </div>
+          </WidgetCard>
 
             {confirmFxRegime && (
               <div onClick={() => setConfirmFxRegime(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -7973,7 +8074,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 </div>
               </div>
             )}
-          </div>
+          </React.Fragment>
         );
       })()}
 
@@ -7986,9 +8087,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const pct = inflationPercent(inf);
         const stormPct = inflationPercent(70); // порог штрафов в человеческом %
         return (
-          <div key="inflation" style={sectionStyle}>
-            {accordionHeader("inflation", "ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ")}
-            <div style={{ display: openWidgets.has("inflation") ? undefined : "none", background: inf > 70 ? "#1a0c08" : "#14181f", border: `1px solid ${inf > 70 ? "#7a3020" : "#2a3040"}`, borderRadius: 4, padding: "12px 14px" }}>
+          <WidgetCard {...widgetCardProps("inflation")} label="ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ">
+            <div style={{ background: inf > 70 ? "#1a0c08" : "#14181f", border: `1px solid ${inf > 70 ? "#7a3020" : "#2a3040"}`, borderRadius: 4, padding: "12px 14px" }}>
               {/* Значение + бар */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: inf > 70 ? "#e0c0a0" : "#ece7d8" }}>Инфляция</span>
@@ -8036,7 +8136,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 </div>
               )}
             </div>
-          </div>
+          </WidgetCard>
         );
       })()}
 
@@ -8068,9 +8168,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const [showOilAdvice, setShowOilAdvice] = React.useState(false);
 
         return (
-          <div key="oilfx" style={sectionStyle}>
-            {accordionHeader("oilfx", "НЕФТЕДОХОДЫ И ВАЛЮТА")}
-            <div style={{ display: openWidgets.has("oilfx") ? undefined : "none" }}>
+          <WidgetCard {...widgetCardProps("oilfx")} label="НЕФТЕДОХОДЫ И ВАЛЮТА">
 
             {/* Котировки */}
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10 }}>
@@ -8179,8 +8277,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                 </div>
               )}
             </div>
-            </div>
-          </div>
+          </WidgetCard>
         );
       })()}
     </div>
