@@ -7195,19 +7195,34 @@ function ofzMonthlyCostPerBondPreview(keyRate) {
   return Math.max(2, Math.round((keyRate ?? 18.5) / 6));
 }
 
-// Карточка-виджет Казны (Петя, 2026-07-06: "убери аккордеон, верни возможность двигать виджеты,
-// сделай их красивыми и объёмными, как на айфоне — хитбоксы это края виджета"). Переставление —
-// тот же паттерн, что уже обкатан для вкладок шапки (tabOrder/draggedTabId/handleTabDrop, см.
-// выше в файле) — обмен позициями через drag ручки ⋮⋮, не свободное 2D-позиционирование (это и
-// было сломано в react-grid-layout). Растягивание — ручка ⤢ в углу, высота зажата между
-// компактным минимумом и РЕАЛЬНОЙ высотой контента (scrollHeight) — дальше конца информации
-// физически не растянуть, в отличие от старой грид-системы с независимой от контента высотой.
-function WidgetCard({ id, label, order, size, onSizeChange, draggedId, onDragStart, onDrop, onDragEnd, children }) {
+// Карточка-виджет Казны (Петя, 2026-07-06: "виджеты должны перетаскиваться куда угодно, главное
+// чтоб не налезали друг на друга... перетаскивать беря за края"). Свободная 2D-раскладка —
+// masonry (кладём каждый виджет в самую короткую колонку, порядок укладки = widgetOrder), а не
+// CSS grid с фиксированной высотой строки (та оставляла пустое место — разные виджеты разной
+// высоты). Позиция каждой карточки (`pos.left/top/width`) считается родителем (TreasuryTab) и
+// применяется через absolute-позиционирование; сама карточка лишь измеряет свою реальную высоту
+// (ResizeObserver) и сообщает её наверх — родитель пересчитывает раскладку и переносит другие
+// виджеты, чтобы не осталось дыр. Хитбокс драга — вся строка заголовка (реальный "край" виджета,
+// не крошечная иконка). Растягивание — ручка ⤢ в углу, зажато между компактным минимумом и
+// РЕАЛЬНОЙ высотой контента (scrollHeight).
+function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, draggedId, onDragStart, onDrop, onDragEnd, children }) {
   const isDragging = draggedId === id;
   const isMini = size === "mini";
   const bodyRef = useRef(null);
+  const outerRef = useRef(null);
   const [dragPreviewHeight, setDragPreviewHeight] = useState(null);
   const MINI_HEIGHT = 92;
+
+  useEffect(() => {
+    const el = outerRef.current;
+    if (!el || !onHeightChange) return;
+    const ro = new ResizeObserver(entries => {
+      const h = entries[0]?.contentRect?.height;
+      if (h) onHeightChange(id, h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [id, onHeightChange]);
 
   function handleResizeStart(e) {
     e.preventDefault();
@@ -7235,15 +7250,18 @@ function WidgetCard({ id, label, order, size, onSizeChange, draggedId, onDragSta
     window.addEventListener("pointerup", onUp);
   }
 
+  const p = pos || { left: 0, top: 0, width: 320 };
+
   return (
-    <div style={{
-      order,
+    <div ref={outerRef} style={{
+      position: "absolute",
+      left: p.left, top: p.top, width: p.width,
       background: "linear-gradient(180deg,#242b3d 0%,#1e2433 100%)",
       borderRadius: 18,
       boxShadow: isDragging ? "0 8px 26px rgba(0,0,0,0.5)" : "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)",
-      position: "relative",
       transform: isDragging ? "rotate(-1.5deg) scale(1.03)" : "none",
-      transition: "box-shadow 0.15s, transform 0.15s",
+      zIndex: isDragging ? 5 : 1,
+      transition: isDragging ? "none" : "left 0.25s ease, top 0.25s ease, width 0.25s ease, box-shadow 0.15s, transform 0.15s",
     }}>
       <div
         draggable
@@ -7251,11 +7269,17 @@ function WidgetCard({ id, label, order, size, onSizeChange, draggedId, onDragSta
         onDragOver={e => e.preventDefault()}
         onDrop={() => onDrop(id)}
         onDragEnd={onDragEnd}
-        title="Перетащите, чтобы изменить порядок"
-        style={{ position: "absolute", top: 10, right: 12, color: "#5a6070", fontSize: 15, letterSpacing: 2, cursor: "grab", padding: 4, zIndex: 2, lineHeight: 1 }}
-      >⋮⋮</div>
-      <div style={{ padding: "12px 34px 14px 16px" }}>
-        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", marginBottom: 8 }}>{label}</div>
+        title="Потяните за эту область, чтобы переставить виджет"
+        className="mono-font"
+        style={{
+          fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", cursor: "grab", userSelect: "none",
+          padding: "10px 16px 8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}
+      >
+        <span>{label}</span>
+        <span style={{ color: "#5a6070", fontSize: 13, letterSpacing: 2 }}>⋮⋮</span>
+      </div>
+      <div style={{ padding: "0 16px 14px 16px" }}>
         <div ref={bodyRef} style={{ height: dragPreviewHeight != null ? dragPreviewHeight : (isMini ? MINI_HEIGHT : "auto"), overflow: "hidden" }}>
           {children}
         </div>
@@ -7267,6 +7291,25 @@ function WidgetCard({ id, label, order, size, onSizeChange, draggedId, onDragSta
       >⤢</div>
     </div>
   );
+}
+
+// Раскладка masonry для виджетов Казны: кладём каждый id (в порядке widgetOrder) в самую
+// короткую на данный момент колонку — как Pinterest/фотоплитка. Число колонок — из реальной
+// ширины контейнера (ResizeObserver), а не фиксированное — отзывчиво на размер окна/сайдбар.
+function computeMasonryPositions(ids, heights, containerWidth, colWidth, gap) {
+  const width = containerWidth > 0 ? containerWidth : colWidth;
+  const columns = Math.max(1, Math.floor((width + gap) / (colWidth + gap)));
+  const actualColWidth = columns > 1 ? (width - gap * (columns - 1)) / columns : width;
+  const colHeights = new Array(columns).fill(0);
+  const positions = {};
+  for (const id of ids) {
+    let col = 0;
+    for (let c = 1; c < columns; c++) if (colHeights[c] < colHeights[col]) col = c;
+    positions[id] = { left: col * (actualColWidth + gap), top: colHeights[col], width: actualColWidth };
+    colHeights[col] += (heights[id] || 220) + gap;
+  }
+  const maxHeight = Math.max(0, ...colHeights) - gap;
+  return { positions, height: maxHeight };
 }
 
 function TreasuryTab({ state, gameId, onRefresh }) {
@@ -7301,11 +7344,32 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     } catch { return {}; }
   });
   const [draggedWidgetId, setDraggedWidgetId] = useState(null);
-
-  function widgetOrderIndex(id) {
-    const idx = widgetOrder.indexOf(id);
-    return idx === -1 ? TREASURY_WIDGET_IDS.indexOf(id) : idx;
+  const [cardHeights, setCardHeights] = useState({});
+  const treasuryGridRef = useRef(null);
+  const [treasuryGridWidth, setTreasuryGridWidth] = useState(1200);
+  useEffect(() => {
+    const el = treasuryGridRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect?.width;
+      if (w) setTreasuryGridWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  function handleCardHeight(id, h) {
+    setCardHeights(prev => {
+      const rounded = Math.round(h);
+      if (prev[id] === rounded) return prev;
+      return { ...prev, [id]: rounded };
+    });
   }
+  const MASONRY_COL_WIDTH = 320, MASONRY_GAP = 14;
+  const { positions: widgetPositions, height: masonryHeight } = useMemo(
+    () => computeMasonryPositions(widgetOrder, cardHeights, treasuryGridWidth, MASONRY_COL_WIDTH, MASONRY_GAP),
+    [widgetOrder, cardHeights, treasuryGridWidth]
+  );
+
   function handleWidgetDrop(overId) {
     if (!draggedWidgetId || draggedWidgetId === overId) { setDraggedWidgetId(null); return; }
     const ids = [...widgetOrder];
@@ -7433,14 +7497,14 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #e0dac8" };
   function widgetCardProps(id) {
     return {
-      id, order: widgetOrderIndex(id), size: widgetSizes[id], onSizeChange: setWidgetSize,
+      id, pos: widgetPositions[id], onHeightChange: handleCardHeight, size: widgetSizes[id], onSizeChange: setWidgetSize,
       draggedId: draggedWidgetId, onDragStart: setDraggedWidgetId, onDrop: handleWidgetDrop,
       onDragEnd: () => setDraggedWidgetId(null),
     };
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+    <div ref={treasuryGridRef} style={{ position: "relative", height: masonryHeight || undefined, minHeight: 200 }}>
       {/* Казна: текущий уровень */}
       <WidgetCard {...widgetCardProps("treasury")} label="КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ">
         <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: "1px solid #2a3040" }}>
