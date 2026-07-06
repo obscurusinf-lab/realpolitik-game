@@ -2290,6 +2290,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     } catch { return null; }
   });
   const [draggedTabId, setDraggedTabId] = useState(null);
+  const [tabDragOffset, setTabDragOffset] = useState(null); // {dx,dy} — вкладка реально едет за курсором
   const [loaded, setLoaded] = useState(false);
   const [showWelcome, setShowWelcome] = useState(initialShowWelcome);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -2730,16 +2731,39 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const orderedTabIds = savedOrderIds ? [...savedOrderIds, ...missingTabIds] : tabIds;
   const orderedTabs = orderedTabIds.map(id => tabs.find(t => t.id === id));
 
-  function handleTabDrop(overId) {
-    if (!draggedTabId || draggedTabId === overId) { setDraggedTabId(null); return; }
+  // fromId передаётся явно самой кнопкой (тот же фикс, что и у виджетов Казны — onUp,
+  // созданный в момент pointerdown, иначе замыкается на handleTabDrop ТОГО рендера, где
+  // draggedTabId ещё не обновился, и на pointerup читает устаревшее значение).
+  function handleTabDrop(fromId, overId) {
+    if (!fromId || !overId || fromId === overId) { setDraggedTabId(null); return; }
     const ids = orderedTabs.map(t => t.id);
-    const fromIdx = ids.indexOf(draggedTabId);
+    const fromIdx = ids.indexOf(fromId);
     const toIdx = ids.indexOf(overId);
     ids.splice(fromIdx, 1);
-    ids.splice(toIdx, 0, draggedTabId);
+    ids.splice(toIdx, 0, fromId);
     setTabOrder(ids);
     localStorage.setItem("rp_tab_order", JSON.stringify(ids));
     setDraggedTabId(null);
+  }
+
+  // Драг вкладок за счёт pointer-событий (не нативный HTML5 draggable) — вкладка визуально
+  // едет за курсором, цель определяется через elementsFromPoint на отпускании (та же схема,
+  // что и у виджетов Казны — см. WidgetCard).
+  function handleTabPointerDown(e, tabId) {
+    if (e.button !== 0) return;
+    const startX = e.clientX, startY = e.clientY;
+    setDraggedTabId(tabId);
+    function onMove(ev) { setTabDragOffset({ dx: ev.clientX - startX, dy: ev.clientY - startY }); }
+    function onUp(ev) {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setTabDragOffset(null);
+      const hit = document.elementsFromPoint(ev.clientX, ev.clientY)
+        .find(el => el.dataset && el.dataset.tabId && el.dataset.tabId !== tabId);
+      handleTabDrop(tabId, hit ? hit.dataset.tabId : null);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   const isNuclearWorld = (state.newsfeed || []).some(n => n.type === "nuclear_reaction");
@@ -2861,7 +2885,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         </div>
       </div>
 
-      <div className="scroll-hide" style={{ display: "flex", gap: 2, padding: "10px 16px 0", overflowX: "auto", background: NK.tabBarBg }}>
+      <div className="scroll-hide" style={{ display: "flex", gap: 6, padding: "10px 16px 8px", overflowX: "auto", background: NK.tabBarBg }}>
         {orderedTabs.map((t) => {
           const Icon = t.icon;
           const active = tab === t.id;
@@ -2869,20 +2893,30 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           return (
             <button
               key={t.id}
+              data-tab-id={t.id}
               className="tab-btn"
-              draggable
-              onDragStart={() => setDraggedTabId(t.id)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => handleTabDrop(t.id)}
-              onDragEnd={() => setDraggedTabId(null)}
+              onPointerDown={(e) => handleTabPointerDown(e, t.id)}
               onClick={() => setTab(t.id)}
               title="Перетащите, чтобы изменить порядок вкладок"
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "9px 14px",
-                background: active ? NK.tabActiveBg : "transparent", color: active ? NK.tabActiveColor : NK.tabInactiveColor,
-                border: "none", borderRadius: "6px 6px 0 0", fontFamily: "'PT Serif',serif",
-                fontSize: 13, fontWeight: active ? 700 : 400, cursor: "grab", whiteSpace: "nowrap", flexShrink: 0,
-                opacity: dragging ? 0.4 : 1,
+                background: active
+                  ? `linear-gradient(180deg, ${NK.tabActiveBg} 0%, ${NK.tabActiveBg} 100%)`
+                  : "linear-gradient(180deg,#262d3f 0%,#1e2433 100%)",
+                color: active ? NK.tabActiveColor : NK.tabInactiveColor,
+                border: "none", borderRadius: 10, fontFamily: "'PT Serif',serif",
+                fontSize: 13, fontWeight: active ? 700 : 400, whiteSpace: "nowrap", flexShrink: 0,
+                boxShadow: dragging
+                  ? "0 10px 26px rgba(0,0,0,0.5)"
+                  : active
+                    ? "0 3px 10px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.15)"
+                    : "0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)",
+                transform: dragging && tabDragOffset ? `translate(${tabDragOffset.dx}px, ${tabDragOffset.dy}px) scale(1.05) rotate(-1.5deg)` : "none",
+                zIndex: dragging ? 50 : 1,
+                pointerEvents: dragging ? "none" : "auto",
+                cursor: "grab", touchAction: "none",
+                transition: dragging ? "none" : "transform 0.15s, box-shadow 0.15s",
+                position: "relative",
               }}
             >
               <Icon size={14} />
