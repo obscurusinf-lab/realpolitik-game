@@ -66,6 +66,12 @@ const SUBSTAT_DEFAULTS = {
   media_control: 76,
   // peace
   peace_progress: 12,
+  // Украина — "полная симметрия" (2026-07-06): аддитивные новые статы, ua_army/ua_west_support/
+  // ua_morale НЕ трогаем (существующие ключи, не переименовывать — риск для сейвов). Зеркалит
+  // 5 базовых статов России (economy/military/diplomacy/stability/approval).
+  ua_economy: 55,
+  ua_diplomacy: 70,
+  ua_stability: 60,
   // бюджет/казна (0–100 для баланса; на экране — ещё и в ₽ трлн). Может уходить в минус (дефицит).
   treasury: 52,
   // Нефть и валюта — РЕАЛЬНЫЕ единицы (не 0–100): $/баррель Brent и ₽/$.
@@ -188,6 +194,15 @@ const INTEL_BOOST_FACTOR = 1.3;
 // месяц/распад/дата продвигаются по «Завершить месяц»); false — 1 действие = 1 месяц (старая).
 // Флаг для обратимости: если новая модель не зайдёт — ставим false.
 const MULTI_ACTION_TURNS = true;
+
+// МОДЕЛЬ УКРАИНЫ (Петя, 2026-07-06): true — полная симметрия с игроком (собственные 5 статов
+// ua_economy/ua_army/ua_diplomacy/ua_stability/ua_morale, своя UA_RULES_TABLE с диапазонами
+// дельт, ИИ свободно выбирает категорию+severity+пишет нарратив — см. ukraine-rules-engine.js
+// и ukraine-action-v2.js); false — прежняя реактивная модель (UA_ACTIONS, 17 канонических
+// событий, generateUkraineAction/scaleUaDeltas, построено в этой же сессии до полной симметрии).
+// Флаг для обратимости: пробуем на паре партий — если не зайдёт, ставим false, старый код
+// НЕ удалён и продолжает работать байт-в-байт как раньше.
+const UKRAINE_FULL_SYMMETRY = true;
 
 // Метрики, у которых РОСТ = ПЛОХО (инвертированные). Используются для цветокодирования.
 const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "isolation", "war_escalation_counter"]);
@@ -338,8 +353,12 @@ function seededFraction(seedString) {
  * Использует небольшой детерминированный разброс внутри диапазона severity,
  * чтобы избежать ощущения "всегда одно и то же число", но без рандома.
  */
-function computeStatDelta({ category, stat, severity, seed }) {
-  const range = RULES_TABLE[category]?.[stat];
+// Параметризовано таблицей/лимитами (Петя, 2026-07-06: "полная симметрия для Украины" — второй
+// актор нуждается в своей таблице категорий, но с той же самой детерминированной формулой).
+// computeStatDelta ниже — тонкая обёртка с ТЕМИ ЖЕ аргументами, что и раньше: оба существующих
+// вызова в этом файле не тронуты, поведение идентично (см. regression guard в HANDOFF.md).
+function computeStatDeltaFromTable(table, { category, stat, severity, seed }, maxDeltaTable = MAX_DELTA_PER_TURN) {
+  const range = table[category]?.[stat];
   if (!range) return 0;
   const [min, max] = range;
   if (min === 0 && max === 0) return 0;
@@ -350,8 +369,11 @@ function computeStatDelta({ category, stat, severity, seed }) {
   const effectiveMultiplier = Math.min(1, Math.max(0, baseMultiplier + jitter));
 
   const raw = min + (max - min) * effectiveMultiplier;
-  const capped = Math.max(-MAX_DELTA_PER_TURN[stat], Math.min(MAX_DELTA_PER_TURN[stat], raw));
+  const capped = Math.max(-maxDeltaTable[stat], Math.min(maxDeltaTable[stat], raw));
   return Math.round(capped);
+}
+function computeStatDelta(args) {
+  return computeStatDeltaFromTable(RULES_TABLE, args, MAX_DELTA_PER_TURN);
 }
 
 /**
@@ -797,6 +819,7 @@ module.exports = {
   MAX_RELATION_DELTA_DIRECT,
   MAX_RELATION_DELTA_SPILLOVER,
   computeStatDelta,
+  computeStatDeltaFromTable,
   computeDelayedEffectDelta,
   applyClamped,
   applyTurn,
@@ -807,4 +830,8 @@ module.exports = {
   TREASURY_PER_TRILLION,
   INVERTED_STATS,
   MILITARY_FATIGUE_THRESHOLD,
+  SEVERITY_MULTIPLIER,
+  TERRITORY_KEYS,
+  TERRITORY_HARDNESS,
+  UKRAINE_FULL_SYMMETRY,
 };

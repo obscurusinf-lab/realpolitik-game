@@ -23,6 +23,11 @@
 
 const { classifyTurn } = require("../ai/gamemaster");
 const { generateUkraineAction } = require("../ai/ukraine-action");
+const { generateUkraineActionV2 } = require("../ai/ukraine-action-v2");
+const {
+  UA_RULES_TABLE, UA_CATEGORY_LABELS, UA_CATEGORY_RESPONSES, UA_EXPOSURE_ELIGIBLE,
+  computeUaStatDelta, computeUaTerritoryPull,
+} = require("../rules/ukraine-rules-engine");
 // verifyToken injected via options
 
 // Масштабирует базовые (баланс-тестированные) дельты действия Украины по magnitude ИИ (0-1) —
@@ -121,7 +126,7 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
 
   return null;
 }
-const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP } = require("../rules/rules-engine");
+const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP, UKRAINE_FULL_SYMMETRY, rollExposure } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
 // Вычисляет новую дату игры (+1 месяц в обычном режиме, +2 недели в кризисном)
@@ -432,6 +437,482 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       [gameId]
     );
     return res.rows[0] || null;
+  }
+
+  // Полная карта дельт-полей -> реальные ключи статов, общая для всех путей действия Украины
+  // (confirm/regroup, обе версии флага). Раньше /turns/regroup использовал УКОРОЧЕННУЮ копию без
+  // zaporizhzhia/donetsk/luhansk (существующий баг, не относящийся к симметрии — фиксится тут
+  // побочным эффектом консолидации).
+  const UA_STAT_MAP = {
+    economyDelta: "economy", stabilityDelta: "stability", approvalDelta: "approval",
+    diplomacyDelta: "diplomacy", militaryDelta: "military", peace_progressDelta: "peace_progress",
+    army_moraleDelta: "army_morale", readinessDelta: "readiness",
+    kharkivDelta: "kharkiv_control", khersonDelta: "kherson_control",
+    zaporizhzhiaDelta: "zaporizhzhia_control", donetskDelta: "donetsk_control",
+    luhanskDelta: "luhansk_control",
+  };
+
+  /**
+   * Консолидированная логика ОДНОГО хода Украины — раньше жила в ТРЁХ независимых местах
+   * (/turns/confirm с UA_ACTIONS+generateUkraineAction, /turns/regroup с ОТДЕЛЬНЫМ
+   * UA_REGROUP_ACTIONS на чистом Math.random() без seed и без флага ukraine_action_this_month,
+   * и "передышка" — без события вообще). Реализовать "полную симметрию" только в первом месте
+   * значило бы получить асимметрию ВНУТРИ самой симметрии — после перегруппировки (частое
+   * действие) Украина откатывалась бы на бедную логику. См. HANDOFF.md запись 2026-07-06.
+   *
+   * contextLabel: "confirm" | "regroup" — влияет только на промпт ИИ (v2-путь) и на выбор
+   * таблицы событий в false-ветке (UA_ACTIONS vs UA_REGROUP_ACTIONS, оба СОХРАНЕНЫ как есть).
+   * pendingActionMode: режим действия ИГРОКА в этом ходу (undefined для regroup — там нет
+   * "хода игрока" в смысле decree/diplomacy_op, поэтому вероломство Киева там просто не
+   * триггерится, как и раньше — regroup никогда не проверял isPeaceMove).
+   *
+   * Мутирует newStats на месте (тот же паттерн, что и раньше), пишет запись в newsfeed_items
+   * через переданный client, выставляет newStats.ukraine_action_this_month = true.
+   */
+  async function runUkraineTurn({ newStats, gameId, turnNumber, callClaudeApi, client, pendingActionMode, contextLabel }) {
+    const mil = newStats.military ?? 50;
+    const eco = newStats.economy ?? 50;
+    const peace = newStats.peace_progress ?? 0;
+    const don = newStats.donetsk_control ?? 78;
+    const kha = newStats.kharkiv_control ?? 12;
+    const armyMoraleNow = newStats.army_morale ?? 62;
+    const readinessNow = newStats.readiness ?? 70;
+
+    // --- существующая таблица из 17 событий (было в /turns/confirm) — БЕЗ ИЗМЕНЕНИЙ ---
+    const UA_ACTIONS = [
+      {
+        type: "drone_strike", weight: eco > 45 ? 3 : 5,
+        title: "Удар по нефтяной инфраструктуре",
+        text: "Украинские FPV-дроны атаковали нефтеперерабатывающий завод в Саратовской области. Пожар продолжается несколько часов — ущерб оценивается в $200 млн. Нефтяные фьючерсы выросли на фоне перебоев поставок.",
+        economyDelta: -3, stabilityDelta: -1,
+        responses: [
+          { label: "Усилить ПВО и ввести режим воздушной тревоги в пострадавших регионах", type: "defend" },
+          { label: "Нанести ответный удар по украинской энергетической инфраструктуре", type: "retaliate" },
+          { label: "Признать потери и продолжить военную программу в штатном режиме", type: "accept" },
+        ],
+      },
+      {
+        type: "rail_sabotage", weight: mil > 70 ? 2 : 3,
+        title: "Диверсия на логистической инфраструктуре",
+        text: "Группа украинских диверсантов подорвала железнодорожный мост в Курской области. Движение военных грузов нарушено. Переброска техники на фронт задерживается на несколько суток.",
+        militaryDelta: -2, readinessDelta: -3,
+        responses: [
+          { label: "Развернуть силы ФСБ и Росгвардии для зачистки приграничных районов", type: "defend" },
+          { label: "Ответить ударами по украинским транспортным узлам", type: "retaliate" },
+          { label: "Переориентировать логистику на обходные маршруты", type: "accept" },
+        ],
+      },
+      {
+        type: "counterattack", weight: kha < 30 ? 4 : 2,
+        title: "Контрнаступление ВСУ",
+        text: "Силы ВСУ при поддержке западной артиллерии предприняли контрнаступление на харьковском направлении. Бои идут в нескольких сёлах. Российские подразделения отходят на заранее подготовленные позиции.",
+        kharkivDelta: -4, army_moraleDelta: -2,
+        responses: [
+          { label: "Экстренно перебросить резервы для стабилизации линии фронта", type: "defend" },
+          { label: "Начать контрудар с целью полного окружения прорвавшихся частей", type: "retaliate" },
+          { label: "Выровнять линию обороны — тактическое отступление сохранит силы", type: "accept" },
+        ],
+      },
+      {
+        type: "donbass_breakthrough",
+        weight: mil < 30 ? 6 : (armyMoraleNow < 35 && readinessNow < 35) ? 3 : (armyMoraleNow < 45 && readinessNow < 45) ? 1 : 0,
+        title: "Прорыв фронта в Донбассе",
+        text: "Резкое падение боеспособности российской группировки позволило ВСУ провести масштабное наступление на донбасском направлении. Украинские части заняли ряд населённых пунктов, ранее считавшихся глубоким тылом — линия фронта рушится на глазах.",
+        donetskDelta: -8, luhanskDelta: -6, army_moraleDelta: -4,
+        responses: [
+          { label: "Экстренно перебросить резервы и стабилизировать фронт любой ценой", type: "defend" },
+          { label: "Нанести массированный контрудар для восстановления позиций", type: "retaliate" },
+          { label: "Организовать плановый отход на новые рубежи обороны", type: "accept" },
+        ],
+      },
+      {
+        type: "dnipro_push", weight: don > 90 ? 4 : 1,
+        title: "Удары по переправам через Днепр",
+        text: "ВСУ нанесли серию ракетных ударов по мостам и переправам через Днепр. Снабжение группировки в Херсонской области осложнено. Командование вынуждено перейти на воздушное снабжение.",
+        khersonDelta: -3, economyDelta: -2,
+        responses: [
+          { label: "Организовать альтернативные маршруты снабжения через понтонные переправы", type: "defend" },
+          { label: "Нанести превентивные удары по украинским ракетным позициям", type: "retaliate" },
+          { label: "Перегруппировать войска и перейти к обороне правого берега", type: "accept" },
+        ],
+      },
+      {
+        type: "diplomatic_offensive", weight: peace > 30 ? 5 : 2,
+        title: "Дипломатическое наступление Киева",
+        text: "Глава МИД Украины совершил стремительный тур по европейским столицам. Киев добился расширения пакета помощи и новых обязательств по поставкам вооружений. Мирные инициативы Москвы названы «дымовой завесой».",
+        peace_progressDelta: -10, diplomacyDelta: -3,
+        responses: [
+          { label: "Запустить контрдипломатическую кампанию через нейтральных посредников", type: "defend" },
+          { label: "Жёстко заявить о нелегитимности киевского режима на международных площадках", type: "retaliate" },
+          { label: "Проигнорировать — время работает на нас", type: "accept" },
+        ],
+      },
+      {
+        type: "war_crimes_tribunal", weight: peace > 50 ? 4 : 1,
+        title: "Украина давит на международные суды",
+        text: "По запросу Украины МУС выдал ещё 12 ордеров на арест российских чиновников и военных. Западные СМИ широко освещают показания свидетелей. Ряд нейтральных стран заморозил дипломатические контакты.",
+        diplomacyDelta: -4, approvalDelta: -2,
+        responses: [
+          { label: "Организовать встречную информационную кампанию с доказательствами украинских преступлений", type: "defend" },
+          { label: "Официально отозвать признание юрисдикции МУС и потребовать от союзников того же", type: "retaliate" },
+          { label: "Принять к сведению — западные суды не имеют реальных рычагов давления", type: "accept" },
+        ],
+      },
+      {
+        type: "info_warfare", weight: 3,
+        title: "Информационная атака",
+        text: "Украинские хакеры взломали несколько российских телеграм-каналов и региональных сайтов, разместив антивоенный контент и данные о потерях. Видео с реальными потерями армии набирает миллионы просмотров внутри страны.",
+        approvalDelta: -2, stabilityDelta: -2,
+        responses: [
+          { label: "Задействовать Роскомнадзор и ФСБ для блокировки и зачистки контента", type: "defend" },
+          { label: "Ответить мощной контрпропагандистской волной о победах армии", type: "retaliate" },
+          { label: "Алгоритмически подавить распространение без широкой огласки", type: "accept" },
+        ],
+      },
+      {
+        type: "soldier_leaks", weight: 2,
+        title: "Утечка: потери армии",
+        text: "Независимые журналисты опубликовали базу данных погибших с именами и регионами. Матери и жёны солдат начали стихийные акции у военкоматов. Телеграм-каналы фиксируют резкий рост антивоенных настроений.",
+        approvalDelta: -3, stabilityDelta: -3,
+        responses: [
+          { label: "Уголовное преследование источников утечки и распространителей", type: "defend" },
+          { label: "Публично опровергнуть данные, представить альтернативную статистику", type: "retaliate" },
+          { label: "Выплатить компенсации семьям и усилить контроль за информацией", type: "accept" },
+        ],
+      },
+      {
+        type: "sanctions_push", weight: eco < 50 ? 4 : 2,
+        title: "Киев лоббирует новые санкции",
+        text: "Украина передала в Конгресс США и Европарламент пакет доказательств по обходу санкций через третьи страны. США и ЕС готовят вторичные санкции против посредников — Индии, ОАЭ, Турции.",
+        economyDelta: -3, diplomacyDelta: -2,
+        responses: [
+          { label: "Экстренно укрепить отношения с ключевыми посредниками — дополнительные преференции", type: "defend" },
+          { label: "Предупредить партнёров: выбор придётся сделать — Запад или Россия", type: "retaliate" },
+          { label: "Диверсифицировать цепочки поставок на альтернативные рынки", type: "accept" },
+        ],
+      },
+      {
+        type: "weapons_delivery", weight: mil > 75 ? 3 : 2,
+        title: "Западные системы вооружений прибыли на фронт",
+        text: "Украина получила партию дальнобойных ракет Storm Shadow и 50 танков Leopard 2A6. Командование ВСУ объявило о создании новой ударной бригады. Российские военные аналитики предупреждают об угрозе глубокого удара.",
+        army_moraleDelta: -2, readinessDelta: -3,
+        responses: [
+          { label: "Нанести превентивный удар по складам техники до ввода её в строй", type: "retaliate" },
+          { label: "Усилить эшелонированную оборону на потенциально угрожаемых направлениях", type: "defend" },
+          { label: "Принять меры по маскировке и рассредоточению собственных позиций", type: "accept" },
+        ],
+      },
+      {
+        type: "partisan_resistance", weight: don > 85 ? 3 : 1,
+        title: "Партизанская активность в тылу",
+        text: "В Донецкой области подпольная группа совершила нападение на назначенного главу администрации и подожгла колонну снабжения. Местные силовые структуры фиксируют рост диверсионной активности на занятых территориях.",
+        stabilityDelta: -2, donetskDelta: -1,
+        responses: [
+          { label: "Ужесточить комендантский час и провести зачистку подполья", type: "defend" },
+          { label: "Нанести показательные удары по предполагаемым базам подполья", type: "retaliate" },
+          { label: "Расширить социальные программы для населения занятых территорий", type: "accept" },
+        ],
+      },
+      {
+        type: "black_sea_strike", weight: mil > 60 ? 2 : 3,
+        title: "Удар морскими дронами по Черноморскому флоту",
+        text: "Украинские безэкипажные катера атаковали корабль Черноморского флота на рейде. Возгорание локализовано, повреждения оцениваются как значительные. Судоходство в районе временно приостановлено.",
+        militaryDelta: -2, army_moraleDelta: -2,
+        responses: [
+          { label: "Усилить противодроновую оборону военно-морских баз", type: "defend" },
+          { label: "Нанести удар по украинским центрам управления морскими дронами", type: "retaliate" },
+          { label: "Рассредоточить корабли по менее уязвимым базам", type: "accept" },
+        ],
+      },
+      {
+        type: "foreign_volunteers", weight: peace > 25 ? 1 : 2,
+        title: "НАТО расширяет обучение и добровольческие миссии",
+        text: "Несколько стран НАТО объявили о размещении инструкторов на территории Украины и расширении программ подготовки добровольческих подразделений. Москва расценивает это как опасное приближение к прямому вовлечению альянса.",
+        diplomacyDelta: -2, army_moraleDelta: -1,
+        responses: [
+          { label: "Направить официальное предупреждение странам НАТО через дипломатические каналы", type: "defend" },
+          { label: "Заявить о законности удара по любым иностранным военным объектам на территории Украины", type: "retaliate" },
+          { label: "Не реагировать публично — присутствие инструкторов не меняет расстановку сил", type: "accept" },
+        ],
+      },
+      {
+        type: "pow_exchange_pr", weight: 2,
+        title: "Информационная кампания вокруг обмена пленными",
+        text: "После очередного обмена пленными украинская сторона опубликовала видеосвидетельства об условиях содержания российских военнопленных. Материал широко разошёлся в западных СМИ и вызвал резонанс внутри страны.",
+        approvalDelta: -2, stabilityDelta: -1,
+        responses: [
+          { label: "Опубликовать встречные материалы об условиях содержания пленных с украинской стороны", type: "retaliate" },
+          { label: "Обратиться к Красному Кресту с требованием независимой проверки условий содержания", type: "defend" },
+          { label: "Не комментировать — тема быстро уйдёт из повестки", type: "accept" },
+        ],
+      },
+      {
+        type: "grain_corridor_pressure", weight: eco < 55 ? 3 : 1,
+        title: "Давление вокруг зернового коридора",
+        text: "Украина при поддержке Турции и ООН добивается расширения черноморского зернового коридора в обход российского контроля судоходства. Экспортные доходы России от контроля маршрутов оказались под угрозой.",
+        economyDelta: -2, diplomacyDelta: -1,
+        responses: [
+          { label: "Пригрозить возобновлением контроля судоходства в спорных водах", type: "retaliate" },
+          { label: "Договориться о доле в администрировании коридора через Турцию", type: "defend" },
+          { label: "Не мешать — коридор не критичен для собственного экспорта", type: "accept" },
+        ],
+      },
+    ];
+
+    // --- существующая таблица regroup-контекста (было в /turns/regroup) — БЕЗ ИЗМЕНЕНИЙ ---
+    const UA_REGROUP_ACTIONS = [
+      {
+        type: "counterattack", weight: 5,
+        title: "ВСУ используют паузу для контрудара",
+        text: "Разведка ВСУ зафиксировала отход российских частей на переформирование. Командование немедленно бросило в брешь резервные бригады. Контрудар поддержан артиллерией НАТО — российские позиции под давлением.",
+        kharkivDelta: -4, army_moraleDelta: -3, readinessDelta: -2,
+        responses: [
+          { label: "Экстренно перебросить резервы — остановить прорыв любой ценой", type: "defend" },
+          { label: "Дать контрудар превосходящими силами — окружить прорвавшихся", type: "retaliate" },
+          { label: "Выровнять линию обороны, сохранить силы для следующего наступления", type: "accept" },
+        ],
+      },
+      {
+        type: "rail_sabotage", weight: 4,
+        title: "Диверсии в тылу во время паузы",
+        text: "Украинские диверсионные группы активизировались в приграничных регионах. Взрывы на железнодорожных узлах и складах. Разведка докладывает: противник специально выбрал момент нашей перегруппировки.",
+        militaryDelta: -2, readinessDelta: -4, economyDelta: -1,
+        responses: [
+          { label: "Перевести тыловые районы на режим контрдиверсионных операций", type: "defend" },
+          { label: "Нанести ответные удары по украинской логистике и штабам", type: "retaliate" },
+          { label: "Форсировать перегруппировку и как можно быстрее вернуть инициативу", type: "accept" },
+        ],
+      },
+      {
+        type: "drone_strike", weight: 4,
+        title: "Массированная атака дронов на позиции",
+        text: "Украина запустила рой из 200+ FPV-дронов по сосредоточенным на переформировании российским частям. Скопление техники на марше — идеальная цель. Потери в технике значительные.",
+        army_moraleDelta: -4, readinessDelta: -3, economyDelta: -2,
+        responses: [
+          { label: "Рассредоточить войска, усилить РЭБ — не давать дронам захватить цели", type: "defend" },
+          { label: "Уничтожить украинские склады и производство дронов ответным ударом", type: "retaliate" },
+          { label: "Принять потери как неизбежные при перегруппировке, продолжить план", type: "accept" },
+        ],
+      },
+      {
+        type: "diplomatic_offensive", weight: 3,
+        title: "Киев объявляет о «переломе» в войне",
+        text: "МИД Украины экстренно созвал пресс-конференцию, заявив о «вынужденном отступлении» российских войск. Западные СМИ подхватили нарратив. Давление на Москву в Совете Безопасности резко возросло.",
+        peace_progressDelta: -8, diplomacyDelta: -3, approvalDelta: -2,
+        responses: [
+          { label: "Немедленно опровергнуть — провести брифинг Генштаба о плановой ротации", type: "defend" },
+          { label: "Ускорить возвращение в наступление — действия лучше слов", type: "retaliate" },
+          { label: "Проигнорировать — информационные войны не меняют карту", type: "accept" },
+        ],
+      },
+    ];
+
+    // ВЕРОЛОМСТВО КИЕВА — общее для обеих ветвей флага (макс 2 раза ЗА ПАРТИЮ, не за месяц —
+    // betrayal_count намеренно не сбрасывается в end-month). pendingActionMode undefined для
+    // regroup-контекста -> isPeaceMove всегда false -> вероломство там не триггерится, как и
+    // раньше (regroup никогда не проверял этот путь).
+    const isPeaceMove = pendingActionMode === "diplomacy_op";
+    const betrayalCount = newStats.betrayal_count ?? 0;
+    const peaceNow0 = newStats.peace_progress ?? 0;
+    const playerDominant = (newStats.military ?? 50) >= 80 &&
+      (newStats.donetsk_control ?? 0) >= 90 && (newStats.luhansk_control ?? 0) >= 95;
+    let willBetray = false;
+    if (isPeaceMove && peaceNow0 > 12 && betrayalCount < 2) {
+      if (betrayalCount === 0) willBetray = Math.random() < 0.30;
+      else if (!playerDominant) willBetray = Math.random() < 0.45;
+    }
+    const firstBetrayal = {
+      type: "ceasefire_betrayal",
+      title: "Киев нарушил перемирие",
+      text: "Пока шли переговоры и российские войска отводились на согласованные позиции, ВСУ внезапно перешли в наступление на оголённых участках. Киев публично заявил, что «не связан договорённостями с агрессором». Доверие к переговорному процессу подорвано.",
+      khersonDelta: -2, kharkivDelta: -1, zaporizhzhiaDelta: -1,
+      army_moraleDelta: -3, peace_progressDelta: -18, stabilityDelta: -2,
+      responses: [
+        { label: "Жёстко предупредить Киев и его покровителей: ещё одно вероломство — и никакого мира, только война", type: "defend" },
+        { label: "Возобновить наступление — переговоры были ошибкой, отвечаем силой", type: "retaliate" },
+        { label: "Сохранить выдержку — не дать втянуть себя в новый виток эскалации", type: "accept" },
+      ],
+    };
+    const secondBetrayal = {
+      type: "ceasefire_betrayal_final",
+      title: "Киев предал во второй раз — мира не будет",
+      text: "Несмотря на предупреждения, Киев вновь нарушил перемирие и ударил по согласованным позициям, сочтя, что Москва не доведёт войну до конца. Переговорный трек окончательно мёртв. Теперь вопрос решается только на поле боя.",
+      khersonDelta: -2, kharkivDelta: -2, zaporizhzhiaDelta: -1,
+      army_moraleDelta: -2, peace_progressDelta: -40, stabilityDelta: -1,
+      responses: [
+        { label: "Объявить о прекращении переговоров и перейти к решительному наступлению", type: "retaliate" },
+        { label: "Мобилизовать резервы и закрыть все территориальные цели силой", type: "retaliate" },
+        { label: "Зафиксировать вероломство для истории и продолжить военную операцию", type: "defend" },
+      ],
+    };
+
+    let uaTitle, uaText, uaTypeForNewsfeed, uaResponses;
+    const appliedDeltas = {};
+
+    if (willBetray) {
+      const uaAction = (betrayalCount === 0) ? firstBetrayal : secondBetrayal;
+      newStats.betrayal_count = betrayalCount + 1;
+      fastify.log.info({ gameId, turnNumber, betrayalNumber: betrayalCount + 1 }, "Ukraine CEASEFIRE BETRAYAL fired");
+      for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
+        if (typeof uaAction[deltaKey] === "number") {
+          newStats[statKey] = Math.max(0, Math.min(100, (newStats[statKey] ?? 50) + uaAction[deltaKey]));
+          appliedDeltas[statKey] = uaAction[deltaKey];
+        }
+      }
+      uaTitle = uaAction.title; uaText = uaAction.text; uaTypeForNewsfeed = uaAction.type; uaResponses = uaAction.responses;
+    } else {
+      const recentTurnsRes = await client.query(
+        `SELECT action_mode, player_input FROM turns WHERE game_id = $1 ORDER BY id DESC LIMIT 4`,
+        [gameId]
+      );
+      const recentMoves = recentTurnsRes.rows.map(r => ({
+        mode: r.action_mode || "decree",
+        input: (r.player_input || "").slice(0, 80),
+      }));
+      const recentUaRes = await client.query(
+        `SELECT source FROM newsfeed_items WHERE game_id = $1 AND item_type = 'ukraine_action' ORDER BY id DESC LIMIT 3`,
+        [gameId]
+      );
+      const recentUaTitles = recentUaRes.rows.map(r => r.source);
+
+      if (UKRAINE_FULL_SYMMETRY) {
+        // ПОЛНАЯ СИМЕТРИЯ (Петя, 2026-07-06): ИИ свободно выбирает категорию из UA_RULES_TABLE
+        // (7 широких категорий) + severity + пишет нарратив с нуля — вместо выбора из 17
+        // канонических событий. 3-уровневый fallback: v2 (полная симметрия) -> v1
+        // (generateUkraineAction, уже проверенная система) -> Math.random() (последний рубеж).
+        const categories = Object.keys(UA_RULES_TABLE).map(key => ({ key, label: UA_CATEGORY_LABELS[key] }));
+        const uaStatsForAi = {
+          ua_army: newStats.ua_army, ua_west_support: newStats.ua_west_support, ua_morale: newStats.ua_morale,
+          ua_economy: newStats.ua_economy, ua_diplomacy: newStats.ua_diplomacy, ua_stability: newStats.ua_stability,
+        };
+        const v2 = await generateUkraineActionV2({
+          uaStats: uaStatsForAi, ruStats: newStats, recentMoves, recentUaTitles, categories, contextLabel, callClaudeApi,
+        });
+
+        if (v2) {
+          const category = v2.category;
+          const severity = v2.severity;
+          const seed = `${gameId}:${turnNumber}:${category}:ua_v2`;
+          const ruStatKeys = Object.keys(UA_RULES_TABLE[category].ru);
+          for (const stat of ruStatKeys) {
+            const delta = computeUaStatDelta({ category, stat, severity, seed, side: "ru" });
+            if (delta !== 0) {
+              newStats[stat] = Math.max(0, Math.min(100, (newStats[stat] ?? 50) + delta));
+              appliedDeltas[stat] = delta;
+            }
+          }
+          const uaStatKeys = Object.keys(UA_RULES_TABLE[category].ua);
+          for (const stat of uaStatKeys) {
+            const delta = computeUaStatDelta({ category, stat, severity, seed, side: "ua" });
+            if (delta !== 0) {
+              newStats[stat] = Math.max(0, Math.min(100, (newStats[stat] ?? 50) + delta));
+            }
+          }
+          const { deltas: territoryDeltas } = computeUaTerritoryPull({
+            uaStats: newStats, ruStats: newStats, category, severity, gameId, turnNumber,
+          });
+          for (const [key, d] of Object.entries(territoryDeltas)) {
+            newStats[key] = Math.max(0, Math.min(100, (newStats[key] ?? 50) + d));
+            appliedDeltas[key] = d;
+          }
+          if (v2.exposure_risk && UA_EXPOSURE_ELIGIBLE.has(category)) {
+            const exposed = rollExposure({ exposureRisk: v2.exposure_risk, gameId, turnNumber, actionType: category });
+            if (exposed) {
+              newStats.ua_diplomacy = Math.max(0, Math.min(100, (newStats.ua_diplomacy ?? 70) - 3));
+              newStats.ua_stability = Math.max(0, Math.min(100, (newStats.ua_stability ?? 60) - 1));
+            }
+          }
+          uaTitle = v2.title; uaText = v2.text; uaTypeForNewsfeed = category; uaResponses = UA_CATEGORY_RESPONSES[category];
+          fastify.log.info({ gameId, uaCategory: category, severity, contextLabel }, "Ukraine action v2 (full symmetry) fired");
+        } else {
+          fastify.log.info({ gameId, contextLabel }, "Ukraine action v2 failed, falling back to v1");
+          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi);
+          const mults = UA_STRATEGY_MULTIPLIERS[uaStrategy] || {};
+          const weightedActions = UA_ACTIONS.map(a => ({ ...a, weight: a.weight * (mults[a.type] ?? 1) }));
+          const validTypes = weightedActions.filter(a => a.weight > 0).map(a => ({ type: a.type, title: a.title }));
+          const v1 = await generateUkraineAction({ stats: newStats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi });
+
+          let uaAction;
+          if (v1) {
+            const base = UA_ACTIONS.find(a => a.type === v1.action_type);
+            uaAction = { ...scaleUaDeltas(base, v1.magnitude), type: base.type, title: v1.title, text: v1.text, responses: base.responses };
+          } else {
+            fastify.log.info({ gameId, contextLabel }, "Ukraine action v1 also failed, falling back to weighted-random");
+            const totalWeight = weightedActions.reduce((s, a) => s + a.weight, 0);
+            let rnd = Math.random() * totalWeight;
+            uaAction = weightedActions[0];
+            for (const a of weightedActions) { rnd -= a.weight; if (rnd <= 0) { uaAction = a; break; } }
+          }
+          for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
+            if (typeof uaAction[deltaKey] === "number") {
+              newStats[statKey] = Math.max(0, Math.min(100, (newStats[statKey] ?? 50) + uaAction[deltaKey]));
+              appliedDeltas[statKey] = uaAction[deltaKey];
+            }
+          }
+          uaTitle = uaAction.title; uaText = uaAction.text; uaTypeForNewsfeed = uaAction.type; uaResponses = uaAction.responses;
+        }
+      } else {
+        // Прежняя реактивная модель — БЕЗ ИЗМЕНЕНИЙ. contextLabel различает confirm (UA_ACTIONS +
+        // стратегия + generateUkraineAction) от regroup (UA_REGROUP_ACTIONS, чистый Math.random(),
+        // как было — regroup-путь никогда не вызывал ни selectUkraineStrategy, ни generateUkraineAction).
+        let uaAction;
+        if (contextLabel === "regroup") {
+          const totalWeight = UA_REGROUP_ACTIONS.reduce((s, a) => s + a.weight, 0);
+          let rnd = Math.random() * totalWeight;
+          uaAction = UA_REGROUP_ACTIONS[0];
+          for (const a of UA_REGROUP_ACTIONS) { rnd -= a.weight; if (rnd <= 0) { uaAction = a; break; } }
+        } else {
+          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi);
+          fastify.log.info({ gameId, uaStrategy }, "Ukraine strategy selected");
+          const mults = UA_STRATEGY_MULTIPLIERS[uaStrategy] || {};
+          const weightedActions = UA_ACTIONS.map(a => ({ ...a, weight: a.weight * (mults[a.type] ?? 1) }));
+          const validTypes = weightedActions.filter(a => a.weight > 0).map(a => ({ type: a.type, title: a.title }));
+          const aiAction = await generateUkraineAction({ stats: newStats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi });
+
+          if (aiAction) {
+            const base = UA_ACTIONS.find(a => a.type === aiAction.action_type);
+            fastify.log.info({ gameId, uaAction: aiAction.action_type, magnitude: aiAction.magnitude }, "Ukraine action AI-generated");
+            uaAction = { ...scaleUaDeltas(base, aiAction.magnitude), type: base.type, title: aiAction.title, text: aiAction.text, responses: base.responses };
+          } else {
+            const totalWeight = weightedActions.reduce((s, a) => s + a.weight, 0);
+            let rnd = Math.random() * totalWeight;
+            uaAction = weightedActions[0];
+            for (const a of weightedActions) { rnd -= a.weight; if (rnd <= 0) { uaAction = a; break; } }
+          }
+        }
+        for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
+          if (typeof uaAction[deltaKey] === "number") {
+            newStats[statKey] = Math.max(0, Math.min(100, (newStats[statKey] ?? 50) + uaAction[deltaKey]));
+            appliedDeltas[statKey] = uaAction[deltaKey];
+          }
+        }
+        uaTitle = uaAction.title; uaText = uaAction.text; uaTypeForNewsfeed = uaAction.type; uaResponses = uaAction.responses;
+      }
+    }
+
+    // Обновляем собственное состояние Украины (3 базовых стата) — та же формула, что и раньше,
+    // общая для всех путей/флагов. Новые статы (ua_economy/ua_diplomacy/ua_stability) в false-ветке
+    // не двигаются этой формулой (она их не знает) — они двигаются только в true-ветке через
+    // UA_RULES_TABLE.*.ua, что нормально: при откате флага на false просто застынут на дефолте.
+    {
+      const ruArmy = newStats.military ?? 50;
+      const ruDip = newStats.diplomacy ?? 50;
+      const westDelta = ruDip > 65 ? -2 : ruDip < 35 ? 2 : 1;
+      newStats.ua_west_support = Math.max(10, Math.min(95, (newStats.ua_west_support ?? 75) + westDelta));
+      const armyDelta = ruArmy > 70 ? -2 : ruArmy < 40 ? 1 : 0;
+      newStats.ua_army = Math.max(10, Math.min(90, (newStats.ua_army ?? 65) + armyDelta));
+      const moraleDelta = (newStats.ua_army ?? 65) > ruArmy ? 1 : -1;
+      newStats.ua_morale = Math.max(10, Math.min(95, (newStats.ua_morale ?? 65) + moraleDelta));
+    }
+
+    await client.query(
+      `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
+       VALUES ($1, $2, 'ukraine_action', $3, $4, $5)`,
+      [gameId, turnNumber, `Украина · ${uaTitle}`, uaText,
+       JSON.stringify({ type: uaTypeForNewsfeed, responses: uaResponses, deltas: appliedDeltas })]
+    );
+    fastify.log.info({ gameId, uaAction: uaTypeForNewsfeed, contextLabel }, "Ukraine action fired");
+    newStats.ukraine_action_this_month = true;
   }
 
   // ---------- PREVIEW ----------
@@ -938,371 +1419,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // тот же паттерн флага "уже сработало в этом месяце", что уже используется для
       // ofz_used_this_month/anticorruption_used/reserves_converted_this_month (сбрасывается в
       // end-month вместе с остальными флагами).
+      //
+      // Логика вынесена в runUkraineTurn (2026-07-06, "полная симметрия") — общая для confirm/
+      // regroup, см. комментарий у функции выше.
       if (!newStats.ukraine_action_this_month) {
-        const mil = newStats.military ?? 50;
-        const eco = newStats.economy ?? 50;
-        const peace = newStats.peace_progress ?? 0;
-        const don = newStats.donetsk_control ?? 78;
-        const kha = newStats.kharkiv_control ?? 12;
-        const armyMoraleNow = newStats.army_morale ?? 62;
-        const readinessNow = newStats.readiness ?? 70;
-
-        // Все возможные действия Украины, каждое имеет вес (weight) и условие активности
-        const UA_ACTIONS = [
-          // Дроны и удары по инфраструктуре
-          {
-            type: "drone_strike", weight: eco > 45 ? 3 : 5,
-            title: "Удар по нефтяной инфраструктуре",
-            text: "Украинские FPV-дроны атаковали нефтеперерабатывающий завод в Саратовской области. Пожар продолжается несколько часов — ущерб оценивается в $200 млн. Нефтяные фьючерсы выросли на фоне перебоев поставок.",
-            economyDelta: -3, stabilityDelta: -1,
-            responses: [
-              { label: "Усилить ПВО и ввести режим воздушной тревоги в пострадавших регионах", type: "defend" },
-              { label: "Нанести ответный удар по украинской энергетической инфраструктуре", type: "retaliate" },
-              { label: "Признать потери и продолжить военную программу в штатном режиме", type: "accept" },
-            ],
-          },
-          {
-            type: "rail_sabotage", weight: mil > 70 ? 2 : 3,
-            title: "Диверсия на логистической инфраструктуре",
-            text: "Группа украинских диверсантов подорвала железнодорожный мост в Курской области. Движение военных грузов нарушено. Переброска техники на фронт задерживается на несколько суток.",
-            militaryDelta: -2, readinessDelta: -3,
-            responses: [
-              { label: "Развернуть силы ФСБ и Росгвардии для зачистки приграничных районов", type: "defend" },
-              { label: "Ответить ударами по украинским транспортным узлам", type: "retaliate" },
-              { label: "Переориентировать логистику на обходные маршруты", type: "accept" },
-            ],
-          },
-          // Контрнаступление
-          {
-            type: "counterattack", weight: kha < 30 ? 4 : 2,
-            title: "Контрнаступление ВСУ",
-            text: "Силы ВСУ при поддержке западной артиллерии предприняли контрнаступление на харьковском направлении. Бои идут в нескольких сёлах. Российские подразделения отходят на заранее подготовленные позиции.",
-            kharkivDelta: -4, army_moraleDelta: -2,
-            responses: [
-              { label: "Экстренно перебросить резервы для стабилизации линии фронта", type: "defend" },
-              { label: "Начать контрудар с целью полного окружения прорвавшихся частей", type: "retaliate" },
-              { label: "Выровнять линию обороны — тактическое отступление сохранит силы", type: "accept" },
-            ],
-          },
-          {
-            // БАЛАНС (2026-07-04): вес был > 0 ТОЛЬКО при mil < 30 — но это условие само уже
-            // приоритетнее и триггерит defeat_military_collapse раньше в detectGameOutcome()
-            // (проверяется после каждого confirm, не только в конце месяца). В итоге поражение
-            // "отбитый Донбасс" было физически недостижимо: пока mil >= 30, вес = 0, а как только
-            // mil < 30 — игра уже кончилась ДРУГИМ поражением до того, как это событие успело бы
-            // накопить эффект. Добавлены промежуточные веса по изношенности армии (мораль +
-            // готовность, а не сырой размер) — истощённая длительной войной армия (без
-            // перегруппировки/отдыха) может сдать Донбасс независимо от того, упал ли military
-            // ниже 30. mil < 30 оставлен для полноты, но реальный путь теперь — через мораль/
-            // готовность.
-            type: "donbass_breakthrough",
-            weight: mil < 30 ? 6 : (armyMoraleNow < 35 && readinessNow < 35) ? 3 : (armyMoraleNow < 45 && readinessNow < 45) ? 1 : 0,
-            title: "Прорыв фронта в Донбассе",
-            text: "Резкое падение боеспособности российской группировки позволило ВСУ провести масштабное наступление на донбасском направлении. Украинские части заняли ряд населённых пунктов, ранее считавшихся глубоким тылом — линия фронта рушится на глазах.",
-            donetskDelta: -8, luhanskDelta: -6, army_moraleDelta: -4,
-            responses: [
-              { label: "Экстренно перебросить резервы и стабилизировать фронт любой ценой", type: "defend" },
-              { label: "Нанести массированный контрудар для восстановления позиций", type: "retaliate" },
-              { label: "Организовать плановый отход на новые рубежи обороны", type: "accept" },
-            ],
-          },
-          {
-            type: "dnipro_push", weight: don > 90 ? 4 : 1,
-            title: "Удары по переправам через Днепр",
-            text: "ВСУ нанесли серию ракетных ударов по мостам и переправам через Днепр. Снабжение группировки в Херсонской области осложнено. Командование вынуждено перейти на воздушное снабжение.",
-            khersonDelta: -3, economyDelta: -2,
-            responses: [
-              { label: "Организовать альтернативные маршруты снабжения через понтонные переправы", type: "defend" },
-              { label: "Нанести превентивные удары по украинским ракетным позициям", type: "retaliate" },
-              { label: "Перегруппировать войска и перейти к обороне правого берега", type: "accept" },
-            ],
-          },
-          // Дипломатическое давление
-          {
-            type: "diplomatic_offensive", weight: peace > 30 ? 5 : 2,
-            title: "Дипломатическое наступление Киева",
-            text: "Глава МИД Украины совершил стремительный тур по европейским столицам. Киев добился расширения пакета помощи и новых обязательств по поставкам вооружений. Мирные инициативы Москвы названы «дымовой завесой».",
-            peace_progressDelta: -10, diplomacyDelta: -3,
-            responses: [
-              { label: "Запустить контрдипломатическую кампанию через нейтральных посредников", type: "defend" },
-              { label: "Жёстко заявить о нелегитимности киевского режима на международных площадках", type: "retaliate" },
-              { label: "Проигнорировать — время работает на нас", type: "accept" },
-            ],
-          },
-          {
-            type: "war_crimes_tribunal", weight: peace > 50 ? 4 : 1,
-            title: "Украина давит на международные суды",
-            text: "По запросу Украины МУС выдал ещё 12 ордеров на арест российских чиновников и военных. Западные СМИ широко освещают показания свидетелей. Ряд нейтральных стран заморозил дипломатические контакты.",
-            diplomacyDelta: -4, approvalDelta: -2,
-            responses: [
-              { label: "Организовать встречную информационную кампанию с доказательствами украинских преступлений", type: "defend" },
-              { label: "Официально отозвать признание юрисдикции МУС и потребовать от союзников того же", type: "retaliate" },
-              { label: "Принять к сведению — западные суды не имеют реальных рычагов давления", type: "accept" },
-            ],
-          },
-          // Информационная война
-          {
-            type: "info_warfare", weight: 3,
-            title: "Информационная атака",
-            text: "Украинские хакеры взломали несколько российских телеграм-каналов и региональных сайтов, разместив антивоенный контент и данные о потерях. Видео с реальными потерями армии набирает миллионы просмотров внутри страны.",
-            approvalDelta: -2, stabilityDelta: -2,
-            responses: [
-              { label: "Задействовать Роскомнадзор и ФСБ для блокировки и зачистки контента", type: "defend" },
-              { label: "Ответить мощной контрпропагандистской волной о победах армии", type: "retaliate" },
-              { label: "Алгоритмически подавить распространение без широкой огласки", type: "accept" },
-            ],
-          },
-          {
-            type: "soldier_leaks", weight: 2,
-            title: "Утечка: потери армии",
-            text: "Независимые журналисты опубликовали базу данных погибших с именами и регионами. Матери и жёны солдат начали стихийные акции у военкоматов. Телеграм-каналы фиксируют резкий рост антивоенных настроений.",
-            approvalDelta: -3, stabilityDelta: -3,
-            responses: [
-              { label: "Уголовное преследование источников утечки и распространителей", type: "defend" },
-              { label: "Публично опровергнуть данные, представить альтернативную статистику", type: "retaliate" },
-              { label: "Выплатить компенсации семьям и усилить контроль за информацией", type: "accept" },
-            ],
-          },
-          // Экономическое давление
-          {
-            type: "sanctions_push", weight: eco < 50 ? 4 : 2,
-            title: "Киев лоббирует новые санкции",
-            text: "Украина передала в Конгресс США и Европарламент пакет доказательств по обходу санкций через третьи страны. США и ЕС готовят вторичные санкции против посредников — Индии, ОАЭ, Турции.",
-            economyDelta: -3, diplomacyDelta: -2,
-            responses: [
-              { label: "Экстренно укрепить отношения с ключевыми посредниками — дополнительные преференции", type: "defend" },
-              { label: "Предупредить партнёров: выбор придётся сделать — Запад или Россия", type: "retaliate" },
-              { label: "Диверсифицировать цепочки поставок на альтернативные рынки", type: "accept" },
-            ],
-          },
-          // Военные поставки
-          {
-            type: "weapons_delivery", weight: mil > 75 ? 3 : 2,
-            title: "Западные системы вооружений прибыли на фронт",
-            text: "Украина получила партию дальнобойных ракет Storm Shadow и 50 танков Leopard 2A6. Командование ВСУ объявило о создании новой ударной бригады. Российские военные аналитики предупреждают об угрозе глубокого удара.",
-            army_moraleDelta: -2, readinessDelta: -3,
-            responses: [
-              { label: "Нанести превентивный удар по складам техники до ввода её в строй", type: "retaliate" },
-              { label: "Усилить эшелонированную оборону на потенциально угрожаемых направлениях", type: "defend" },
-              { label: "Принять меры по маскировке и рассредоточению собственных позиций", type: "accept" },
-            ],
-          },
-          // Партизаны и тыл
-          {
-            type: "partisan_resistance", weight: don > 85 ? 3 : 1,
-            title: "Партизанская активность в тылу",
-            text: "В Донецкой области подпольная группа совершила нападение на назначенного главу администрации и подожгла колонну снабжения. Местные силовые структуры фиксируют рост диверсионной активности на занятых территориях.",
-            stabilityDelta: -2, donetskDelta: -1,
-            responses: [
-              { label: "Ужесточить комендантский час и провести зачистку подполья", type: "defend" },
-              { label: "Нанести показательные удары по предполагаемым базам подполья", type: "retaliate" },
-              { label: "Расширить социальные программы для населения занятых территорий", type: "accept" },
-            ],
-          },
-          // Черноморский флот
-          {
-            type: "black_sea_strike", weight: mil > 60 ? 2 : 3,
-            title: "Удар морскими дронами по Черноморскому флоту",
-            text: "Украинские безэкипажные катера атаковали корабль Черноморского флота на рейде. Возгорание локализовано, повреждения оцениваются как значительные. Судоходство в районе временно приостановлено.",
-            militaryDelta: -2, army_moraleDelta: -2,
-            responses: [
-              { label: "Усилить противодроновую оборону военно-морских баз", type: "defend" },
-              { label: "Нанести удар по украинским центрам управления морскими дронами", type: "retaliate" },
-              { label: "Рассредоточить корабли по менее уязвимым базам", type: "accept" },
-            ],
-          },
-          // Иностранные добровольцы/инструкторы
-          {
-            type: "foreign_volunteers", weight: peace > 25 ? 1 : 2,
-            title: "НАТО расширяет обучение и добровольческие миссии",
-            text: "Несколько стран НАТО объявили о размещении инструкторов на территории Украины и расширении программ подготовки добровольческих подразделений. Москва расценивает это как опасное приближение к прямому вовлечению альянса.",
-            diplomacyDelta: -2, army_moraleDelta: -1,
-            responses: [
-              { label: "Направить официальное предупреждение странам НАТО через дипломатические каналы", type: "defend" },
-              { label: "Заявить о законности удара по любым иностранным военным объектам на территории Украины", type: "retaliate" },
-              { label: "Не реагировать публично — присутствие инструкторов не меняет расстановку сил", type: "accept" },
-            ],
-          },
-          // Пропаганда вокруг пленных
-          {
-            type: "pow_exchange_pr", weight: 2,
-            title: "Информационная кампания вокруг обмена пленными",
-            text: "После очередного обмена пленными украинская сторона опубликовала видеосвидетельства об условиях содержания российских военнопленных. Материал широко разошёлся в западных СМИ и вызвал резонанс внутри страны.",
-            approvalDelta: -2, stabilityDelta: -1,
-            responses: [
-              { label: "Опубликовать встречные материалы об условиях содержания пленных с украинской стороны", type: "retaliate" },
-              { label: "Обратиться к Красному Кресту с требованием независимой проверки условий содержания", type: "defend" },
-              { label: "Не комментировать — тема быстро уйдёт из повестки", type: "accept" },
-            ],
-          },
-          // Зерновой коридор
-          {
-            type: "grain_corridor_pressure", weight: eco < 55 ? 3 : 1,
-            title: "Давление вокруг зернового коридора",
-            text: "Украина при поддержке Турции и ООН добивается расширения черноморского зернового коридора в обход российского контроля судоходства. Экспортные доходы России от контроля маршрутов оказались под угрозой.",
-            economyDelta: -2, diplomacyDelta: -1,
-            responses: [
-              { label: "Пригрозить возобновлением контроля судоходства в спорных водах", type: "retaliate" },
-              { label: "Договориться о доле в администрировании коридора через Турцию", type: "defend" },
-              { label: "Не мешать — коридор не критичен для собственного экспорта", type: "accept" },
-            ],
-          },
-        ];
-
-        // ВЕРОЛОМСТВО КИЕВА — максимум ДВА раза за партию.
-        //   1-е: гамбит Киева. «Один раз обманул — виноват обманщик.» Значительный откат мира.
-        //   2-е: только если Киев УВЕРЕН, что не проиграет войну (игрок НЕ доминирует военно).
-        //        «Два раза обманул — виноват тот, кто дал себя обмануть.»
-        //        Если игрок раздавил фронт — Киеву невыгодно предавать, и он не рискует.
-        //   3-го не бывает: после двух предательств мирный трек мёртв — только война.
-        const isPeaceMove = pendingActionMode === "diplomacy_op";
-        const betrayalCount = newStats.betrayal_count ?? 0;
-        const peaceNow0 = newStats.peace_progress ?? 0;
-        // Военное доминирование игрока — Киев оценивает, выгодно ли ему предавать
-        const playerDominant = (newStats.military ?? 50) >= 80 &&
-          (newStats.donetsk_control ?? 0) >= 90 && (newStats.luhansk_control ?? 0) >= 95;
-
-        let willBetray = false;
-        if (isPeaceMove && peaceNow0 > 12 && betrayalCount < 2) {
-          if (betrayalCount === 0) {
-            willBetray = Math.random() < 0.30;            // первый гамбит
-          } else if (!playerDominant) {
-            willBetray = Math.random() < 0.45;            // второй — только если Киев не загнан в угол
-          }
-          // если игрок доминирует — Киев не смеет предавать второй раз
-        }
-
-        const firstBetrayal = {
-          type: "ceasefire_betrayal",
-          title: "Киев нарушил перемирие",
-          text: "Пока шли переговоры и российские войска отводились на согласованные позиции, ВСУ внезапно перешли в наступление на оголённых участках. Киев публично заявил, что «не связан договорённостями с агрессором». Доверие к переговорному процессу подорвано.",
-          khersonDelta: -2, kharkivDelta: -1, zaporizhzhiaDelta: -1,
-          army_moraleDelta: -3, peace_progressDelta: -18, stabilityDelta: -2,
-          responses: [
-            { label: "Жёстко предупредить Киев и его покровителей: ещё одно вероломство — и никакого мира, только война", type: "defend" },
-            { label: "Возобновить наступление — переговоры были ошибкой, отвечаем силой", type: "retaliate" },
-            { label: "Сохранить выдержку — не дать втянуть себя в новый виток эскалации", type: "accept" },
-          ],
-        };
-        const secondBetrayal = {
-          type: "ceasefire_betrayal_final",
-          title: "Киев предал во второй раз — мира не будет",
-          text: "Несмотря на предупреждения, Киев вновь нарушил перемирие и ударил по согласованным позициям, сочтя, что Москва не доведёт войну до конца. Переговорный трек окончательно мёртв. Теперь вопрос решается только на поле боя.",
-          khersonDelta: -2, kharkivDelta: -2, zaporizhzhiaDelta: -1,
-          army_moraleDelta: -2, peace_progressDelta: -40, stabilityDelta: -1,
-          responses: [
-            { label: "Объявить о прекращении переговоров и перейти к решительному наступлению", type: "retaliate" },
-            { label: "Мобилизовать резервы и закрыть все территориальные цели силой", type: "retaliate" },
-            { label: "Зафиксировать вероломство для истории и продолжить военную операцию", type: "defend" },
-          ],
-        };
-
-        let uaAction;
-        if (willBetray) {
-          uaAction = (betrayalCount === 0) ? firstBetrayal : secondBetrayal;
-          newStats.betrayal_count = betrayalCount + 1;
-          fastify.log.info({ gameId, turnNumber, betrayalNumber: betrayalCount + 1 }, "Ukraine CEASEFIRE BETRAYAL fired");
-        } else {
-          // Стратегически управляемый выбор: Claude Haiku выбирает стратегию,
-          // мультипликаторы весов усиливают нужные действия в этом направлении
-          const recentTurnsRes = await client.query(
-            `SELECT action_mode, player_input FROM turns WHERE game_id = $1 ORDER BY id DESC LIMIT 4`,
-            [gameId]
-          );
-          const recentMoves = recentTurnsRes.rows.map(r => ({
-            mode: r.action_mode || "decree",
-            input: (r.player_input || "").slice(0, 80),
-          }));
-          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi);
-          fastify.log.info({ gameId, uaStrategy }, "Ukraine strategy selected");
-          const mults = UA_STRATEGY_MULTIPLIERS[uaStrategy] || {};
-          const weightedActions = UA_ACTIONS.map(a => ({ ...a, weight: a.weight * (mults[a.type] ?? 1) }));
-
-          // ИИ-выбор (Петя, 2026-07-06: "действия украины должны быть продиктованы ИИ, а не
-          // детерминированы, иначе зачем нам ии????"). ИИ выбирает ТОЛЬКО из типов с weight>0
-          // (та же контекстная фильтрация, что раньше использовалась только для Math.random()) и
-          // пишет заголовок/текст/magnitude — числовые дельты по-прежнему берутся из
-          // баланс-тестированных базовых значений UA_ACTIONS, просто масштабируются по magnitude
-          // (см. scaleUaDeltas ниже). При сбое ИИ (сеть/невалидный JSON/незнакомый тип) —
-          // откат на старый Math.random()-выбор, поведение не хуже, чем было до этой правки.
-          const recentUaRes = await client.query(
-            `SELECT source FROM newsfeed_items WHERE game_id = $1 AND item_type = 'ukraine_action' ORDER BY id DESC LIMIT 3`,
-            [gameId]
-          );
-          const recentUaTitles = recentUaRes.rows.map(r => r.source);
-          const validTypes = weightedActions.filter(a => a.weight > 0).map(a => ({ type: a.type, title: a.title }));
-          const aiAction = await generateUkraineAction({
-            stats: newStats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi,
-          });
-
-          if (aiAction) {
-            const base = UA_ACTIONS.find(a => a.type === aiAction.action_type);
-            fastify.log.info({ gameId, uaAction: aiAction.action_type, magnitude: aiAction.magnitude }, "Ukraine action AI-generated");
-            uaAction = {
-              ...scaleUaDeltas(base, aiAction.magnitude),
-              type: base.type,
-              title: aiAction.title,
-              text: aiAction.text,
-              responses: base.responses,
-            };
-          } else {
-            const totalWeight = weightedActions.reduce((s, a) => s + a.weight, 0);
-            let rnd = Math.random() * totalWeight;
-            uaAction = weightedActions[0];
-            for (const a of weightedActions) {
-              rnd -= a.weight;
-              if (rnd <= 0) { uaAction = a; break; }
-            }
-          }
-        }
-
-        // Применяем эффекты
-        const UA_STAT_MAP = {
-          economyDelta: "economy", stabilityDelta: "stability", approvalDelta: "approval",
-          diplomacyDelta: "diplomacy", militaryDelta: "military", peace_progressDelta: "peace_progress",
-          army_moraleDelta: "army_morale", readinessDelta: "readiness",
-          kharkivDelta: "kharkiv_control", khersonDelta: "kherson_control",
-          zaporizhzhiaDelta: "zaporizhzhia_control", donetskDelta: "donetsk_control",
-          luhanskDelta: "luhansk_control",
-        };
-        // БАЛАНС (2026-07-04): раньше в reactions сохранялись только {type, responses} — сами
-        // применённые дельты действия Украины нигде не персистились, поэтому UkraineResponseScreen
-        // мог показать только нарратив, без цифр (п.7 из списка замечаний игрока). Собираем
-        // фактически применённые дельты в appliedDeltas и кладём в reactions вместе с остальным.
-        const appliedDeltas = {};
-        for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
-          if (typeof uaAction[deltaKey] === "number") {
-            newStats[statKey] = Math.max(0, Math.min(100, (newStats[statKey] ?? 50) + uaAction[deltaKey]));
-            appliedDeltas[statKey] = uaAction[deltaKey];
-          }
-        }
-
-        // Обновляем собственное состояние Украины
-        {
-          const ruArmy = newStats.military ?? 50;
-          const ruDip = newStats.diplomacy ?? 50;
-          // Западная поддержка: растёт если Россия дипломатически слабее, падает если сильнее
-          const westDelta = ruDip > 65 ? -2 : ruDip < 35 ? 2 : 1;
-          newStats.ua_west_support = Math.max(10, Math.min(95, (newStats.ua_west_support ?? 75) + westDelta));
-          // Армия ВСУ: давление от военной мощи России
-          const armyDelta = ruArmy > 70 ? -2 : ruArmy < 40 ? 1 : 0;
-          newStats.ua_army = Math.max(10, Math.min(90, (newStats.ua_army ?? 65) + armyDelta));
-          // Боевой дух: зависит от соотношения сил
-          const moraleDelta = (newStats.ua_army ?? 65) > ruArmy ? 1 : -1;
-          newStats.ua_morale = Math.max(10, Math.min(95, (newStats.ua_morale ?? 65) + moraleDelta));
-        }
-
-        // Сохраняем в ленту как ukraine_action с вариантами ответа
-        await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
-           VALUES ($1, $2, 'ukraine_action', $3, $4, $5)`,
-          [gameId, turnNumber, `Украина · ${uaAction.title}`, uaAction.text,
-           JSON.stringify({ type: uaAction.type, responses: uaAction.responses, deltas: appliedDeltas })]
-        );
-        fastify.log.info({ gameId, uaAction: uaAction.type }, "Ukraine action fired");
-        newStats.ukraine_action_this_month = true;
+        await runUkraineTurn({
+          newStats, gameId, turnNumber, callClaudeApi, client,
+          pendingActionMode, contextLabel: "confirm",
+        });
       }
-      // --- конец действий Украины ---
 
       // Сохраняем все изменения stats (decay + blowback + crisis + interference + ukraine)
       await client.query(
@@ -2534,110 +2659,37 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
       await client.query("COMMIT");
 
-      // Ukraine action (такая же механика как в confirm)
+      // Ukraine action (такая же механика как в confirm) — вынесена в runUkraineTurn (2026-07-06,
+      // "полная симметрия"), contextLabel: "regroup" даёт ИИ понять контекст (Россия только что
+      // перегруппировалась) и переключает false-ветку на UA_REGROUP_ACTIONS (было тут раньше).
+      // pendingActionMode нет в этом контексте (regroup — не decree/diplomacy_op игрока) —
+      // вероломство Киева тут не триггерится, как и раньше (этот путь никогда его не проверял).
       fastify.log.info({ gameId, turnNumber }, "regroup: triggering world update async");
       setImmediate(async () => {
         try {
-          // --- ДЕЙСТВИЯ УКРАИНЫ при перегруппировке ---
-          // Разведка Киева фиксирует отход войск → контрудар или усиление давления
-          // Веса повышены: перегруппировка = уязвимость
           {
-            const s = newStats;
-            const mil = s.military ?? 50;
-            const eco = s.economy ?? 50;
-            const kha = s.kharkiv_control ?? 12;
-            const don = s.donetsk_control ?? 78;
-
-            const UA_REGROUP_ACTIONS = [
-              // Контрнаступление — главная реакция на паузу
-              {
-                type: "counterattack", weight: 5,
-                title: "ВСУ используют паузу для контрудара",
-                text: "Разведка ВСУ зафиксировала отход российских частей на переформирование. Командование немедленно бросило в брешь резервные бригады. Контрудар поддержан артиллерией НАТО — российские позиции под давлением.",
-                kharkivDelta: -4, army_moraleDelta: -3, readinessDelta: -2,
-                responses: [
-                  { label: "Экстренно перебросить резервы — остановить прорыв любой ценой", type: "defend" },
-                  { label: "Дать контрудар превосходящими силами — окружить прорвавшихся", type: "retaliate" },
-                  { label: "Выровнять линию обороны, сохранить силы для следующего наступления", type: "accept" },
-                ],
-              },
-              // Диверсия в тылу — бьют пока мы восстанавливаемся
-              {
-                type: "rail_sabotage", weight: 4,
-                title: "Диверсии в тылу во время паузы",
-                text: "Украинские диверсионные группы активизировались в приграничных регионах. Взрывы на железнодорожных узлах и складах. Разведка докладывает: противник специально выбрал момент нашей перегруппировки.",
-                militaryDelta: -2, readinessDelta: -4, economyDelta: -1,
-                responses: [
-                  { label: "Перевести тыловые районы на режим контрдиверсионных операций", type: "defend" },
-                  { label: "Нанести ответные удары по украинской логистике и штабам", type: "retaliate" },
-                  { label: "Форсировать перегруппировку и как можно быстрее вернуть инициативу", type: "accept" },
-                ],
-              },
-              // Дроны — пока армия стоит, цели стационарны
-              {
-                type: "drone_strike", weight: 4,
-                title: "Массированная атака дронов на позиции",
-                text: "Украина запустила рой из 200+ FPV-дронов по сосредоточенным на переформировании российским частям. Скопление техники на марше — идеальная цель. Потери в технике значительные.",
-                army_moraleDelta: -4, readinessDelta: -3, economyDelta: -2,
-                responses: [
-                  { label: "Рассредоточить войска, усилить РЭБ — не давать дронам захватить цели", type: "defend" },
-                  { label: "Уничтожить украинские склады и производство дронов ответным ударом", type: "retaliate" },
-                  { label: "Принять потери как неизбежные при перегруппировке, продолжить план", type: "accept" },
-                ],
-              },
-              // Дипломатическое давление — момент «слабости» используют на Западе
-              {
-                type: "diplomatic_offensive", weight: 3,
-                title: "Киев объявляет о «переломе» в войне",
-                text: "МИД Украины экстренно созвал пресс-конференцию, заявив о «вынужденном отступлении» российских войск. Западные СМИ подхватили нарратив. Давление на Москву в Совете Безопасности резко возросло.",
-                peace_progressDelta: -8, diplomacyDelta: -3, approvalDelta: -2,
-                responses: [
-                  { label: "Немедленно опровергнуть — провести брифинг Генштаба о плановой ротации", type: "defend" },
-                  { label: "Ускорить возвращение в наступление — действия лучше слов", type: "retaliate" },
-                  { label: "Проигнорировать — информационные войны не меняют карту", type: "accept" },
-                ],
-              },
-            ];
-
-            const totalWeight = UA_REGROUP_ACTIONS.reduce((s, a) => s + a.weight, 0);
-            let rnd = Math.random() * totalWeight;
-            let uaAction = UA_REGROUP_ACTIONS[0];
-            for (const a of UA_REGROUP_ACTIONS) {
-              rnd -= a.weight;
-              if (rnd <= 0) { uaAction = a; break; }
-            }
-
-            // Применяем эффекты к stats и сохраняем в БД
-            const UA_STAT_MAP = {
-              economyDelta: "economy", stabilityDelta: "stability", approvalDelta: "approval",
-              diplomacyDelta: "diplomacy", militaryDelta: "military", peace_progressDelta: "peace_progress",
-              army_moraleDelta: "army_morale", readinessDelta: "readiness",
-              kharkivDelta: "kharkiv_control", khersonDelta: "kherson_control",
-            };
-            const uaStats = { ...newStats };
-            const appliedDeltas = {};
-            for (const [deltaKey, statKey] of Object.entries(UA_STAT_MAP)) {
-              if (typeof uaAction[deltaKey] === "number") {
-                uaStats[statKey] = Math.max(0, Math.min(100, (uaStats[statKey] ?? 50) + uaAction[deltaKey]));
-                appliedDeltas[statKey] = uaAction[deltaKey];
-              }
-            }
-
             const client3 = await db.connect();
             try {
               await client3.query("BEGIN");
-              await client3.query(
-                `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
-                 VALUES ($1, $2, 'ukraine_action', $3, $4, $5)`,
-                [gameId, turnNumber, `Украина · ${uaAction.title}`, uaAction.text,
-                 JSON.stringify({ type: uaAction.type, responses: uaAction.responses, deltas: appliedDeltas })]
-              );
-              await client3.query(
-                `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
-                [JSON.stringify(uaStats), gameId]
-              );
+              // Свежий снапшот статов (не newStats из внешнего замыкания — та транзакция уже
+              // закоммичена, другой confirm мог успеть выполниться раньше этого async-коллбэка).
+              const freshRes = await client3.query(`SELECT stats FROM game_state WHERE game_id = $1 FOR UPDATE`, [gameId]);
+              const uaStats = freshRes.rows[0]?.stats || newStats;
+              // БАГ (существовал до консолидации, Петя, 2026-07-06): regroup-путь никогда не
+              // проверял и не выставлял ukraine_action_this_month — при confirm+regroup в одном
+              // месяце Украина могла действовать дважды. Теперь общая проверка для обоих путей.
+              if (!uaStats.ukraine_action_this_month) {
+                await runUkraineTurn({
+                  newStats: uaStats, gameId, turnNumber, callClaudeApi, client: client3,
+                  pendingActionMode: undefined, contextLabel: "regroup",
+                });
+                await client3.query(
+                  `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
+                  [JSON.stringify(uaStats), gameId]
+                );
+              }
               await client3.query("COMMIT");
-              fastify.log.info({ gameId, uaAction: uaAction.type }, "regroup: Ukraine counter-action fired");
+              fastify.log.info({ gameId }, "regroup: Ukraine turn applied");
             } catch (e) {
               await client3.query("ROLLBACK");
               fastify.log.error({ err: e }, "regroup: Ukraine action DB write failed");
@@ -2645,7 +2697,6 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               client3.release();
             }
           }
-          // --- конец действий Украины ---
 
           const { generateWorldUpdate } = require("../ai/worldUpdate");
           const worldResult = await generateWorldUpdate({

@@ -859,6 +859,13 @@ function UkraineResponseScreen({ items, onDone, gameId, gameStats }) {
     info_warfare: "info", soldier_leaks: "info", pow_exchange_pr: "info",
     sanctions_push: "sanctions", grain_corridor_pressure: "sanctions",
     ceasefire_betrayal: "betrayal", ceasefire_betrayal_final: "betrayal",
+    // "Полная симметрия" (2026-07-06) — 7 широких категорий UA_RULES_TABLE (backend/src/rules/
+    // ukraine-rules-engine.js) вместо 17 канонических событий выше. Темы совпадают 1:1 со
+    // старыми (strike/sabotage/front/diplomatic/legal/info/sanctions), поэтому вся логика совета
+    // ниже (uaAdvisor) продолжает работать без изменений — старые ключи выше не удалены, старые
+    // newsfeed_items уже сыгранных партий по-прежнему рендерятся корректно.
+    ua_strike_infra: "strike", ua_sabotage: "sabotage", ua_counteroffensive: "front",
+    ua_diplomatic: "diplomatic", ua_legal: "legal", ua_info: "info", ua_sanctions: "sanctions",
   };
   const uaAdvisor = (() => {
     const mil = gameStats?.military ?? 50;
@@ -1141,6 +1148,11 @@ const UA_STAT_META = {
   ua_army:         { label: "Армия ВСУ",          icon: Swords,   color: "#7a8fae", desc: "Боевая мощь ВСУ — растёт от западных поставок, падает от ударов" },
   ua_west_support: { label: "Поддержка Запада",   icon: Globe2,   color: "#8c6b3a", desc: "Готовность Запада поставлять оружие и деньги Киеву" },
   ua_morale:       { label: "Боевой дух ВСУ",     icon: Shield,   color: "#6b8c6b", desc: "Моральное состояние — зависит от военного баланса на фронте" },
+  // "Полная симметрия" (2026-07-06) — зеркалит 5 базовых статов России для Украины. Аддитивно:
+  // старые сейвы без этих полей подхватят дефолт из SUBSTAT_DEFAULTS на бэкенде (?? в рендере).
+  ua_economy:   { label: "Экономика Украины", icon: Landmark,   color: "#7a9e7a", desc: "Устойчивость экономики под санкционным давлением и войной" },
+  ua_diplomacy: { label: "Дипломатия Украины", icon: Globe2,     color: "#9c8347", desc: "Международная поддержка и дипломатический вес Киева" },
+  ua_stability: { label: "Стабильность Украины", icon: ScrollText, color: "#8a8fa0", desc: "Внутренняя устойчивость власти — усталость от войны, единство элит" },
 };
 // Метрики где рост = плохо (инвертированные: красный при росте, зелёный при снижении)
 const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "isolation", "war_escalation_counter"]);
