@@ -292,7 +292,7 @@ function computeOptimalMove(stats, turnNumber = 1) {
     return { advisorId: "finance", category: "econ_austerity", mode: "decree_reform", direction: "economic_austerity",
       title: "Сбить инфляцию",
       decree: "Правительству поручаю программу бюджетной консолидации: сдержать госрасходы и не давить на ЦБ за снижение ставки.",
-      reason: `Инфляция ${inflation} (порог 73) — каждый месяц −1..−3 экономике и рейтингу. Консолидация снижает дефицитное давление; ставку ЦБ поднимет сам.` };
+      reason: `Инфляция: индекс ${Math.round(inflation)} (порог 73, ~${Math.max(0, Math.round(inflation - 58))}% г/г) — каждый месяц −1..−3 экономике и рейтингу. Консолидация снижает дефицитное давление; ставку ЦБ поднимет сам.` };
   }
 
   // 4. Опасностей нет — путь к победе
