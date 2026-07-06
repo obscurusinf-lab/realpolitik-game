@@ -72,13 +72,24 @@ function stripMarkdownFences(text) {
   return text.replace(/```json\s*|\s*```/g, "").trim();
 }
 
+// БАЛАНС СТОИМОСТИ (2026-07-06, Петя — расход Anthropic API): classifyTurn раньше ВСЕГДА шёл
+// через Sonnet, самую дорогую модель в проекте, на каждый ход без исключений — единственное
+// такое место (советники/действия Украины/generateWorldUpdate уже на Haiku, кроме редкого
+// ядерного удара). Выбрано гибридное решение: decree_fast (частые повседневные указы, самый
+// дешёвый и "неответственный" тир) — на Haiku; всё остальное (decree_reform/program, military,
+// diplomacy_op, intel, crisis — редкие и важные решения) — по-прежнему на Sonnet.
+const HAIKU_ACTION_MODES = new Set(["decree_fast"]);
+function selectModel(actionMode) {
+  return HAIKU_ACTION_MODES.has(actionMode) ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
+}
+
 /**
  * Основная функция. callClaudeApi — инжектируемая зависимость
  * (в проде — fetch на api.anthropic.com, в тестах — мок).
  */
 async function classifyTurn({ params, callClaudeApi, retryCount = 0 }) {
   const response = await callClaudeApi({
-    model: "claude-sonnet-4-6",
+    model: selectModel(params.actionMode),
     max_tokens: 4000,
     system: [{ type: "text", text: CACHED_SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: buildUserMessage(params) }],
