@@ -3,6 +3,7 @@ import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp,
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
+import { t, getLang, useLang, LangToggle } from "./i18n";
 
 // БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
 // буквально Парфенон), потом Castle (обычная западная крепость) — Петя прислал фото Спасской
@@ -37,6 +38,10 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   }, []);
 
   const [ukraineItems, setUkraineItems] = useState([]);
+  // Второстепенные статы скрыты по умолчанию за одним переключателем (см. тот же паттерн в
+  // PreviewCard/PrimarySecondaryDeltas) — 5 базовых статов уже показаны отдельно выше, здесь
+  // только "всё остальное" (Петя, 2026-07-07: "основные метрики, и по клику — побочные").
+  const [showSecondaryResults, setShowSecondaryResults] = useState(false);
 
   // Polling game state пока не появятся world reactions
   useEffect(() => {
@@ -158,28 +163,17 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
               })()}
             </div>
             {(() => {
-              // Субметрики/территории/мирный трек — тоже 0-100, получают бар (см. EXTRA_BAR_META
-              // и PreviewCard). "Казна" и прочее без единой 0-100 шкалы остаются плоским текстом.
-              // "Инициатива" — та же шкала 0-100, что у 5 базовых статов — получает бар отдельно.
-              const initiativeDelta = statDeltas.initiative;
-              const barExtraDeltas = Object.entries(statDeltas).filter(([s, d]) => d !== 0 && EXTRA_BAR_META[s]);
-              const otherDeltas = Object.entries(statDeltas).filter(
-                ([s, d]) => d !== 0 && !statMeta[s] && !EXTRA_BAR_META[s] && s !== "initiative" && !s.startsWith("_") && s !== "military_streak"
+              // Второстепенные статы (субметрики/территории/мирный трек/инициатива/казна и т.д.,
+              // всё что не входит в 5 базовых статов выше) — за одним переключателем, тот же
+              // компонент, что и в превью указа (PreviewCard/PrimarySecondaryDeltas). Раньше тут
+              // была стена из 10+ полос ради изменений ±1 (Петя, 2026-07-07: "перегруженно").
+              const extraEntries = Object.entries(statDeltas).filter(
+                ([s, d]) => d !== 0 && !statMeta[s] && !s.startsWith("_") && s !== "military_streak"
               );
-              if (otherDeltas.length === 0 && barExtraDeltas.length === 0 && !initiativeDelta) return null;
+              if (extraEntries.length === 0) return null;
               return (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
-                  {!!initiativeDelta && (
-                    <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={prevStats?.initiative ?? 100} delta={initiativeDelta} />
-                  )}
-                  {barExtraDeltas.map(([stat, delta]) => (
-                    <PreviewStatBar key={stat} statKey={stat} current={prevStats?.[stat] ?? 50} delta={delta} />
-                  ))}
-                  {otherDeltas.map(([stat, delta]) => (
-                    <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
-                      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
-                    </span>
-                  ))}
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
+                  <PrimarySecondaryDeltas deltas={extraEntries} current={prevStats} showSecondary={showSecondaryResults} toggleSecondary={() => setShowSecondaryResults(v => !v)} />
                 </div>
               );
             })()}
@@ -1143,6 +1137,115 @@ const DELTA_GROUPS = [
   { key: "resources", label: "Ресурсы",    stats: ["initiative"] },
 ];
 
+// Раскладывает плоский список [stat, delta] по DELTA_GROUPS + "Прочее" — общая логика для
+// PreviewCard (превью указа) и EndTurnScreen (результаты хода), обе страдали от одной и той же
+// "перегруженности" (Петя, 2026-07-07). Второй заход в тот же день — игрок придумал более
+// простую схему взамен аккордеона по категориям: ОСНОВНЫЕ 5 статов всегда на виду с барами,
+// ВСЁ остальное (субметрики/территории/казна/инициатива/мирный трек) — за ОДНИМ переключателем
+// "Показать ещё N показателей", тоже барами (раньше часть рендерилась плоским текстом).
+const PRIMARY_STAT_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
+function partitionPrimarySecondary(deltas) {
+  const primary = deltas.filter(([s]) => PRIMARY_STAT_KEYS.includes(s));
+  const secondary = deltas.filter(([s]) => !PRIMARY_STAT_KEYS.includes(s) && !s.startsWith("_") && s !== "military_streak");
+  return { primary, secondary };
+}
+// Полный рендер пункта дельты — бар для всего, включая казну (своя шкала −100..100, см.
+// PreviewStatBar min/max) — раньше казна была единственным исключением с плоским текстом.
+function renderStatDeltaItem(stat, delta, current) {
+  if (stat === "initiative") {
+    return <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={current?.initiative ?? 100} delta={delta} />;
+  }
+  if (stat === "treasury") {
+    // "Казна" тут — ОЧКИ (условная стата −100..100), не деньги — добавляем рублёвый эквивалент
+    // тем же курсом, что и вкладка «Казна» (TREASURY_PER_TRILLION), под баром.
+    const rubHint = `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн`;
+    return (
+      <div key="treasury">
+        <PreviewStatBar statKey="treasury" label="Казна" color="#9c8347" current={current?.treasury ?? 52} delta={delta} min={-100} max={100} />
+        <div className="mono-font" style={{ fontSize: 9, color: "#8a8fa0", marginTop: 2 }}>{rubHint}</div>
+      </div>
+    );
+  }
+  if (statMeta[stat] || EXTRA_BAR_META[stat]) {
+    return <PreviewStatBar key={stat} statKey={stat} current={current?.[stat] ?? 50} delta={delta} />;
+  }
+  return (
+    <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
+      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+    </span>
+  );
+}
+// Основные статы всегда видны; остальное — за одним переключателем "Показать ещё N".
+// showSecondary/toggleSecondary — состояние держит каждый экран сам (превью и результаты хода
+// не должны шарить, раскрыт ли список у одного, когда открывается у другого).
+// Второстепенные статы больше не одной общей плиткой — раскладываем по DELTA_GROUPS (та же
+// таблица категорий, что раньше приводила к отдельному аккордеону), чтобы Техника/Боеготовность/
+// Опыт войск оказались рядом с Армией, Рост ВВП/Занятость/Резервы — рядом с Экономикой, и т.д.
+// (Петя, 2026-07-07: "статы техники, боеготовности, опыта — расположить к армии, и дальше
+// растащить остальные статы к основным большим"). Внутри "Показать ещё" — не единая шапка
+// категории с раскрытием (это и был старый аккордеон, от которого игрок отказался), а лёгкие
+// подписи-разделители групп — сворачивать/разворачивать тут больше нечего, всё уже открыто разом.
+function groupSecondaryEntries(secondary) {
+  const groups = DELTA_GROUPS
+    .map(g => ({ key: g.key, label: g.label, items: secondary.filter(([s]) => g.stats.includes(s)) }))
+    .filter(g => g.items.length > 0);
+  const groupedKeys = new Set(groups.flatMap(g => g.items.map(([s]) => s)));
+  const leftover = secondary.filter(([s]) => !groupedKeys.has(s));
+  return { groups, leftover };
+}
+function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondary }) {
+  const { primary, secondary } = partitionPrimarySecondary(deltas);
+  if (primary.length === 0 && secondary.length === 0) {
+    return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>;
+  }
+  const { groups: secondaryGroups, leftover: secondaryLeftover } = groupSecondaryEntries(secondary);
+  return (
+    <>
+      {primary.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: secondary.length > 0 ? 8 : 0 }}>
+          {primary.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+        </div>
+      )}
+      {secondary.length > 0 && (
+        <div>
+          <button
+            onClick={toggleSecondary}
+            style={{
+              width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+              background: "none", border: "none", cursor: "pointer", padding: "2px 0", marginBottom: showSecondary ? 6 : 0,
+            }}
+          >
+            <span className="mono-font" style={{ fontSize: 9, color: "#6a7080", letterSpacing: "0.06em" }}>
+              {showSecondary ? "СКРЫТЬ ПОДРОБНОСТИ" : `ПОКАЗАТЬ ЕЩЁ ${secondary.length} ПОКАЗАТЕЛЕЙ`}
+            </span>
+            <span style={{ color: "#6a7080", fontSize: 9, transform: showSecondary ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
+          </button>
+          {showSecondary && (
+            <div style={{ display: "grid", gap: 10 }}>
+              {secondaryGroups.map(g => (
+                <div key={g.key}>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{g.label}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    {g.items.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+                  </div>
+                </div>
+              ))}
+              {secondaryLeftover.length > 0 && (
+                <div>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Прочее</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    {secondaryLeftover.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 // Разведданные по Украине — отдельная панель в StatsTab (не влияет на условия победы игрока)
 const UA_STAT_META = {
   ua_army:         { label: "Армия ВСУ",          icon: Swords,   color: "#7a8fae", desc: "Боевая мощь ВСУ — растёт от западных поставок, падает от ударов" },
@@ -1421,20 +1524,23 @@ function fmtEcoNote(note) {
 // полупрозрачной полосой поверх до проектной отметки (тонкая линия = где окажется стата
 // после подтверждения). Наглядно показывает "какие будут изменения" прямо на шкале,
 // а не только числом рядом.
-function PreviewStatBar({ statKey, current, delta, label, color, inverted: invertedProp }) {
+function PreviewStatBar({ statKey, current, delta, label, color, inverted: invertedProp, min = 0, max = 100 }) {
   // label/color — необязательный оверрайд для ключей вне statMeta/EXTRA_BAR_META (напр.
   // "initiative" — та же шкала 0-100, что и у 5 базовых статов, но не входит в statMeta, чтобы не
   // попасть в основную сетку статов на вкладке «Показатели» — это расходуемый ресурс хода, а не
   // национальная стата). EXTRA_BAR_META — субметрики/территории/мирный трек (см. выше), они тоже
   // 0-100, но раньше рисовались только плоским текстом — игрок попросил бары и для них тоже.
+  // min/max — для "Казны" (шкала −100..100, не 0-100, как у остальных) — тоже получила бар
+  // (Петя, 2026-07-07: "и всё с барами").
   const extraMeta = EXTRA_BAR_META[statKey];
   const meta = statMeta[statKey] || extraMeta || (label ? { label, color: color || "#8a8fa0", inverted: !!invertedProp } : null);
   if (!meta) return null;
   const inverted = !!meta.inverted;
-  const projected = Math.max(0, Math.min(100, current + delta));
+  const projected = Math.max(min, Math.min(max, current + delta));
   const good = inverted ? delta < 0 : delta > 0;
-  const lo = Math.min(current, projected);
-  const hi = Math.max(current, projected);
+  const toPct = (v) => ((v - min) / (max - min)) * 100;
+  const lo = toPct(Math.min(current, projected));
+  const hi = toPct(Math.max(current, projected));
   return (
     <div style={{ minWidth: 130, flex: "1 1 130px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -1446,7 +1552,7 @@ function PreviewStatBar({ statKey, current, delta, label, color, inverted: inver
       <div style={{ position: "relative", height: 7, background: "#2a3040", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${lo}%`, background: meta.color }} />
         <div style={{ position: "absolute", left: `${lo}%`, top: 0, height: "100%", width: `${hi - lo}%`, background: good ? "#7fae9377" : "#c47a7a77" }} />
-        <div style={{ position: "absolute", left: `${projected}%`, top: -1, width: 2, height: 9, background: "#ece7d8" }} />
+        <div style={{ position: "absolute", left: `${toPct(projected)}%`, top: -1, width: 2, height: 9, background: "#ece7d8" }} />
       </div>
     </div>
   );
@@ -1461,19 +1567,10 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
   const [advisorReply, setAdvisorReply] = useState(null);
   const [sendingArg, setSendingArg] = useState(false);
   const [revisedNote, setRevisedNote] = useState(null);
-  // Гармошка по категориям прогноза (Петя, 2026-07-06: "разделить все субстаты на категории и
-  // сделать гармошку из каждой") — по умолчанию всё раскрыто (это превью решения, игрок должен
-  // сразу видеть полную картину), сворачивание только по клику. Отслеживаем ЗАКРЫТЫЕ группы
-  // (не открытые) — так "Прочее" (динамический ключ вне DELTA_GROUPS) тоже открыт по умолчанию
-  // без необходимости перечислять его заранее.
-  const [closedGroups, setClosedGroups] = useState(() => new Set());
-  function toggleGroup(key) {
-    setClosedGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
+  // Второстепенные показатели скрыты по умолчанию (Петя, 2026-07-07: "основные метрики, и по
+  // клику — побочные, и всё с барами") — 5 базовых статов всегда на виду, остальное за одним
+  // переключателем, см. PrimarySecondaryDeltas.
+  const [showSecondary, setShowSecondary] = useState(false);
 
   const deltas = Object.entries(preview.statDeltasPreview || {}).filter(([, d]) => d !== 0);
   const econNotes = computeEconomyForecastNotes(currentStats, preview.statDeltasPreview);
@@ -1615,98 +1712,10 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
             </div>
           </div>
         )}
-        {(() => {
-          // Рендер одного пункта дельты — бар для 5 базовых статов/суб-статов (0-100 шкала),
-          // плоский текст для остального (казна: -100..100, другой масштаб). Общая функция вместо
-          // дублирования JSX в каждой подкатегории (Петя, 2026-07-05: "разбить на подкатегории").
-          function renderDeltaItem(stat, delta) {
-            const note = econNotes[stat];
-            if (stat === "initiative") {
-              return <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={currentStats?.initiative ?? 100} delta={delta} />;
-            }
-            if (statMeta[stat] || EXTRA_BAR_META[stat]) {
-              return (
-                <div key={stat}>
-                  <PreviewStatBar statKey={stat} current={currentStats?.[stat] ?? 50} delta={delta} />
-                  {note && (
-                    <div className="mono-font" style={{ fontSize: 9, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                      ⤷ на экономику подействует не сразу, а к концу месяца: {fmtEcoNote(note)}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-            // БАЛАНС (2026-07-04): "Казна" тут — это ОЧКИ (условная стата 0-100/−100..100), не
-            // деньги. Добавляем рублёвый эквивалент тем же курсом, что и вкладка «Казна»
-            // (TREASURY_PER_TRILLION) — раньше цена указа в очках нигде не переводилась в ₽.
-            const rubHint = stat === "treasury" ? `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн` : null;
-            return (
-              <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
-                {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
-                {rubHint && <span style={{ opacity: 0.7, fontWeight: 400 }}> ({rubHint})</span>}
-                {note && (
-                  <span style={{ display: "block", fontSize: 9.5, color: note.after < 0 ? "#c47a7a" : note.after > 0 ? "#7fae93" : "#8a8fa0", marginTop: 2 }}>
-                    ⤷ на экономику подействует не сразу, а к концу месяца: {fmtEcoNote(note)}
-                  </span>
-                )}
-              </span>
-            );
-          }
-
-          const groupedKeys = new Set();
-          const groupSections = DELTA_GROUPS.map(group => {
-            const items = deltas.filter(([s]) => group.stats.includes(s));
-            items.forEach(([s]) => groupedKeys.add(s));
-            return { ...group, items };
-          }).filter(g => g.items.length > 0);
-          // Подстраховка: любой стат вне известных подкатегорий (напр. будущая новая стата) не
-          // пропадает молча — попадает в "Прочее", а не теряется.
-          const leftover = deltas.filter(([s]) => !groupedKeys.has(s) && !s.startsWith("_") && s !== "military_streak");
-
-          if (groupSections.length === 0 && leftover.length === 0) {
-            return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>;
-          }
-          function groupHeader(key, label) {
-            const isOpen = !closedGroups.has(key);
-            return (
-              <button
-                onClick={() => toggleGroup(key)}
-                style={{
-                  width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: "none", border: "none", cursor: "pointer", padding: "2px 0",
-                  marginBottom: isOpen ? 4 : 0,
-                }}
-              >
-                <span className="mono-font" style={{ fontSize: 8, color: "#6a7080", letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</span>
-                <span style={{ color: "#6a7080", fontSize: 9, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
-              </button>
-            );
-          }
-          return (
-            <>
-              {groupSections.map(group => (
-                <div key={group.key} style={{ marginBottom: 8 }}>
-                  {groupHeader(group.key, group.label)}
-                  {!closedGroups.has(group.key) && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                      {group.items.map(([stat, delta]) => renderDeltaItem(stat, delta))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {leftover.length > 0 && (
-                <div>
-                  {groupHeader("leftover", "Прочее")}
-                  {!closedGroups.has("leftover") && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                      {leftover.map(([stat, delta]) => renderDeltaItem(stat, delta))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          );
-        })()}
+        {/* Пояснение про лаг ("на экономику подействует не сразу...") сказано один раз выше
+            (econNotes.total) — не повторяется под каждым статом ниже, это и было главным
+            источником "перегруженности" (Петя, 2026-07-07). */}
+        <PrimarySecondaryDeltas deltas={deltas} current={currentStats} showSecondary={showSecondary} toggleSecondary={() => setShowSecondary(v => !v)} />
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
@@ -2278,6 +2287,7 @@ function FinanceMinisterWarningModal({ summary, onClose }) {
 }
 
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
+  useLang(); // ре-рендер шапки/таб-бара при переключении RU/EN
   const [state, setState] = useState(null);
   const [assistMode, setAssistMode] = useState("advisor"); // закреплён на старте партии: "advisor" | "hardcore"
   const [tab, setTab] = useState("overview");
@@ -2291,6 +2301,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   });
   const [draggedTabId, setDraggedTabId] = useState(null);
   const [tabDragOffset, setTabDragOffset] = useState(null); // {dx,dy} — вкладка реально едет за курсором
+  // Срочный фикс (2026-07-07): onPointerDown раньше запускал drag СРАЗУ, без порога движения —
+  // на обычный клик тоже успевал выставиться pointerEvents:none, и клик по вкладке до onClick
+  // не долетал ("вкладки не нажимаются, только в режиме переноса"). Флаг переживает между
+  // pointerdown-замыканиями одного жеста, не рендер-стейт — иначе лишние ре-рендеры на каждый px.
+  const tabDragSuppressClickRef = useRef(false);
   const [loaded, setLoaded] = useState(false);
   const [showWelcome, setShowWelcome] = useState(initialShowWelcome);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -2334,22 +2349,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const [showTreasuryTip, setShowTreasuryTip] = useState(false);
 
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("debugTreasury")) {
-      setState({
-        turn: 5,
-        stats: {
-          economy: 52, military: 60, stability: 66, diplomacy: 48, approval: 63,
-          gdp_growth: 20, employment: 60, inflation: 78, treasury: 40, initiative: 100,
-          reserves: 48, oil_price: 85, usd_rub: 80, key_rate: 18.5, corruption: 55,
-        },
-        policies: [], overview: { headline: "Тест", hotspots: [] }, log: [], newsfeed: [],
-      });
-      setLoaded(true);
-      setTab("treasury");
-    }
-  }, []);
-
   const loadState = useCallback(async () => {
     try {
       const data = await fetchGameState(gameId);
@@ -2378,14 +2377,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }, [gameId]);
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("debugTreasury")) return;
     loadState();
   }, [loadState]);
 
   // Heartbeat для индикатора "онлайн" в админке — пингуем, пока вкладка реально видима
   // (не просто открыта в фоне), раз в 25с + сразу при возврате фокуса на вкладку.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("debugTreasury")) return;
     function pingIfVisible() { if (document.visibilityState === "visible") pingGame(gameId); }
     pingIfVisible();
     const interval = setInterval(pingIfVisible, 25000);
@@ -2395,7 +2392,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   // Предзагрузка советников сразу после загрузки игры
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("debugTreasury")) return;
     if (loaded && state && !advisors && !consulting) {
       handleConsult();
     }
@@ -2625,8 +2621,14 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         if (es && (es.after - es.before <= -2 || es.after <= 35)) {
           setFinanceWarning(es);
         }
-        // Показываем обзор накопленных за месяц реакций мира / действий Украины
-        setEndTurnResult(lastActionResult || { narrative: `Месяц завершён. Наступает месяц ${res.nextMonth}.`, statDeltasPreview: {}, actionMode: "decree" });
+        // Показываем обзор накопленных за месяц реакций мира / действий Украины.
+        // res.statDeltas — реальный диф месяца (decay/бюджет/ставка ЦБ/Украина и т.д.), а не
+        // пустышка: раньше без lastActionResult (игрок завершил месяц без единого указа) сюда
+        // подставлялся {} и "Результаты хода" показывали статы плоско, без изменений, хотя
+        // на самом деле за месяц многое произошло (Петя, 2026-07-07: "завершил месяц без
+        // указов, и вообще ничего не произошло в статах" — на деле произошло, просто не
+        // было видно).
+        setEndTurnResult(lastActionResult || { narrative: `Месяц завершён. Наступает месяц ${res.nextMonth}.`, statDeltasPreview: res.statDeltas || {}, actionMode: "decree" });
         setLastActionResult(null);
       } catch (err) {
         setTurnError(err.message);
@@ -2710,17 +2712,17 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }
 
   const tabs = [
-    { id: "overview", label: "Обстановка", icon: Globe2 },
-    { id: "kremlin", label: "Башни Кремля", icon: KremlinStarIcon },
-    { id: "treasury", label: "💰 Казна", icon: Landmark },
-    { id: "map", label: "Карта", icon: Globe2 },
-    { id: "stats", label: "Показатели", icon: Shield },
-    { id: "world", label: "Мир", icon: Globe2 },
-    { id: "advisors", label: "Кабинет министров", icon: ChevronRight },
-    { id: "policies", label: "Политики", icon: ChevronRight },
-    { id: "relations", label: "Отношения", icon: Landmark },
-    { id: "newsfeed", label: "Лента", icon: ScrollText },
-    { id: "log", label: "Журнал", icon: ScrollText },
+    { id: "overview", label: t("tab.overview"), icon: Globe2 },
+    { id: "kremlin", label: t("tab.kremlin"), icon: KremlinStarIcon },
+    { id: "treasury", label: t("tab.treasury"), icon: Landmark },
+    { id: "map", label: t("tab.map"), icon: Globe2 },
+    { id: "stats", label: t("tab.stats"), icon: Shield },
+    { id: "world", label: t("tab.world"), icon: Globe2 },
+    { id: "advisors", label: t("tab.advisors"), icon: ChevronRight },
+    { id: "policies", label: t("tab.policies"), icon: ChevronRight },
+    { id: "relations", label: t("tab.relations"), icon: Landmark },
+    { id: "newsfeed", label: t("tab.newsfeed"), icon: ScrollText },
+    { id: "log", label: t("tab.log"), icon: ScrollText },
   ];
 
   // Применяем сохранённый порядок, но защищаемся от устаревшего списка id (новая вкладка
@@ -2752,12 +2754,23 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   function handleTabPointerDown(e, tabId) {
     if (e.button !== 0) return;
     const startX = e.clientX, startY = e.clientY;
-    setDraggedTabId(tabId);
-    function onMove(ev) { setTabDragOffset({ dx: ev.clientX - startX, dy: ev.clientY - startY }); }
+    let dragStarted = false;
+    // Порог движения — 6px — прежде чем реально войти в режим drag (см. коммент у ref выше).
+    // Обычный клик (палец/мышь не сдвинулись) не трогает draggedTabId/pointerEvents вообще.
+    function onMove(ev) {
+      if (!dragStarted) {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+        dragStarted = true;
+        setDraggedTabId(tabId);
+      }
+      setTabDragOffset({ dx: ev.clientX - startX, dy: ev.clientY - startY });
+    }
     function onUp(ev) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       setTabDragOffset(null);
+      if (!dragStarted) return; // обычный клик — пусть onClick сам переключит вкладку
+      tabDragSuppressClickRef.current = true;
       const hit = document.elementsFromPoint(ev.clientX, ev.clientY)
         .find(el => el.dataset && el.dataset.tabId && el.dataset.tabId !== tabId);
       handleTabDrop(tabId, hit ? hit.dataset.tabId : null);
@@ -2847,23 +2860,24 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.15em", color: NK.accent, marginBottom: 4 }}>
-              {isNuclearWorld ? "☢ ЯДЕРНАЯ ВОЙНА · DEFCON 1" : "СОВЕРШЕННО СЕКРЕТНО · ЭКЗ. №1"}
+              {isNuclearWorld ? "☢ ЯДЕРНАЯ ВОЙНА · DEFCON 1" : t("app.classified")}
             </div>
             <h1 className="doc-font" style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "0.04em", color: isNuclearWorld ? "#e88080" : "#ece7d8" }}>REALPOLITIK</h1>
             <div className="mono-font" style={{ fontSize: 11, color: isNuclearWorld ? "#9a5050" : "#a8a294", marginTop: 2 }}>
-              {state.date} · Ход №{state.turn + 1}{playerName ? ` · ${playerName}` : ""}
+              {state.date} · {t("app.turn_short")}{state.turn + 1}{playerName ? ` · ${playerName}` : ""}
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>⚠ АЛЬФА</span>
+              <LangToggle />
+              <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>{t("app.alpha_badge")}</span>
               <Lock size={20} color={NK.accent} />
             </div>
             {assistMode !== "hardcore" && (
               <button onClick={() => setShowWiki(true)}
                 style={{ background: "transparent", border: `1px solid ${NK.accent}`, borderRadius: 3, color: NK.accent, fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}
               >
-                📖 ЛИКБЕЗ
+                {t("app.wiki_button")}
               </button>
             )}
             <button onClick={() => setShowFeedback(true)}
@@ -2871,14 +2885,14 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = "#3a4156"; e.currentTarget.style.color = "#5a6070"; }}
             >
-              🐞 БАГ
+              {t("app.bug_button")}
             </button>
             {onNewGame && (
               <button
-                onClick={() => { if (window.confirm("Начать новую партию? Текущий прогресс останется в базе.")) onNewGame(); }}
+                onClick={() => { if (window.confirm(t("app.new_game_confirm"))) onNewGame(); }}
                 style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer" }}
               >
-                НОВАЯ ПАРТИЯ
+                {t("app.new_game_button")}
               </button>
             )}
           </div>
@@ -2896,7 +2910,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               data-tab-id={t.id}
               className="tab-btn"
               onPointerDown={(e) => handleTabPointerDown(e, t.id)}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                if (tabDragSuppressClickRef.current) { tabDragSuppressClickRef.current = false; return; }
+                setTab(t.id);
+              }}
               title="Перетащите, чтобы изменить порядок вкладок"
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "9px 14px",
@@ -3480,10 +3497,15 @@ function statLevel(v) {
 
 const COUNTRY_ACCUSATIVE = { "Россия": "Россию", "США": "США", "Китай": "Китай", "Украина": "Украину", "Германия": "Германию", "Турция": "Турцию" };
 
+// Seed-данные стран (context/profile/countryName) пока только на русском — Фаза 4 плана i18n.
+// Для {country} в welcome.dossier_text используем английское имя, если оно есть в этой мини-карте
+// (сейчас доступна только Россия) — иначе показываем как есть, не ломаем остальные страны.
+const COUNTRY_NAME_EN = { "Россия": "Russia" };
 function WelcomeModal({ state, playerName, onClose }) {
   const stats = state?.stats || {};
   const countryName = state?.countryName || "страну";
   const countryAcc = COUNTRY_ACCUSATIVE[countryName] || countryName;
+  const countryDisplay = getLang() === "en" ? (COUNTRY_NAME_EN[countryName] || countryName) : countryName;
   const context = state?.contextSummary || null;
   const profile = state?.countryProfile || null;
   const [expandedStat, setExpandedStat] = useState(null);
@@ -3515,8 +3537,8 @@ function WelcomeModal({ state, playerName, onClose }) {
         {/* Шапка */}
         <div style={{ padding: "16px 22px 14px", borderBottom: "1px solid #2a3040", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 3 }}>СОВЕРШЕННО СЕКРЕТНО · ЭКЗ. №1</div>
-            <div className="mono-font" style={{ fontSize: 12, color: "#9c8347", letterSpacing: "0.12em", fontWeight: 700 }}>ВВОДНЫЙ БРИФИНГ</div>
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 3 }}>{t("app.classified")}</div>
+            <div className="mono-font" style={{ fontSize: 12, color: "#9c8347", letterSpacing: "0.12em", fontWeight: 700 }}>{t("welcome.briefing")}</div>
           </div>
           <div className="mono-font" style={{ fontSize: 11, color: "#3a4156", letterSpacing: "0.1em" }}>REALPOLITIK</div>
         </div>
@@ -3525,12 +3547,12 @@ function WelcomeModal({ state, playerName, onClose }) {
 
           {/* Личное дело */}
           <div style={{ borderLeft: "3px solid #9c8347", paddingLeft: 16, marginBottom: 24 }}>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>ЛИЧНОЕ ДЕЛО</div>
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>{t("welcome.dossier")}</div>
             <div className="doc-font" style={{ fontSize: 22, fontWeight: 700, color: "#ece7d8", marginBottom: 6 }}>
-              {playerName || "Президент"}
+              {playerName || t("welcome.default_title")}
             </div>
             <div className="doc-font" style={{ fontSize: 13.5, color: "#a8a294", lineHeight: 1.6 }}>
-              Верховный главнокомандующий. Возглавил {countryAcc} в переломный момент истории. Все стратегические решения — в ваших руках. Советники готовы к докладу.
+              {t("welcome.dossier_text", { country: countryDisplay })}
             </div>
           </div>
 
@@ -3538,13 +3560,13 @@ function WelcomeModal({ state, playerName, onClose }) {
           {profile && (
             <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "14px 16px", marginBottom: 22 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
-                <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", paddingTop: 2 }}>СТРАНА · {countryName.toUpperCase()}</div>
+                <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", paddingTop: 2 }}>{t("welcome.country_prefix")}{countryName.toUpperCase()}</div>
                 {context && (
                   <button
                     onClick={() => setShowSituation(true)}
                     style={{ background: "transparent", border: "1px solid #9c8347", color: "#9c8347", borderRadius: 3, padding: "4px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.05em", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
                   >
-                    Актуальная информация →
+                    {t("welcome.current_info")}
                   </button>
                 )}
               </div>
@@ -3555,7 +3577,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                   {profile.strengths?.length > 0 && (
                     <div>
-                      <div className="mono-font" style={{ fontSize: 8.5, color: "#4a8a6a", letterSpacing: "0.1em", marginBottom: 6 }}>СИЛЬНЫЕ СТОРОНЫ</div>
+                      <div className="mono-font" style={{ fontSize: 8.5, color: "#4a8a6a", letterSpacing: "0.1em", marginBottom: 6 }}>{t("welcome.strengths")}</div>
                       <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
                         {profile.strengths.map((s, i) => (
                           <li key={i} className="doc-font" style={{ fontSize: 11, color: "#a8a294", lineHeight: 1.45, marginBottom: 5, paddingLeft: 13, position: "relative" }}>
@@ -3567,7 +3589,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                   )}
                   {profile.weaknesses?.length > 0 && (
                     <div>
-                      <div className="mono-font" style={{ fontSize: 8.5, color: "#c05050", letterSpacing: "0.1em", marginBottom: 6 }}>СЛАБЫЕ СТОРОНЫ</div>
+                      <div className="mono-font" style={{ fontSize: 8.5, color: "#c05050", letterSpacing: "0.1em", marginBottom: 6 }}>{t("welcome.weaknesses")}</div>
                       <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
                         {profile.weaknesses.map((s, i) => (
                           <li key={i} className="doc-font" style={{ fontSize: 11, color: "#a8a294", lineHeight: 1.45, marginBottom: 5, paddingLeft: 13, position: "relative" }}>
@@ -3585,13 +3607,13 @@ function WelcomeModal({ state, playerName, onClose }) {
           {/* Фоллбэк для партий без country_profile: старый блок с текущим контекстом инлайн */}
           {!profile && context && (
             <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "14px 16px", marginBottom: 22 }}>
-              <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>ГЕОПОЛИТИЧЕСКИЙ КОНТЕКСТ · {countryName.toUpperCase()}</div>
+              <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>{t("welcome.geo_context")}{countryName.toUpperCase()}</div>
               <div className="doc-font" style={{ fontSize: 13, color: "#c8c4b8", lineHeight: 1.65 }}>{context}</div>
             </div>
           )}
 
           {/* Показатели */}
-          <BriefSection id="stats" label="📊 ОПЕРАТИВНАЯ СВОДКА" color="#9c8347">
+          <BriefSection id="stats" label={t("welcome.stats_section")} color="#9c8347">
             <div style={{ display: "grid", gap: 8 }}>
               {Object.entries(stats).filter(([key]) => STAT_LABEL[key]).map(([key, value]) => {
                 const lvl = statLevel(value);
@@ -3791,7 +3813,7 @@ function WelcomeModal({ state, playerName, onClose }) {
             onClick={onClose}
             style={{ width: "100%", background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "14px", fontFamily: "'PT Serif',serif", fontSize: 15, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
           >
-            Приступить к работе →
+            {t("welcome.cta")}
           </button>
         </div>
       </div>
@@ -8527,9 +8549,14 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
               </div>
             )}
             {isWorldMove && analystNote && (
-              <div style={{ background: "#120a08", padding: "7px 13px 10px", borderTop: "1px solid #4a2010" }}>
-                <div className="mono-font" style={{ fontSize: 9, color: "#6a3020", marginBottom: 4, letterSpacing: "0.05em" }}>ОЦЕНКА АНАЛИТИКА</div>
-                <div className="doc-font" style={{ fontSize: 12.5, color: "#c08070", lineHeight: 1.4 }}>{analystNote.text}</div>
+              // БАГ (Петя, 2026-07-07, "тут вроде положительная новость, а цвет красный"):
+              // фон/цвета тут раньше были жёстко зашиты под "враждебную" стойку (тёмно-красный),
+              // хотя реальная стойка источника (cooperative/neutral/hostile) уже посчитана выше
+              // в meta и красит остальную карточку — просто этот блок её игнорировал. Теперь
+              // берём цвета из meta, как и всё остальное в карточке.
+              <div style={{ background: "rgba(0,0,0,0.22)", padding: "7px 13px 10px", borderTop: `1px solid ${meta.border}` }}>
+                <div className="mono-font" style={{ fontSize: 9, color: meta.color, marginBottom: 4, letterSpacing: "0.05em" }}>ОЦЕНКА АНАЛИТИКА</div>
+                <div className="doc-font" style={{ fontSize: 12.5, color: meta.text, lineHeight: 1.4 }}>{analystNote.text}</div>
               </div>
             )}
           </div>
@@ -8539,17 +8566,60 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
   );
 }
 
+// Чип дельты стата на СВЕТЛОМ фоне Журнала (#ece7d8) — своя пара цветов, не renderStatDeltaCompact/
+// deltaColor (те рассчитаны на тёмные карточки превью/результатов хода — там же прямой текст без
+// фоновой плашки даёт контраст ~2:1 на пергаментном фоне, практически нечитаемо). Пара красный/
+// зелёный + светлая плашка под цвет — тот же паттерн, что уже используется в StatsTab на этом же
+// фоне (там расхождение указ/событие показано так же).
+function LogDeltaChip({ stat, delta }) {
+  const bad = INVERTED_STATS.has(stat) ? delta > 0 : delta < 0;
+  const bg = delta === 0 ? "#eee6d0" : bad ? "#fde8e8" : "#e8f5e8";
+  const color = delta === 0 ? "#8a8472" : bad ? "#a8313a" : "#4a6b5c";
+  return (
+    <span className="mono-font" style={{ fontSize: 10.5, background: bg, color, borderRadius: 3, padding: "1px 6px", fontWeight: 700 }}>
+      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+    </span>
+  );
+}
+
+// Журнал — раньше показывал только нарратив-пересказ хода, но не САМО решение игрока (что
+// именно было подписано) и не его цену/эффект в цифрах (Петя, 2026-07-07: "чтоб можно было
+// посмотреть все свои действия и решения"). Теперь под нарративом — исходный текст указа
+// (то, что игрок реально написал/выбрал) и компактная строка изменений статов за этот ход.
 function LogTab({ state }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      {[...state.log].reverse().map((entry, i) => (
-        <div key={i} style={{ position: "relative", paddingLeft: 18 }}>
-          <div style={{ position: "absolute", left: 0, top: 4, width: 8, height: 8, borderRadius: "50%", background: entry.turn === 0 ? "#9c8347" : "#a8313a" }} />
-          <div className="mono-font" style={{ fontSize: 10, color: "#8a8472", marginBottom: 2 }}>ХОД {entry.turn}</div>
-          <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{entry.title}</div>
-          <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#3a362e" }}>{entry.body}</div>
-        </div>
-      ))}
+      {[...state.log].reverse().map((entry, i) => {
+        const badge = entry.actionMode && ACTION_MODE_BADGE[entry.actionMode];
+        const deltaEntries = entry.statDeltas
+          ? Object.entries(entry.statDeltas).filter(([s, d]) => d !== 0 && !s.startsWith("_") && s !== "military_streak")
+          : [];
+        return (
+          <div key={i} style={{ position: "relative", paddingLeft: 18 }}>
+            <div style={{ position: "absolute", left: 0, top: 4, width: 8, height: 8, borderRadius: "50%", background: entry.turn === 0 ? "#9c8347" : "#a8313a" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+              <span className="mono-font" style={{ fontSize: 10, color: "#8a8472" }}>ХОД {entry.turn}</span>
+              {badge && (
+                <span className="mono-font" style={{ fontSize: 9, color: badge.color, border: `1px solid ${badge.color}`, borderRadius: 3, padding: "1px 6px" }}>
+                  {badge.label}
+                </span>
+              )}
+            </div>
+            <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{entry.title}</div>
+            {entry.decree && (
+              <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#6a6458", fontStyle: "italic", borderLeft: "2px solid #c8a857", paddingLeft: 8, marginBottom: 6 }}>
+                «{entry.decree}»
+              </div>
+            )}
+            <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#3a362e" }}>{entry.body}</div>
+            {deltaEntries.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+                {deltaEntries.map(([stat, delta]) => <LogDeltaChip key={stat} stat={stat} delta={delta} />)}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
