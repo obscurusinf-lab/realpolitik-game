@@ -48,7 +48,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const payload = verifyToken(request, reply);
     if (!payload) return;
 
-    const { countryId, assistMode, presidentName, showInLeaderboard } = request.body || {};
+    const { countryId, assistMode, presidentName, showInLeaderboard, language } = request.body || {};
     const userId = payload.userId;
     // Режим закрепляется на старте: 'advisor' (по умолчанию) | 'hardcore'
     const mode = assistMode === "hardcore" ? "hardcore" : "advisor";
@@ -56,6 +56,10 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const president = (typeof presidentName === "string" ? presidentName.trim() : "").slice(0, 40) || null;
     // Зал Славы: игрок явно выбирает публикацию (false по умолчанию).
     const leaderboardOpt = showInLeaderboard === true;
+    // Язык партии — закреплён при создании, как assist_mode (i18n, Фаза 1, Петя, 2026-07-07).
+    // Сейчас влияет только на будущие фазы (промпты ИИ/seed-данные) — сохраняем уже сейчас,
+    // чтобы не терять выбор игрока, сделанный на стартовом экране.
+    const gameLanguage = language === "en" ? "en" : "ru";
 
     const countRes = await db.query(
       `SELECT COUNT(*) AS cnt FROM games WHERE owner_user_id = $1 AND status = 'active'`,
@@ -95,9 +99,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       await client.query("BEGIN");
 
       const gameRes = await client.query(
-        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode, president_name, show_in_leaderboard)
-         VALUES ($1, $2, 'active', 0, $3, $4, $5) RETURNING id`,
-        [userId, countryId, mode, president, leaderboardOpt]
+        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode, president_name, show_in_leaderboard, language)
+         VALUES ($1, $2, 'active', 0, $3, $4, $5, $6) RETURNING id`,
+        [userId, countryId, mode, president, leaderboardOpt, gameLanguage]
       );
       const gameId = gameRes.rows[0].id;
 
@@ -130,7 +134,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       }
 
       await client.query("COMMIT");
-      return reply.code(201).send({ gameId, countryId, status: "active", currentTurn: 0, assistMode: mode });
+      return reply.code(201).send({ gameId, countryId, status: "active", currentTurn: 0, assistMode: mode, language: gameLanguage });
     } catch (err) {
       await client.query("ROLLBACK");
       fastify.log.error(err);
@@ -190,7 +194,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     if (!payload) return;
 
     const gameRes = await db.query(
-      `SELECT g.id, g.current_turn, g.status, g.created_at, g.owner_user_id, g.assist_mode,
+      `SELECT g.id, g.current_turn, g.status, g.created_at, g.owner_user_id, g.assist_mode, g.language,
               gs.stats, gs.relations, gs.policies, gs.overview,
               c.name AS country_name, c.context_summary, c.country_profile
        FROM games g
@@ -306,6 +310,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       id: game.id,
       status: game.status,
       assistMode: game.assist_mode || "advisor",
+      language: game.language || "ru",
       multiActionTurns: require("../rules/rules-engine").MULTI_ACTION_TURNS,
       countryName: game.country_name,
       turn: game.current_turn,

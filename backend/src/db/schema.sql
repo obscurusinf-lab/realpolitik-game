@@ -30,6 +30,7 @@ CREATE TABLE games (
   last_ping_at  TIMESTAMPTZ,                    -- heartbeat от клиента — индикатор "онлайн" в админке
   ukraine_manual_queue JSONB,                   -- админ пишет действие ЗА Украину — потребляется один раз следующим ходом
   admin_advisor_notes JSONB NOT NULL DEFAULT '{}'::jsonb, -- { advisorId: "текст" } — админ переопределяет рекомендацию министра
+  language      TEXT NOT NULL DEFAULT 'ru',   -- 'ru' | 'en' — закреплён при создании партии, как assist_mode (i18n, Фаза 1)
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

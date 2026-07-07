@@ -3,6 +3,7 @@ import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp,
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
+import { t, getLang, useLang, LangToggle } from "./i18n";
 
 // БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
 // буквально Парфенон), потом Castle (обычная западная крепость) — Петя прислал фото Спасской
@@ -2286,6 +2287,7 @@ function FinanceMinisterWarningModal({ summary, onClose }) {
 }
 
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
+  useLang(); // ре-рендер шапки/таб-бара при переключении RU/EN
   const [state, setState] = useState(null);
   const [assistMode, setAssistMode] = useState("advisor"); // закреплён на старте партии: "advisor" | "hardcore"
   const [tab, setTab] = useState("overview");
@@ -2710,17 +2712,17 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }
 
   const tabs = [
-    { id: "overview", label: "Обстановка", icon: Globe2 },
-    { id: "kremlin", label: "Башни Кремля", icon: KremlinStarIcon },
-    { id: "treasury", label: "💰 Казна", icon: Landmark },
-    { id: "map", label: "Карта", icon: Globe2 },
-    { id: "stats", label: "Показатели", icon: Shield },
-    { id: "world", label: "Мир", icon: Globe2 },
-    { id: "advisors", label: "Кабинет министров", icon: ChevronRight },
-    { id: "policies", label: "Политики", icon: ChevronRight },
-    { id: "relations", label: "Отношения", icon: Landmark },
-    { id: "newsfeed", label: "Лента", icon: ScrollText },
-    { id: "log", label: "Журнал", icon: ScrollText },
+    { id: "overview", label: t("tab.overview"), icon: Globe2 },
+    { id: "kremlin", label: t("tab.kremlin"), icon: KremlinStarIcon },
+    { id: "treasury", label: t("tab.treasury"), icon: Landmark },
+    { id: "map", label: t("tab.map"), icon: Globe2 },
+    { id: "stats", label: t("tab.stats"), icon: Shield },
+    { id: "world", label: t("tab.world"), icon: Globe2 },
+    { id: "advisors", label: t("tab.advisors"), icon: ChevronRight },
+    { id: "policies", label: t("tab.policies"), icon: ChevronRight },
+    { id: "relations", label: t("tab.relations"), icon: Landmark },
+    { id: "newsfeed", label: t("tab.newsfeed"), icon: ScrollText },
+    { id: "log", label: t("tab.log"), icon: ScrollText },
   ];
 
   // Применяем сохранённый порядок, но защищаемся от устаревшего списка id (новая вкладка
@@ -2858,23 +2860,24 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.15em", color: NK.accent, marginBottom: 4 }}>
-              {isNuclearWorld ? "☢ ЯДЕРНАЯ ВОЙНА · DEFCON 1" : "СОВЕРШЕННО СЕКРЕТНО · ЭКЗ. №1"}
+              {isNuclearWorld ? "☢ ЯДЕРНАЯ ВОЙНА · DEFCON 1" : t("app.classified")}
             </div>
             <h1 className="doc-font" style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "0.04em", color: isNuclearWorld ? "#e88080" : "#ece7d8" }}>REALPOLITIK</h1>
             <div className="mono-font" style={{ fontSize: 11, color: isNuclearWorld ? "#9a5050" : "#a8a294", marginTop: 2 }}>
-              {state.date} · Ход №{state.turn + 1}{playerName ? ` · ${playerName}` : ""}
+              {state.date} · {t("app.turn_short")}{state.turn + 1}{playerName ? ` · ${playerName}` : ""}
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>⚠ АЛЬФА</span>
+              <LangToggle />
+              <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>{t("app.alpha_badge")}</span>
               <Lock size={20} color={NK.accent} />
             </div>
             {assistMode !== "hardcore" && (
               <button onClick={() => setShowWiki(true)}
                 style={{ background: "transparent", border: `1px solid ${NK.accent}`, borderRadius: 3, color: NK.accent, fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}
               >
-                📖 ЛИКБЕЗ
+                {t("app.wiki_button")}
               </button>
             )}
             <button onClick={() => setShowFeedback(true)}
@@ -2882,14 +2885,14 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = "#3a4156"; e.currentTarget.style.color = "#5a6070"; }}
             >
-              🐞 БАГ
+              {t("app.bug_button")}
             </button>
             {onNewGame && (
               <button
-                onClick={() => { if (window.confirm("Начать новую партию? Текущий прогресс останется в базе.")) onNewGame(); }}
+                onClick={() => { if (window.confirm(t("app.new_game_confirm"))) onNewGame(); }}
                 style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer" }}
               >
-                НОВАЯ ПАРТИЯ
+                {t("app.new_game_button")}
               </button>
             )}
           </div>
@@ -3494,10 +3497,15 @@ function statLevel(v) {
 
 const COUNTRY_ACCUSATIVE = { "Россия": "Россию", "США": "США", "Китай": "Китай", "Украина": "Украину", "Германия": "Германию", "Турция": "Турцию" };
 
+// Seed-данные стран (context/profile/countryName) пока только на русском — Фаза 4 плана i18n.
+// Для {country} в welcome.dossier_text используем английское имя, если оно есть в этой мини-карте
+// (сейчас доступна только Россия) — иначе показываем как есть, не ломаем остальные страны.
+const COUNTRY_NAME_EN = { "Россия": "Russia" };
 function WelcomeModal({ state, playerName, onClose }) {
   const stats = state?.stats || {};
   const countryName = state?.countryName || "страну";
   const countryAcc = COUNTRY_ACCUSATIVE[countryName] || countryName;
+  const countryDisplay = getLang() === "en" ? (COUNTRY_NAME_EN[countryName] || countryName) : countryName;
   const context = state?.contextSummary || null;
   const profile = state?.countryProfile || null;
   const [expandedStat, setExpandedStat] = useState(null);
@@ -3529,8 +3537,8 @@ function WelcomeModal({ state, playerName, onClose }) {
         {/* Шапка */}
         <div style={{ padding: "16px 22px 14px", borderBottom: "1px solid #2a3040", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 3 }}>СОВЕРШЕННО СЕКРЕТНО · ЭКЗ. №1</div>
-            <div className="mono-font" style={{ fontSize: 12, color: "#9c8347", letterSpacing: "0.12em", fontWeight: 700 }}>ВВОДНЫЙ БРИФИНГ</div>
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 3 }}>{t("app.classified")}</div>
+            <div className="mono-font" style={{ fontSize: 12, color: "#9c8347", letterSpacing: "0.12em", fontWeight: 700 }}>{t("welcome.briefing")}</div>
           </div>
           <div className="mono-font" style={{ fontSize: 11, color: "#3a4156", letterSpacing: "0.1em" }}>REALPOLITIK</div>
         </div>
@@ -3539,12 +3547,12 @@ function WelcomeModal({ state, playerName, onClose }) {
 
           {/* Личное дело */}
           <div style={{ borderLeft: "3px solid #9c8347", paddingLeft: 16, marginBottom: 24 }}>
-            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>ЛИЧНОЕ ДЕЛО</div>
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>{t("welcome.dossier")}</div>
             <div className="doc-font" style={{ fontSize: 22, fontWeight: 700, color: "#ece7d8", marginBottom: 6 }}>
-              {playerName || "Президент"}
+              {playerName || t("welcome.default_title")}
             </div>
             <div className="doc-font" style={{ fontSize: 13.5, color: "#a8a294", lineHeight: 1.6 }}>
-              Верховный главнокомандующий. Возглавил {countryAcc} в переломный момент истории. Все стратегические решения — в ваших руках. Советники готовы к докладу.
+              {t("welcome.dossier_text", { country: countryDisplay })}
             </div>
           </div>
 
@@ -3552,13 +3560,13 @@ function WelcomeModal({ state, playerName, onClose }) {
           {profile && (
             <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "14px 16px", marginBottom: 22 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
-                <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", paddingTop: 2 }}>СТРАНА · {countryName.toUpperCase()}</div>
+                <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", paddingTop: 2 }}>{t("welcome.country_prefix")}{countryName.toUpperCase()}</div>
                 {context && (
                   <button
                     onClick={() => setShowSituation(true)}
                     style={{ background: "transparent", border: "1px solid #9c8347", color: "#9c8347", borderRadius: 3, padding: "4px 10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.05em", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
                   >
-                    Актуальная информация →
+                    {t("welcome.current_info")}
                   </button>
                 )}
               </div>
@@ -3569,7 +3577,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                   {profile.strengths?.length > 0 && (
                     <div>
-                      <div className="mono-font" style={{ fontSize: 8.5, color: "#4a8a6a", letterSpacing: "0.1em", marginBottom: 6 }}>СИЛЬНЫЕ СТОРОНЫ</div>
+                      <div className="mono-font" style={{ fontSize: 8.5, color: "#4a8a6a", letterSpacing: "0.1em", marginBottom: 6 }}>{t("welcome.strengths")}</div>
                       <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
                         {profile.strengths.map((s, i) => (
                           <li key={i} className="doc-font" style={{ fontSize: 11, color: "#a8a294", lineHeight: 1.45, marginBottom: 5, paddingLeft: 13, position: "relative" }}>
@@ -3581,7 +3589,7 @@ function WelcomeModal({ state, playerName, onClose }) {
                   )}
                   {profile.weaknesses?.length > 0 && (
                     <div>
-                      <div className="mono-font" style={{ fontSize: 8.5, color: "#c05050", letterSpacing: "0.1em", marginBottom: 6 }}>СЛАБЫЕ СТОРОНЫ</div>
+                      <div className="mono-font" style={{ fontSize: 8.5, color: "#c05050", letterSpacing: "0.1em", marginBottom: 6 }}>{t("welcome.weaknesses")}</div>
                       <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
                         {profile.weaknesses.map((s, i) => (
                           <li key={i} className="doc-font" style={{ fontSize: 11, color: "#a8a294", lineHeight: 1.45, marginBottom: 5, paddingLeft: 13, position: "relative" }}>
@@ -3599,13 +3607,13 @@ function WelcomeModal({ state, playerName, onClose }) {
           {/* Фоллбэк для партий без country_profile: старый блок с текущим контекстом инлайн */}
           {!profile && context && (
             <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "14px 16px", marginBottom: 22 }}>
-              <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>ГЕОПОЛИТИЧЕСКИЙ КОНТЕКСТ · {countryName.toUpperCase()}</div>
+              <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.12em", color: "#5a6070", marginBottom: 8 }}>{t("welcome.geo_context")}{countryName.toUpperCase()}</div>
               <div className="doc-font" style={{ fontSize: 13, color: "#c8c4b8", lineHeight: 1.65 }}>{context}</div>
             </div>
           )}
 
           {/* Показатели */}
-          <BriefSection id="stats" label="📊 ОПЕРАТИВНАЯ СВОДКА" color="#9c8347">
+          <BriefSection id="stats" label={t("welcome.stats_section")} color="#9c8347">
             <div style={{ display: "grid", gap: 8 }}>
               {Object.entries(stats).filter(([key]) => STAT_LABEL[key]).map(([key, value]) => {
                 const lvl = statLevel(value);
@@ -3805,7 +3813,7 @@ function WelcomeModal({ state, playerName, onClose }) {
             onClick={onClose}
             style={{ width: "100%", background: "#9c8347", color: "#14181f", border: "none", borderRadius: 4, padding: "14px", fontFamily: "'PT Serif',serif", fontSize: 15, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
           >
-            Приступить к работе →
+            {t("welcome.cta")}
           </button>
         </div>
       </div>

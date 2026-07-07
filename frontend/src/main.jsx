@@ -3,50 +3,53 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { createGame, createUser, deleteGame, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
+import { t, getLang, LangToggle, useLang } from "./i18n";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://realpolitik-game-production.up.railway.app";
 
 
+// desc/difficulty ниже — ВНУТРЕННИЕ ключи (используются для t("country.RU.desc")/цвета
+// DIFFICULTY_COLOR), не отображаемый текст напрямую — отображение всегда через t() в JSX.
 const COUNTRIES = [
   {
     id: "RU",
     flag: "🇷🇺",
-    desc: "Ядерная держава под санкционным давлением. Высокая военная мощь, экономические ограничения.",
+    desc: "country.RU.desc",
     difficulty: "Сложно",
     available: true,
   },
   {
     id: "US",
     flag: "🇺🇸",
-    desc: "Глобальная сверхдержава. Управление союзами, внутренняя поляризация, доминирование доллара.",
+    desc: "country.US.desc",
     difficulty: "Средне",
     available: false,
   },
   {
     id: "CN",
     flag: "🇨🇳",
-    desc: "Восходящая сверхдержава. Экономическая экспансия, Тайвань, конкуренция с Западом.",
+    desc: "country.CN.desc",
     difficulty: "Средне",
     available: false,
   },
   {
     id: "UA",
     flag: "🇺🇦",
-    desc: "Страна в состоянии войны. Максимальная сложность — каждый ход на счету.",
+    desc: "country.UA.desc",
     difficulty: "Эксперт",
     available: false,
   },
   {
     id: "DE",
     flag: "🇩🇪",
-    desc: "Локомотив ЕС. Энергетический переход, зависимость от экспорта, лидерство в Европе.",
+    desc: "country.DE.desc",
     difficulty: "Легко",
     available: false,
   },
   {
     id: "TR",
     flag: "🇹🇷",
-    desc: "Многовекторный игрок между Востоком и Западом. Балансирование между НАТО и Россией.",
+    desc: "country.TR.desc",
     difficulty: "Сложно",
     available: false,
   },
@@ -158,6 +161,7 @@ function NewsVideoPanel() {
 const GAME_SLOT_LIMIT = 5;
 
 function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onAdminOpen, onLogout, onLeaderboard }) {
+  useLang(); // ре-рендер экрана при переключении RU/EN (сам t() — не хук, читает currentLang напрямую)
   const [showFeedback, setShowFeedback] = useState(false);
   // auth form state
   const [authMode, setAuthMode] = useState("login"); // "login" | "register"
@@ -183,8 +187,8 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
   async function handleSaveName() {
     const trimmed = nameInput.trim();
-    if (trimmed.length < 2) { setNameError("Минимум 2 символа"); return; }
-    if (trimmed.length > 40) { setNameError("Максимум 40 символов"); return; }
+    if (trimmed.length < 2) { setNameError(t("err.name_min")); return; }
+    if (trimmed.length > 40) { setNameError(t("err.name_max")); return; }
     setNameLoading(true); setNameError(null);
     try {
       const res = await updateDisplayName(trimmed);
@@ -229,11 +233,11 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
   async function handleStart() {
     const country = COUNTRIES.find(c => c.id === selectedCountry);
-    if (!country?.available) { setStartError("Эта страна пока недоступна"); return; }
+    if (!country?.available) { setStartError(t("err.country_unavailable")); return; }
     setStarting(true);
     setStartError(null);
     try {
-      const { gameId } = await createGame(selectedCountry, selectedMode, presidentName.trim() || authUser.displayName, showInLeaderboard);
+      const { gameId } = await createGame(selectedCountry, selectedMode, presidentName.trim() || authUser.displayName, showInLeaderboard, getLang());
       onStart(gameId, presidentName.trim() || authUser.displayName, selectedCountry);
     } catch (err) {
       setStartError(err.message);
@@ -263,10 +267,11 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
         @media(min-width: 900px) { .news-panel { display: block !important; } }
       `}</style>
 
-      <div style={{ background: "linear-gradient(180deg,#0f1318 0%,#1a1f2c 100%)", borderBottom: "2px solid #9c8347", padding: "32px 20px 24px", textAlign: "center" }}>
-        <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 10 }}>СОВЕРШЕННО СЕКРЕТНО</div>
+      <div style={{ background: "linear-gradient(180deg,#0f1318 0%,#1a1f2c 100%)", borderBottom: "2px solid #9c8347", padding: "32px 20px 24px", textAlign: "center", position: "relative" }}>
+        <LangToggle style={{ position: "absolute", top: 16, right: 16 }} />
+        <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 10 }}>{t("brand.classified")}</div>
         <h1 className="doc-font" style={{ margin: "0 0 6px", fontSize: 36, fontWeight: 700, letterSpacing: "0.04em" }}>REALPOLITIK</h1>
-        <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", letterSpacing: "0.08em" }}>геополитическая стратегия</div>
+        <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", letterSpacing: "0.08em" }}>{t("brand.tagline")}</div>
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px 48px", display: "flex", gap: 32, alignItems: "flex-start" }}>
@@ -274,10 +279,10 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
           <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 4, padding: "16px 18px", marginBottom: 28 }}>
             <div className="doc-font" style={{ fontSize: 15, color: "#ece7d8", lineHeight: 1.6, fontStyle: "italic" }}>
-              Устал от бессилия, что не можешь ни на что повлиять?
+              {t("start.hook")}
             </div>
             <div className="doc-font" style={{ fontSize: 15, color: "#9c8347", lineHeight: 1.6, marginTop: 6, fontWeight: 700 }}>
-              REALPOLITIK даёт тебе шанс сделать всё правильно — стань президентом.
+              {t("start.pitch")}
             </div>
           </div>
 
@@ -288,26 +293,26 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                 {["login", "register"].map(m => (
                   <button key={m} onClick={() => { setAuthMode(m); setAuthError(null); }}
                     style={{ flex: 1, background: authMode === m ? "#9c8347" : "#1f2733", color: authMode === m ? "#14181f" : "#5a6070", border: "none", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", letterSpacing: "0.08em", fontWeight: 700 }}>
-                    {m === "login" ? "ВХОД" : "РЕГИСТРАЦИЯ"}
+                    {m === "login" ? t("start.tab_login") : t("start.tab_register")}
                   </button>
                 ))}
               </div>
 
-              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ЛОГИН</div>
+              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>{t("start.field_login")}</div>
               <input value={username} onChange={e => setUsername(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleAuth()}
-                placeholder="имя пользователя" autoFocus style={inputStyle} />
+                placeholder={t("start.placeholder_login")} autoFocus style={inputStyle} />
 
               {authMode === "register" && (
                 <>
-                  <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ПОЗЫВНОЙ АККАУНТА (общий для всех партий)</div>
+                  <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>{t("start.field_display_name")}</div>
                   <input value={displayName} onChange={e => setDisplayName(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleAuth()}
-                    placeholder="Как вас называть в личном кабинете…" style={inputStyle} />
+                    placeholder={t("start.placeholder_display_name")} style={inputStyle} />
                 </>
               )}
 
-              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ПАРОЛЬ</div>
+              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>{t("start.field_password")}</div>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleAuth()}
                 placeholder="••••••" style={inputStyle} />
@@ -316,7 +321,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
               <button onClick={handleAuth} disabled={authLoading || !username.trim() || !password}
                 style={{ width: "100%", background: authLoading || !username.trim() || !password ? "#2a3040" : "#9c8347", color: authLoading || !username.trim() || !password ? "#5a6070" : "#1a1f2c", border: "none", borderRadius: 4, padding: "14px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: authLoading || !username.trim() || !password ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
-                {authLoading ? "Проверка допуска…" : authMode === "login" ? "Войти →" : "Зарегистрироваться →"}
+                {authLoading ? t("start.btn_checking") : authMode === "login" ? t("start.btn_login") : t("start.btn_register")}
               </button>
             </div>
           ) : (
@@ -324,7 +329,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "10px 14px" }}>
                 <div>
-                  <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em" }}>ДОПУСК ПОДТВЕРЖДЁН · </span>
+                  <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em" }}>{t("start.access_confirmed")}</span>
                   {editingName ? (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                       <input
@@ -342,22 +347,25 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                   ) : (
                     <span>
                       <span className="doc-font" style={{ fontSize: 14, color: "#9c8347", fontWeight: 700 }}>{authUser.displayName}</span>
-                      <button onClick={() => { setNameInput(authUser.displayName); setEditingName(true); setNameError(null); }} title="Изменить имя" style={{ background: "none", border: "none", color: "#4a5060", fontSize: 11, cursor: "pointer", padding: "0 4px", verticalAlign: "middle" }}>✏</button>
+                      <button onClick={() => { setNameInput(authUser.displayName); setEditingName(true); setNameError(null); }} title={t("start.edit_name_title")} style={{ background: "none", border: "none", color: "#4a5060", fontSize: 11, cursor: "pointer", padding: "0 4px", verticalAlign: "middle" }}>✏</button>
                     </span>
                   )}
                   <span className="mono-font" style={{ fontSize: 9, color: "#3a4050", marginLeft: 6 }}>@{authUser.username}</span>
                 </div>
-                <button onClick={onLogout} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 3, color: "#4a5060", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", padding: "4px 8px" }}>ВЫЙТИ</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <LangToggle />
+                  <button onClick={onLogout} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 3, color: "#4a5060", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", padding: "4px 8px" }}>{t("start.logout")}</button>
+                </div>
               </div>
 
               {myGamesLoading ? (
-                <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginBottom: 24 }}>Загрузка партий…</div>
+                <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginBottom: 24 }}>{t("start.loading_games")}</div>
               ) : (
                 <div style={{ marginBottom: 28 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                    <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347" }}>СОХРАНЁННЫЕ ПАРТИИ</div>
+                    <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347" }}>{t("start.saved_games")}</div>
                     <div className="mono-font" style={{ fontSize: 9, color: myGames.length >= GAME_SLOT_LIMIT ? "#e09090" : "#5a6070" }}>
-                      {myGames.length}/{GAME_SLOT_LIMIT} слотов
+                      {myGames.length}/{GAME_SLOT_LIMIT} {t("start.slots")}
                     </div>
                   </div>
                   {myGames.length > 0 ? (
@@ -373,66 +381,66 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                               <span className="doc-font" style={{ fontSize: 14, color: "#ece7d8", fontWeight: 700 }}>{g.country_name}</span>
                               {g.president_name && <span className="mono-font" style={{ fontSize: 9, color: "#9c8347" }}>· {g.president_name}</span>}
                               {g.assist_mode === "hardcore" ? (
-                                <span className="mono-font" title="Режим «Сам по себе» — без игровых подсказок" style={{ fontSize: 8, color: "#b06a6a", border: "1px solid #4a2020", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>🎖 САМ ПО СЕБЕ</span>
+                                <span className="mono-font" title={t("start.mode_hardcore_title")} style={{ fontSize: 8, color: "#b06a6a", border: "1px solid #4a2020", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>🎖 {t("start.mode_hardcore_title").toUpperCase()}</span>
                               ) : (
-                                <span className="mono-font" title="Режим «С советниками» — кабинет подсказывает ходы" style={{ fontSize: 8, color: "#6a9c7a", border: "1px solid #244a30", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>💡 С СОВЕТНИКАМИ</span>
+                                <span className="mono-font" title={t("start.mode_advisor_title")} style={{ fontSize: 8, color: "#6a9c7a", border: "1px solid #244a30", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>💡 {t("start.mode_advisor_title").toUpperCase()}</span>
                               )}
                             </div>
                             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
-                              Ход {g.current_turn} · {new Date(g.created_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+                              {t("start.turn_short")} {g.current_turn} · {new Date(g.created_at).toLocaleDateString(getLang() === "en" ? "en-US" : "ru-RU", { day: "numeric", month: "long", year: "numeric" })}
                               {g.status !== "active" && <span style={{ color: "#a8313a", marginLeft: 6 }}>{g.status}</span>}
                             </div>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                            <div className="mono-font" style={{ fontSize: 11, color: "#9c8347", cursor: "pointer" }} onClick={() => onResume(g)}>Продолжить →</div>
+                            <div className="mono-font" style={{ fontSize: 11, color: "#9c8347", cursor: "pointer" }} onClick={() => onResume(g)}>{t("start.resume")}</div>
                             <button
                               onClick={e => { e.stopPropagation(); onDeleteGame(g.id); }}
                               style={{ background: "none", border: "1px solid #3a2020", borderRadius: 3, color: "#6a3535", fontFamily: "'JetBrains Mono',monospace", fontSize: 9, cursor: "pointer", padding: "3px 6px", lineHeight: 1 }}
                               onMouseEnter={e => { e.currentTarget.style.borderColor = "#a8313a"; e.currentTarget.style.color = "#e09090"; }}
                               onMouseLeave={e => { e.currentTarget.style.borderColor = "#3a2020"; e.currentTarget.style.color = "#6a3535"; }}
-                              title="Удалить партию">✕</button>
+                              title={t("start.delete_game_title")}>✕</button>
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="mono-font" style={{ fontSize: 10, color: "#3a4050", padding: "10px 0" }}>Нет сохранённых партий</div>
+                    <div className="mono-font" style={{ fontSize: 10, color: "#3a4050", padding: "10px 0" }}>{t("start.no_saved_games")}</div>
                   )}
                 </div>
               )}
 
               <div style={{ marginBottom: 28 }}>
                 <div style={{ marginBottom: 28 }}>
-                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>ИМЯ ПРЕЗИДЕНТА (для этой партии)</div>
+                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>{t("start.president_name_label")}</div>
                 <input value={presidentName} onChange={e => setPresidentName(e.target.value)}
                   placeholder={authUser.displayName} maxLength={40} style={{ ...inputStyle, marginBottom: 4 }} />
                 <div className="mono-font" style={{ fontSize: 9, color: "#3a4050" }}>
-                  Своё на каждую партию — отдельно от логина @{authUser.username}. Если несколько партий, в Зале славы они не перепутаются.
+                  {t("start.president_name_hint", { username: authUser.username })}
                 </div>
               </div>
 
-              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>ВЫБЕРИТЕ СТРАНУ</div>
+              <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>{t("start.choose_country")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {COUNTRIES.map(c => (
                     <div key={c.id}
                       className={`c-card${!c.available ? " locked" : ""}${selectedCountry === c.id ? " selected" : ""}`}
                       onClick={() => c.available && setSelectedCountry(c.id)}
                       style={{ background: selectedCountry === c.id ? "#1a2a1a" : "#1f2733", border: `2px solid ${selectedCountry === c.id ? "#9c8347" : "#2a3040"}`, borderRadius: 6, padding: "14px", cursor: c.available ? "pointer" : "not-allowed", opacity: c.available ? 1 : 0.4, position: "relative" }}>
-                      {!c.available && <div className="mono-font" style={{ position: "absolute", top: 8, right: 8, fontSize: 8, color: "#4a5060", background: "#14181f", padding: "2px 5px", borderRadius: 2 }}>СКОРО</div>}
+                      {!c.available && <div className="mono-font" style={{ position: "absolute", top: 8, right: 8, fontSize: 8, color: "#4a5060", background: "#14181f", padding: "2px 5px", borderRadius: 2 }}>{t("start.soon")}</div>}
                       <div style={{ fontSize: 26, marginBottom: 6 }}>{c.flag}</div>
-                      <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.08em", color: DIFFICULTY_COLOR[c.difficulty] || "#9c8347", marginBottom: 6 }}>{c.difficulty.toUpperCase()}</div>
-                      <div className="doc-font" style={{ fontSize: 12, color: "#a8a294", lineHeight: 1.4 }}>{c.desc}</div>
+                      <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.08em", color: DIFFICULTY_COLOR[c.difficulty] || "#9c8347", marginBottom: 6 }}>{t(`difficulty.${c.difficulty}`).toUpperCase()}</div>
+                      <div className="doc-font" style={{ fontSize: 12, color: "#a8a294", lineHeight: 1.4 }}>{t(c.desc)}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
               <div style={{ marginBottom: 28 }}>
-                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>РЕЖИМ ИГРЫ</div>
+                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 12 }}>{t("start.game_mode")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {[
-                    { id: "advisor", icon: "💡", title: "С советниками", desc: "Кабинет министров подсказывает оптимальные ходы и путь к победе. Вы можете следовать советам — или полностью формулировать свои указы. Доступен ликбез по механикам." },
-                    { id: "hardcore", icon: "🎖", title: "Сам по себе", desc: "Никаких игровых подсказок. Советники молчат. Кабинет и варианты указов остаются. До победы — военной или дипломатической — додумываетесь сами." },
+                    { id: "advisor", icon: "💡", title: t("start.mode_advisor_title"), desc: t("start.mode_advisor_desc") },
+                    { id: "hardcore", icon: "🎖", title: t("start.mode_hardcore_title"), desc: t("start.mode_hardcore_desc") },
                   ].map(m => {
                     const sel = selectedMode === m.id;
                     return (
@@ -455,8 +463,8 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                   <input type="checkbox" checked={showInLeaderboard} onChange={e => setShowInLeaderboard(e.target.checked)}
                     style={{ marginTop: 2, accentColor: "#9c8347", cursor: "pointer", flexShrink: 0 }} />
                   <div>
-                    <div className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.06em", marginBottom: 2 }}>ДОБАВИТЬ В ЗАЛ СЛАВЫ</div>
-                    <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", lineHeight: 1.4 }}>Разрешить публикацию итогов этой партии в общем рейтинге. Имя президента и результат будут видны всем.</div>
+                    <div className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.06em", marginBottom: 2 }}>{t("start.add_to_leaderboard")}</div>
+                    <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", lineHeight: 1.4 }}>{t("start.add_to_leaderboard_desc")}</div>
                   </div>
                 </label>
               </div>
@@ -465,12 +473,12 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
               {myGames.length >= GAME_SLOT_LIMIT ? (
                 <div className="mono-font" style={{ textAlign: "center", color: "#6a3535", fontSize: 10, border: "1px solid #3a2020", borderRadius: 4, padding: "14px", letterSpacing: "0.06em" }}>
-                  ВСЕ {GAME_SLOT_LIMIT} СЛОТОВ ЗАНЯТЫ — УДАЛИТЕ ОДНУ ПАРТИЮ
+                  {t("start.slots_full", { limit: GAME_SLOT_LIMIT })}
                 </div>
               ) : (
                 <button onClick={handleStart} disabled={starting}
                   style={{ width: "100%", background: starting ? "#2a3040" : "#9c8347", color: starting ? "#5a6070" : "#1a1f2c", border: "none", borderRadius: 4, padding: "14px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: starting ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
-                  {starting ? "Инициализация досье…" : "Принять командование →"}
+                  {starting ? t("start.btn_initializing") : t("start.btn_start")}
                 </button>
               )}
             </div>
@@ -481,36 +489,34 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
               style={{ flex: 1, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
-              🏆 ЗАЛ СЛАВЫ
+              {t("start.hall_of_fame")}
             </button>
             <button onClick={() => setShowFeedback(true)}
               style={{ flex: 1, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
-              🐞 БАГ / ФИДБЕК
+              {t("start.feedback")}
             </button>
           </div>
 
           <div style={{ marginTop: 18, background: "#2a2010", border: "1px solid #5a4520", borderRadius: 4, padding: "10px 14px" }}>
-            <div className="mono-font" style={{ fontSize: 8, color: "#c8a857", letterSpacing: "0.08em", marginBottom: 4 }}>⚠ АЛЬФА-ВЕРСИЯ</div>
+            <div className="mono-font" style={{ fontSize: 8, color: "#c8a857", letterSpacing: "0.08em", marginBottom: 4 }}>{t("start.alpha_title")}</div>
             <div className="doc-font" style={{ fontSize: 11, color: "#a89868", lineHeight: 1.5 }}>
-              Игра в активной разработке: возможны баги, дисбаланс и изменения механик задним числом. Прогресс партий может сбрасываться при крупных обновлениях.
-              Нашли баг — нажмите «Сообщить о баге» выше.
+              {t("start.alpha_desc")}
             </div>
           </div>
 
           <div style={{ marginTop: 10, background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "10px 14px" }}>
-            <div className="mono-font" style={{ fontSize: 8, color: "#3a4050", letterSpacing: "0.08em", marginBottom: 4 }}>ДИСКЛЕЙМЕР</div>
+            <div className="mono-font" style={{ fontSize: 8, color: "#3a4050", letterSpacing: "0.08em", marginBottom: 4 }}>{t("start.disclaimer_title")}</div>
             <div className="doc-font" style={{ fontSize: 11, color: "#3a4556", lineHeight: 1.5 }}>
-              Все персонажи, имена и события в игре являются вымышленными. Любое сходство с реальными лицами случайно.
-              Игра создана в образовательных и развлекательных целях. Мнения, выраженные в игре, не отражают взгляды авторов.
+              {t("start.disclaimer_desc")}
             </div>
           </div>
 
           {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
           <div className="mono-font" onClick={handleSecretTap}
             style={{ textAlign: "center", fontSize: 9, color: "#2a3040", marginTop: 10, letterSpacing: "0.08em", userSelect: "none", cursor: "default" }}>
-            ДАННЫЕ НА ИЮНЬ 2026 · ВСЕ СОВПАДЕНИЯ СЛУЧАЙНЫ{tapCount > 0 ? ` ·` + "·".repeat(tapCount) : ""}
+            {t("start.footer_note")}{tapCount > 0 ? ` ·` + "·".repeat(tapCount) : ""}
           </div>
         </div>
 
@@ -524,9 +530,10 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
 const COUNTRY_FLAG = { RU: "🇷🇺", US: "🇺🇸", CN: "🇨🇳", UA: "🇺🇦", DE: "🇩🇪", TR: "🇹🇷" };
 
-const STAT_LABELS = { stability: "Стабильность", economy: "Экономика", military: "Армия", diplomacy: "Дипломатия", approval: "Рейтинг" };
+const STAT_LABEL_KEYS = { stability: "stat.stability", economy: "stat.economy", military: "stat.military", diplomacy: "stat.diplomacy", approval: "stat.approval" };
 
 function LeaderboardPage({ onBack }) {
+  useLang();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -544,16 +551,16 @@ function LeaderboardPage({ onBack }) {
     <div style={{ minHeight: "100vh", background: "#1a1f2c", padding: "24px 16px" }}>
       <div style={{ maxWidth: 560, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-          <button onClick={onBack} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "6px 12px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer" }}>← НАЗАД</button>
-          <div className="mono-font" style={{ fontSize: 13, color: "#9c8347", letterSpacing: "0.1em" }}>🏆 ЗАЛ СЛАВЫ — ТОП ПРЕЗИДЕНТОВ</div>
+          <button onClick={onBack} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "6px 12px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer" }}>{t("board.back")}</button>
+          <div className="mono-font" style={{ fontSize: 13, color: "#9c8347", letterSpacing: "0.1em" }}>{t("board.title")}</div>
         </div>
 
-        {loading && <div className="mono-font" style={{ color: "#5a6070", fontSize: 11, textAlign: "center", padding: 40 }}>ЗАГРУЗКА…</div>}
+        {loading && <div className="mono-font" style={{ color: "#5a6070", fontSize: 11, textAlign: "center", padding: 40 }}>{t("board.loading")}</div>}
         {error && <div className="doc-font" style={{ color: "#e09090", fontSize: 13, textAlign: "center", padding: 40 }}>{error}</div>}
         {!loading && !error && entries.length === 0 && (
           <div className="doc-font" style={{ color: "#5a6070", fontSize: 13, textAlign: "center", padding: 40, lineHeight: 1.6 }}>
-            Зал Славы пуст.<br />
-            <span style={{ fontSize: 11 }}>Включите «Добавить в Зал Славы» при создании партии — и ваш результат появится здесь.</span>
+            {t("board.empty_1")}<br />
+            <span style={{ fontSize: 11 }}>{t("board.empty_2")}</span>
           </div>
         )}
 
@@ -569,7 +576,7 @@ function LeaderboardPage({ onBack }) {
                   <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: i === 0 ? "#9c8347" : "#ece7d8" }}>
                     {i === 0 ? "🥇 " : i === 1 ? "🥈 " : i === 2 ? "🥉 " : `${i + 1}. `}{e.player_name}
                   </div>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>{e.country_name} · ход {e.turn_n}</div>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>{e.country_name} · {t("board.turn_short")} {e.turn_n}</div>
                 </div>
                 <div className="mono-font" style={{ fontSize: 18, color: "#9c8347", fontWeight: 700 }}>{e.score}</div>
               </div>
@@ -577,10 +584,10 @@ function LeaderboardPage({ onBack }) {
                 <div style={{ background: "#9c8347", height: 4, borderRadius: 3, width: `${pct}%`, transition: "width 0.4s" }} />
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {Object.entries(STAT_LABELS).map(([k, label]) => (
+                {Object.entries(STAT_LABEL_KEYS).map(([k, labelKey]) => (
                   breakdown[k] !== undefined ? (
                     <div key={k} className="mono-font" style={{ fontSize: 9, color: "#5a6070", background: "#14181f", borderRadius: 3, padding: "2px 6px" }}>
-                      {label} {breakdown[k]}
+                      {t(labelKey)} {breakdown[k]}
                     </div>
                   ) : null
                 ))}
@@ -590,7 +597,7 @@ function LeaderboardPage({ onBack }) {
         })}
 
         <div className="mono-font" style={{ fontSize: 9, color: "#2a3040", textAlign: "center", marginTop: 16 }}>
-          Показаны только партии с включённой публикацией
+          {t("board.footer")}
         </div>
       </div>
     </div>
