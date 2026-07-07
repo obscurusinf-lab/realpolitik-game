@@ -3,7 +3,7 @@ import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp,
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
-import { t, getLang, useLang, LangToggle } from "./i18n";
+import { t, getLang, useLang, LangToggle, statLabel } from "./i18n";
 
 // БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
 // буквально Парфенон), потом Castle (обычная западная крепость) — Петя прислал фото Спасской
@@ -1034,7 +1034,7 @@ function UkraineResponseScreen({ items, onDone, gameId, gameStats }) {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid #3a1515" }}>
                 {already.map(([k, v]) => (
                   <span key={k} className="mono-font" style={{ fontSize: 10.5, color: v > 0 ? "#7fae93" : "#e09090" }}>
-                    {ALL_STAT_LABELS[k] || STAT_RU[k] || k}: {v > 0 ? "+" : ""}{v}
+                    {statLabel(k, ALL_STAT_LABELS[k] || STAT_RU[k] || k)}: {v > 0 ? "+" : ""}{v}
                   </span>
                 ))}
               </div>
@@ -1216,7 +1216,7 @@ function renderStatDeltaItem(stat, delta, current) {
   if (stat === "treasury") {
     // "Казна" тут — ОЧКИ (условная стата −100..100), не деньги — добавляем рублёвый эквивалент
     // тем же курсом, что и вкладка «Казна» (TREASURY_PER_TRILLION), под баром.
-    const rubHint = `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)} трлн`;
+    const rubHint = `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)}${getLang() === "en" ? "T" : " трлн"}`;
     return (
       <div key="treasury">
         <PreviewStatBar statKey="treasury" label="Казна" color="#9c8347" current={current?.treasury ?? 52} delta={delta} min={-100} max={100} />
@@ -1229,7 +1229,7 @@ function renderStatDeltaItem(stat, delta, current) {
   }
   return (
     <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
-      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+      {statLabel(stat, ALL_STAT_LABELS[stat] ?? stat)} {delta > 0 ? `+${delta}` : delta}
     </span>
   );
 }
@@ -1254,7 +1254,7 @@ function groupSecondaryEntries(secondary) {
 function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondary }) {
   const { primary, secondary } = partitionPrimarySecondary(deltas);
   if (primary.length === 0 && secondary.length === 0) {
-    return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>;
+    return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>{t("delta.no_change")}</span>;
   }
   const { groups: secondaryGroups, leftover: secondaryLeftover } = groupSecondaryEntries(secondary);
   return (
@@ -1274,7 +1274,7 @@ function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondar
             }}
           >
             <span className="mono-font" style={{ fontSize: 9, color: "#6a7080", letterSpacing: "0.06em" }}>
-              {showSecondary ? "СКРЫТЬ ПОДРОБНОСТИ" : `ПОКАЗАТЬ ЕЩЁ ${secondary.length} ПОКАЗАТЕЛЕЙ`}
+              {showSecondary ? t("delta.hide_details") : t("delta.show_more", { n: secondary.length })}
             </span>
             <span style={{ color: "#6a7080", fontSize: 9, transform: showSecondary ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
           </button>
@@ -1282,7 +1282,7 @@ function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondar
             <div style={{ display: "grid", gap: 10 }}>
               {secondaryGroups.map(g => (
                 <div key={g.key}>
-                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{g.label}</div>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{statLabel(g.key, g.label)}</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                     {g.items.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
                   </div>
@@ -1290,7 +1290,7 @@ function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondar
               ))}
               {secondaryLeftover.length > 0 && (
                 <div>
-                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Прочее</div>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{t("delta.other")}</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                     {secondaryLeftover.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
                   </div>
@@ -1445,7 +1445,7 @@ function boostStrings(effectStats) {
   if (!effectStats) return [];
   return Object.entries(effectStats).map(([k, mag]) => {
     const arrows = "↑".repeat(Math.max(1, Math.min(3, Math.abs(mag || 1))));
-    return `${arrows} ${ALL_STAT_LABELS[k] || k}`;
+    return `${arrows} ${statLabel(k, ALL_STAT_LABELS[k] || k)}`;
   });
 }
 // Последствия отмены: [{label, delta, good}]
@@ -1455,7 +1455,7 @@ function penaltyEntries(cancelPenalty) {
     // Для инфляции/напряжённости/изоляции/коррупции рост = плохо
     const inverse = ["inflation", "social_tension", "isolation", "corruption"].includes(k);
     const good = inverse ? v < 0 : v > 0;
-    return { label: ALL_STAT_LABELS[k] || k, delta: v, good };
+    return { label: statLabel(k, ALL_STAT_LABELS[k] || k), delta: v, good };
   });
 }
 
@@ -1602,7 +1602,7 @@ function PreviewStatBar({ statKey, current, delta, label, color, inverted: inver
   return (
     <div style={{ minWidth: 130, flex: "1 1 130px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-        <span className="mono-font" style={{ fontSize: 9.5, color: "#8a8fa0" }}>{meta.label}</span>
+        <span className="mono-font" style={{ fontSize: 9.5, color: "#8a8fa0" }}>{statLabel(statKey, meta.label)}</span>
         <span className="mono-font" style={{ fontSize: 10.5, fontWeight: 700, color: good ? "#7fae93" : "#c47a7a" }}>
           {current}→{projected} ({delta > 0 ? "+" : ""}{delta})
         </span>
@@ -5756,7 +5756,7 @@ function StatsTab({ state, gameId }) {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                   <Icon size={15} color={meta.color} />
-                  <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{meta.label}</span>
+                  <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{statLabel(key, meta.label)}</span>
                   {events.length > 0 && (
                     <span style={{ fontSize: 9, background: "#eee6d0", color: "#8a8472", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>
                       {events.length} событий
@@ -5872,7 +5872,7 @@ function StatsTab({ state, gameId }) {
       {Object.keys(UA_STAT_META).some(k => state.stats[k] != null) && (
         <div style={{ marginTop: 16, borderRadius: 6, background: "#f5f1e6", border: "1px solid #d8d2bf", padding: "12px 12px 14px" }}>
           <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 10 }}>
-            🇺🇦 РАЗВЕДДАННЫЕ · УКРАИНА
+            🇺🇦 {getLang() === "en" ? "INTELLIGENCE · UKRAINE" : "РАЗВЕДДАННЫЕ · УКРАИНА"}
           </div>
           <div style={{ display: "grid", gap: 10 }}>
             {Object.entries(UA_STAT_META).map(([key, meta]) => {
@@ -5883,7 +5883,7 @@ function StatsTab({ state, gameId }) {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Icon size={13} color={meta.color} />
-                      <span className="doc-font" style={{ fontSize: 12.5, color: "#5c5648" }}>{meta.label}</span>
+                      <span className="doc-font" style={{ fontSize: 12.5, color: "#5c5648" }}>{statLabel(key, meta.label)}</span>
                     </div>
                     <span className="mono-font" style={{ fontSize: 12.5, fontWeight: 700, color: meta.color }}>{value}</span>
                   </div>
@@ -6720,12 +6720,12 @@ function KremlinTab({ state, onSelectCategory }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, background: "#141a24", border: "1px solid #2a3040", borderRadius: 5, padding: "8px 12px" }}>
         {Object.entries(KREMLIN_STAT_LABEL).map(([key, label]) => (
           <div key={key} style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-            <span className="mono-font" style={{ fontSize: 8, color: "#7a8294", letterSpacing: "0.06em" }}>{label.slice(0, 3).toUpperCase()}</span>
+            <span className="mono-font" style={{ fontSize: 8, color: "#7a8294", letterSpacing: "0.06em" }}>{statLabel(key, label).slice(0, 3).toUpperCase()}</span>
             <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: (stats[key] ?? 50) >= 55 ? "#6ec894" : (stats[key] ?? 50) < 35 ? "#e08080" : "#c8a857" }}>{stats[key] ?? 50}</span>
           </div>
         ))}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 4 }}>
-          <span className="mono-font" style={{ fontSize: 8, color: "#7a8294", letterSpacing: "0.06em" }}>ИНИЦ.</span>
+          <span className="mono-font" style={{ fontSize: 8, color: "#7a8294", letterSpacing: "0.06em" }}>{getLang() === "en" ? "INIT." : "ИНИЦ."}</span>
           <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: "#c8a857" }}>{stats.initiative ?? 100}</span>
         </div>
       </div>
@@ -6824,7 +6824,7 @@ function KremlinTab({ state, onSelectCategory }) {
                       fontSize: 9, borderRadius: 3, padding: "1px 6px", fontWeight: 700,
                       background: sign > 0 ? "#12241a" : "#2a1414", color: sign > 0 ? "#6ec894" : "#e08080",
                     }}>
-                      {KREMLIN_STAT_LABEL[stat]} {sign > 0 ? "↑" : "↓"}
+                      {statLabel(stat, KREMLIN_STAT_LABEL[stat])} {sign > 0 ? "↑" : "↓"}
                     </span>
                   ))}
                 </div>
@@ -7254,7 +7254,7 @@ function StatDeltaBadges({ delta }) {
             color: c,
             border: `1px solid ${isBad ? "#6a1010" : "#2a4030"}`,
           }}>
-            {ALL_STAT_LABELS[k] || k} {v > 0 ? "+" : ""}{v}
+            {statLabel(k, ALL_STAT_LABELS[k] || k)} {v > 0 ? "+" : ""}{v}
           </span>
         );
       })}
@@ -8720,7 +8720,7 @@ function LogDeltaChip({ stat, delta }) {
   const color = delta === 0 ? "#8a8472" : bad ? "#a8313a" : "#4a6b5c";
   return (
     <span className="mono-font" style={{ fontSize: 10.5, background: bg, color, borderRadius: 3, padding: "1px 6px", fontWeight: 700 }}>
-      {ALL_STAT_LABELS[stat] ?? stat} {delta > 0 ? `+${delta}` : delta}
+      {statLabel(stat, ALL_STAT_LABELS[stat] ?? stat)} {delta > 0 ? `+${delta}` : delta}
     </span>
   );
 }

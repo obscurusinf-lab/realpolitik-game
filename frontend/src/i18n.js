@@ -240,6 +240,12 @@ const RU = {
   "wiki.advisors.h": "СОВЕТНИКИ И УКАЗЫ",
   "wiki.advisors.p1": "Кабинет министров даёт советы по всем направлениям. Вы можете принять предложенный советником указ — или полностью сформулировать своё решение. Игра принимает любые реалистичные президентские решения: торговые договоры, кадровые назначения, законы, дипломатические ноты, военные приказы.",
   "wiki.advisors.p2": "Хороший собственный указ часто лучше совета: вы лучше знаете ситуацию. Чем конкретнее формулировка — тем точнее игра рассчитает эффект.",
+
+  // ---- Прогноз/результаты хода (PrimarySecondaryDeltas) — i18n Фаза 2 ----
+  "delta.no_change": "Без заметных изменений",
+  "delta.show_more": "ПОКАЗАТЬ ЕЩЁ {n} ПОКАЗАТЕЛЕЙ",
+  "delta.hide_details": "СКРЫТЬ ПОДРОБНОСТИ",
+  "delta.other": "Прочее",
 };
 
 const EN = {
@@ -455,6 +461,11 @@ const EN = {
   "wiki.advisors.h": "ADVISORS AND DECREES",
   "wiki.advisors.p1": "The cabinet of ministers advises on every direction. You can accept an advisor's proposed decree — or phrase your own decision entirely. The game accepts any realistic presidential decision: trade deals, personnel appointments, laws, diplomatic notes, military orders.",
   "wiki.advisors.p2": "A good decree of your own is often better than advice: you know the situation better. The more specific the wording, the more precisely the game calculates the effect.",
+
+  "delta.no_change": "No noticeable changes",
+  "delta.show_more": "SHOW {n} MORE STATS",
+  "delta.hide_details": "HIDE DETAILS",
+  "delta.other": "Other",
 };
 
 const DICTS = { ru: RU, en: EN };
@@ -539,4 +550,34 @@ export function LangToggle({ style } = {}) {
       )
     )
   );
+}
+
+// i18n Фаза 2 (2026-07-07, "по сути ничего не переведено") — statMeta/ALL_STAT_LABELS/
+// DELTA_GROUPS/UA_STAT_META/SUBSTAT_META и производные от них (EXTRA_BAR_META) — это ОБЫЧНЫЕ
+// module-level const в App.jsx, вычисляются ОДИН раз при загрузке модуля, а не при каждом
+// рендере — если бы их значения сразу были t()-строками, они бы застыли на языке, который был
+// активен в момент первой загрузки страницы, и не переключались бы вместе с остальным UI.
+// Вместо того чтобы превращать все эти словари в функции (большой рефакторинг с неясной
+// выгодой), переводим статы В МЕСТЕ ОТОБРАЖЕНИЯ — по ключу стата, который в JSX всегда под
+// рукой, независимо от того, из какого словаря лейбл пришёл изначально.
+const STAT_NAME_EN = {
+  economy: "Economy", military: "Army", stability: "Stability", diplomacy: "Diplomacy", approval: "Approval",
+  resources: "Resources",
+  initiative: "Initiative", gdp_growth: "GDP Growth", inflation: "Inflation", employment: "Employment", reserves: "Reserves",
+  army_morale: "Morale", equipment: "Equipment", readiness: "Readiness", veterans: "Veterans",
+  ally_trust: "Ally Trust", isolation: "Isolation", social_tension: "Social Tension", media_control: "Media Control",
+  elite_satisfaction: "Elites", corruption: "Corruption", middle_class: "Middle Class", lower_class_mood: "Public Mood",
+  treasury: "Treasury", peace_progress: "Peace Track",
+  donetsk_control: "Donetsk Control", luhansk_control: "Luhansk Control", zaporizhzhia_control: "Zaporizhzhia Control",
+  kherson_control: "Kherson Control", kharkiv_control: "Kharkiv Control", military_streak: "War Streak",
+  ua_army: "Ukrainian Army", ua_west_support: "Western Support", ua_morale: "Ukrainian Morale",
+  ua_economy: "Ukraine Economy", ua_diplomacy: "Ukraine Diplomacy", ua_stability: "Ukraine Stability",
+  key_rate: "Key Rate", oil_price: "Oil Price", usd_rub: "USD/RUB", corruption_index: "Corruption Index",
+};
+// statLabel(key, ruLabel) — ruLabel это то, что уже лежит в словаре (RU по умолчанию); если язык
+// en и для этого ключа есть перевод — подставляем его, иначе возвращаем ruLabel как есть (не
+// ломает ключи, которые ещё не попали в STAT_NAME_EN).
+export function statLabel(key, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return STAT_NAME_EN[key] || ruLabel;
 }
