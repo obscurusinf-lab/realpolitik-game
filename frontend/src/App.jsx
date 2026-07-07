@@ -5404,6 +5404,14 @@ function EndMonthForecastPanel({ stats, policies }) {
   const activeCount = mechanisms.filter(m => m.active === true).length;
   const activeImpacts = mechanisms.filter(m => m.active === true).flatMap(m => m.impacts).filter(i => i.delta !== null);
   const economyDrain = activeImpacts.filter(i => i.label === "Экономика" && i.delta < 0).reduce((s, i) => s + i.delta, 0);
+  // economyDrain — только отрицательные эффекты (см. комментарий БАЛАНС 2026-07-04 выше).
+  // Игрок (Петя, 2026-07-07) увидел в бейдже "≈-1/мес" рядом с зелёной карточкой "Профицит
+  // казны +1" и разумно спросил "так у меня чистый минус?" — бейдж НЕ вычитал плюсы, хотя
+  // они в той же "валюте" (Экономика), в отличие от исходной проблемы (там мешались Экономика/
+  // Одобрение/Казна). Добавляем economyGain и сальдо economyNet — то же разделение по статам,
+  // что было задумано, но без потери ответа на самый частый вопрос "сколько чистыми".
+  const economyGain = activeImpacts.filter(i => i.label === "Экономика" && i.delta > 0).reduce((s, i) => s + i.delta, 0);
+  const economyNet = economyDrain + economyGain;
   const otherNegativeLabels = new Set(activeImpacts.filter(i => i.label !== "Экономика" && i.delta < 0).map(i => i.label));
 
   // БАЛАНС (2026-07-04): "bad" изначально был жёлто-коричневым (khaki) — Петя не понравился
@@ -5425,9 +5433,12 @@ function EndMonthForecastPanel({ stats, policies }) {
               {activeCount} активно
             </span>
           )}
-          {economyDrain < 0 && (
-            <span style={{ fontSize: 9, background: "#3a1418", color: "#e08080", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }} title="Только эффект на Экономику — другие статы считаются отдельно">
-              экономика ≈{economyDrain}/мес авто
+          {economyNet !== 0 && (
+            <span
+              style={{ fontSize: 9, background: economyNet < 0 ? "#3a1418" : "#142418", color: economyNet < 0 ? "#e08080" : "#7fae93", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace", fontWeight: 700 }}
+              title={economyGain > 0 && economyDrain < 0 ? `Сальдо: минусы ${economyDrain} + плюсы +${economyGain}. Другие статы (Одобрение и т.п.) считаются отдельно.` : "Только эффект на Экономику — другие статы считаются отдельно"}
+            >
+              экономика ≈{economyNet >= 0 ? "+" : ""}{economyNet}/мес авто
             </span>
           )}
           {otherNegativeLabels.size > 0 && (
