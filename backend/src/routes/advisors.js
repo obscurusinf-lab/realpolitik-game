@@ -30,11 +30,17 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
 
     // Последние 5 ходов для памяти советников
     const historyRes = await db.query(
-      `SELECT turn_n, player_input, narrative_text
+      `SELECT turn_n, player_input, narrative_text, stats_snapshot
        FROM turns WHERE game_id = $1 ORDER BY turn_n DESC LIMIT 5`,
       [gameId]
     );
     const recentHistory = historyRes.rows.reverse();
+    // Snapshot'ы статов по ходам — источник для расчёта темпа изменения (см. computeVelocity
+    // в advisors.js). Нужны только строки, где snapshot реально записан (может отсутствовать
+    // у самых старых ходов до введения колонки).
+    const statHistory = recentHistory
+      .filter(h => h.stats_snapshot)
+      .map(h => ({ turn_n: h.turn_n, stats: h.stats_snapshot }));
 
     const result = await consultAdvisors({
       params: {
@@ -46,6 +52,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
         relations: game.relations,
         policies: game.policies || [],
         recentHistory,
+        statHistory,
         playerDraft: playerDraft?.trim() || null,
         actionMode: actionMode || "decree_reform",
       },

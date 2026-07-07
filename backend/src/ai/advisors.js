@@ -150,6 +150,15 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
 {{econ_indicators}}
 
 ═══════════════════════════════════════════
+ТЕМП ИЗМЕНЕНИЯ КЛЮЧЕВЫХ ПОКАЗАТЕЛЕЙ (пункты/ход, по факту последних ходов)
+═══════════════════════════════════════════
+{{trend_section}}
+ВАЖНО: показатель с большим запасом до порога, но падающий быстро, может обрушиться
+за 2-3 хода — раньше, чем "безопасный" запас это подскажет. Если ниже отмечено ⚠️ —
+советник, отвечающий за этот показатель, ОБЯЗАН прямо предупредить о темпе, а не
+только назвать текущее значение.
+
+═══════════════════════════════════════════
 МАТЕМАТИЧЕСКИ РАССЧИТАННЫЙ ОПТИМАЛЬНЫЙ ХОД (из формул движка, не мнение)
 ═══════════════════════════════════════════
 {{optimal_move}}
@@ -221,6 +230,94 @@ function buildEconIndicators(stats) {
 Рычаги: указ об экономическом стимулировании поднимает экономику +1..+3, но при дефиците казны или инфляции >73 этот рост гасится. Нефть дороже цены отсечения — профицит бюджета. Слабый рубль (>${FX_BASE + 10}₽/$) разгоняет инфляцию, сильнее при отпущенном курсе.`;
 }
 
+// Зеркалит ДЕТЕРМИНИРОВАННУЮ (не случайную) часть автоэффектов на economy из /turns/end-month
+// в turns.js — ставку ЦБ, стагнацию/рост ВВП, занятость. Не включает случайные кризисы,
+// военное бремя текущего хода, вмешательство третьих акторов и т.п. — они зависят от действия
+// игрока в этом ходу или случайны, наперёд не считаются. ДОЛЖНО оставаться синхронным с теми
+// же формулами в turns.js (ключевая ставка >17/<11, стагнация: 1+(gdp_growth-36)*0.3 <= 1,
+// рост ВВП: (gdp_growth-36)/8, занятость: (employment-74)/10) — иначе советник озвучивает не
+// те цифры, что реально применит движок.
+//
+// Появилась из реальной жалобы игрока: на ходу №1 экономика 52→50 (-2) СРАЗУ после того, как
+// он выбрал рекомендованную советником "безопасную" реформу (стимулирование экономики) — при
+// стартовых сидовых значениях (key_rate 18.5 > 17, gdp_growth ровно на пороге стагнации 36)
+// эти −1 и −1 срабатывают ГАРАНТИРОВАННО в первый же ход, независимо от выбора игрока, потому
+// что реформа влияет на economy только с лагом через gdp_growth, а не в тот же ход. Совет
+// "запас прочности окупается всегда" не предупреждал об этом неизбежном провале — выглядело
+// как будто совет был плохим или что-то сломалось.
+function computeExpectedEconomyEffects(stats) {
+  const gdpGrowthNow = stats.gdp_growth ?? 36;
+  const employmentNow = stats.employment ?? 74;
+  const keyRate = stats.key_rate ?? 18.5;
+  const effects = [];
+
+  const gdpEconomyEffect = Math.round((gdpGrowthNow - 36) / 8);
+  if (gdpEconomyEffect) effects.push({ label: "рост ВВП", delta: gdpEconomyEffect });
+
+  const gdpGrowthPct = 1 + (gdpGrowthNow - 36) * 0.3;
+  if (gdpGrowthPct <= 1) {
+    const stagnationPenalty = Math.min(-1, Math.round((gdpGrowthPct - 1) / 2));
+    effects.push({ label: "стагнация ВВП", delta: stagnationPenalty });
+  }
+
+  const employmentEconomyEffect = Math.round((employmentNow - 74) / 10);
+  if (employmentEconomyEffect) effects.push({ label: "занятость", delta: employmentEconomyEffect });
+
+  if (keyRate > 17) effects.push({ label: "высокая ставка ЦБ", delta: -1 });
+  else if (keyRate < 11) effects.push({ label: "низкая ставка ЦБ", delta: 1 });
+
+  const total = effects.reduce((sum, e) => sum + e.delta, 0);
+  return { effects, total };
+}
+
+// Скорость изменения показателя в пунктах/ход по snapshot'ам из БД (turns.stats_snapshot).
+// statHistory — [{ turn_n, stats }] от старых к новым. Нужна хотя бы 2 точки.
+// Без неё (партия только началась) возвращает 0 — деградирует к чисто margin-логике.
+function computeVelocity(statHistory, key) {
+  if (!Array.isArray(statHistory) || statHistory.length < 2) return 0;
+  const first = statHistory[0], last = statHistory[statHistory.length - 1];
+  const span = last.turn_n - first.turn_n;
+  const firstVal = first.stats?.[key], lastVal = last.stats?.[key];
+  if (span <= 0 || typeof firstVal !== "number" || typeof lastVal !== "number") return 0;
+  return (lastVal - firstVal) / span;
+}
+
+const TREND_STATS = [
+  { key: "economy", label: "Экономика", threshold: 30 },
+  { key: "approval", label: "Рейтинг", threshold: 30 },
+  { key: "stability", label: "Стабильность", threshold: 25 },
+  { key: "diplomacy", label: "Дипломатия", threshold: 15 },
+];
+
+// Текстовый блок для промпта: реальная скорость изменения по истории ходов (если есть)
+// + гарантированный автоэффект на экономику в ЭТОМ ходу (см. computeExpectedEconomyEffects).
+// Даёт ВСЕМ советникам (не только тому, кто несёт "оптимальный ход") конкретные цифры,
+// чтобы предупреждение "думайте наперёд" (см. SYSTEM_PROMPT) опиралось на факты, а не догадки.
+function buildTrendSection(stats, statHistory) {
+  const lines = [];
+  if (!Array.isArray(statHistory) || statHistory.length < 2) {
+    lines.push("(партия только началась — истории ходов ещё нет, темп неизвестен)");
+  } else {
+    for (const t of TREND_STATS) {
+      const velocity = computeVelocity(statHistory, t.key);
+      const value = stats[t.key] ?? 50;
+      const margin = value - t.threshold;
+      if (velocity < -0.5) {
+        const turnsLeft = Math.max(1, Math.ceil(margin / -velocity));
+        const tag = turnsLeft <= 2 ? " ⚠️ ОПАСНЫЙ ТЕМП" : "";
+        lines.push(`• ${t.label}: ${value} (−${Math.abs(velocity).toFixed(1)}/ход) — при таком темпе порог (${t.threshold}) через ~${turnsLeft} х.${tag}`);
+      } else {
+        lines.push(`• ${t.label}: ${value} — темп стабилен или растёт`);
+      }
+    }
+  }
+  const auto = computeExpectedEconomyEffects(stats);
+  if (auto.total !== 0) {
+    lines.push(`• Гарантированный автоэффект на экономику В ЭТОМ ХОДУ (независимо от указа): ${auto.total >= 0 ? "+" : ""}${auto.total} (${auto.effects.map(e => `${e.label} ${e.delta >= 0 ? "+" : ""}${e.delta}`).join(", ")})`);
+  }
+  return lines.join("\n");
+}
+
 /**
  * Детерминированный расчёт оптимального хода из формул движка (не ИИ).
  * Приоритет: сначала отвести от порога поражения тот показатель, что ближе всех
@@ -229,54 +326,74 @@ function buildEconIndicators(stats) {
  * Победа военная (с хода 8): армия ≥85, мораль/готовность ≥70, стаб/рейтинг ≥52,
  * экономика ≥36, Донецк/Луганск 100 + 2 из 3 (Запорожье ≥85, Херсон ≥65, Харьков ≥50).
  * Победа дипломатическая (с хода 12): мирный трек 100 + экономика/рейтинг/стабильность ≥65.
+ *
+ * ВАЖНО (баг из реальной партии, ход 3/24: экономика 55→29 и defeat_collapse раньше,
+ * чем margin<10 вообще успел сработать): опасность считалась ТОЛЬКО по текущему запасу
+ * до порога, без учёта скорости падения. Показатель с запасом 25, но падающий на 8-9/ход,
+ * рушится за 2-3 хода — раньше, чем "безопасный" margin≥10 это заметит. Поэтому опасность
+ * теперь считается и по margin, и по проекции "через сколько ходов порог при текущем темпе".
  */
-function computeOptimalMove(stats, turnNumber = 1) {
+function computeOptimalMove(stats, turnNumber = 1, statHistory = []) {
   const s = (k, d = 50) => (typeof stats[k] === "number" ? stats[k] : d);
   const economy = s("economy"), approval = s("approval"), stability = s("stability"),
     diplomacy = s("diplomacy"), treasury = s("treasury", 52), inflation = s("inflation", 64),
     military = s("military"), peace = s("peace_track", 0);
 
-  // 1. Опасность: расстояние до порога поражения (меньше = хуже)
+  // 1. Опасность: расстояние до порога поражения + скорость падения
   const dangers = [
     { key: "economy", margin: economy - 30, label: "экономика" },
     { key: "approval", margin: approval - 30, label: "рейтинг" },
     { key: "stability", margin: stability - 25, label: "стабильность" },
     { key: "diplomacy", margin: diplomacy - 15, label: "дипломатия" },
-  ].sort((a, b) => a.margin - b.margin);
+  ].map(d => {
+    const velocity = computeVelocity(statHistory, d.key);
+    const turnsLeft = velocity < -0.5 ? d.margin / -velocity : Infinity;
+    return { ...d, velocity, turnsLeft, urgent: d.margin < 10 || turnsLeft <= 2 };
+  }).sort((a, b) => {
+    // Срочные — первыми, по числу ходов до обвала; дальше — по обычному запасу.
+    if (a.urgent !== b.urgent) return a.urgent ? -1 : 1;
+    if (a.urgent) return a.turnsLeft - b.turnsLeft;
+    return a.margin - b.margin;
+  });
   const worst = dangers[0];
 
   // Порог 10: месячная автоэрозия экономики ограничена −6, плюс цена действий —
   // запас меньше 10 пунктов уже может быть съеден за один месяц.
-  if (worst.margin < 10) {
+  // ИЛИ показатель падает так быстро, что порог будет пробит за 1-2 хода несмотря
+  // на текущий запас (см. комментарий к функции выше).
+  if (worst.urgent) {
+    const trendNote = worst.margin >= 10
+      ? ` При этом темпе (−${Math.abs(worst.velocity).toFixed(1)}/ход) порог будет пробит примерно через ${Math.max(1, Math.ceil(worst.turnsLeft))} ход(а) — раньше, чем кажется по текущему запасу ${worst.margin}. Разворачивать курс нужно СЕЙЧАС, а не когда запас кончится.`
+      : "";
     if (worst.key === "economy") {
       // При пустой казне стимулирование гасится дефицитной спиралью — сначала казна.
       if (treasury < 10) {
         return { advisorId: "finance", category: "econ_austerity", mode: "decree_fast", direction: "economic_austerity",
           title: "Бюджетная консолидация (срочно)",
           decree: "Правительству поручаю программу срочной бюджетной консолидации: сокращение некритических расходов и повышение сборов с экспортёров.",
-          reason: `Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п. Казна ${treasury} — стимулирование при пустой казне гасится дефицитной спиралью, сначала нужно закрыть дефицит. Никаких военных операций в этом месяце: end-month снимет ещё до −6 автоматических потерь.` };
+          reason: `Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п.${trendNote} Казна ${treasury} — стимулирование при пустой казне гасится дефицитной спиралью, сначала нужно закрыть дефицит. Никаких военных операций в этом месяце: end-month снимет ещё до −6 автоматических потерь.` };
       }
       return { advisorId: "finance", category: "econ_stimulus", mode: "decree_fast", direction: "economic_stimulus",
         title: "Стимулирование экономики (срочно)",
         decree: "Правительству поручаю разработать пакет мер по льготному кредитованию малого и среднего бизнеса.",
-        reason: `Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п. Стимул даёт +1..+3, автоматическая эрозия за месяц ограничена −6, так что одного стимула может не хватить — стоит воздержаться от дорогих военных операций.` };
+        reason: `Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п.${trendNote} Стимул даёт +1..+3, автоматическая эрозия за месяц ограничена −6, так что одного стимула может не хватить — стоит воздержаться от дорогих военных операций.` };
     }
     if (worst.key === "approval") {
       return { advisorId: "press", category: "pol_social", mode: "decree_fast", direction: "domestic_liberalization",
         title: "Социальная программа (срочно)",
         decree: "Утверждаю социальную программу поддержки семей военнослужащих и ветеранов.",
-        reason: `Рейтинг ${approval} — до переворота (<30) осталось ${worst.margin} п. Социальные меры — самый прямой рычаг одобрения (+1..+2); мобилизация и жёсткая экономия сейчас недопустимы.` };
+        reason: `Рейтинг ${approval} — до переворота (<30) осталось ${worst.margin} п.${trendNote} Социальные меры — самый прямой рычаг одобрения (+1..+2); мобилизация и жёсткая экономия сейчас недопустимы.` };
     }
     if (worst.key === "stability") {
       return { advisorId: "press", category: "pol_propaganda", mode: "decree_fast", direction: "info_narrative",
         title: "Информационная кампания (срочно)",
         decree: "Поручаю госСМИ развернуть информационную кампанию об успехах на фронте и героизме военнослужащих.",
-        reason: `Стабильность ${stability} — до волнений (<25) осталось ${worst.margin} п. Информационная кампания поднимает стабильность и рейтинг без удара по казне (подавление подняло бы стабильность, но обвалило бы рейтинг ${approval}).` };
+        reason: `Стабильность ${stability} — до волнений (<25) осталось ${worst.margin} п.${trendNote} Информационная кампания поднимает стабильность и рейтинг без удара по казне (подавление подняло бы стабильность, но обвалило бы рейтинг ${approval}).` };
     }
     return { advisorId: "foreign", category: "diplo_negotiate", mode: "diplomacy_op", direction: "diplomacy_outreach",
       title: "Дипломатические переговоры (срочно)",
       decree: "Министерству иностранных дел поручаю провести переговоры с Турцией и ОАЭ о посредничестве в мирном процессе.",
-      reason: `Дипломатия ${diplomacy} — до изоляции (<15) осталось ${worst.margin} п. Переговоры — единственный прямой рычаг; эскалация и тайные операции сейчас усугубят изоляцию.` };
+      reason: `Дипломатия ${diplomacy} — до изоляции (<15) осталось ${worst.margin} п.${trendNote} Переговоры — единственный прямой рычаг; эскалация и тайные операции сейчас усугубят изоляцию.` };
   }
 
   // 2. Казна в минусе — спираль вниз тянет экономику каждый месяц
@@ -323,10 +440,15 @@ function computeOptimalMove(stats, turnNumber = 1) {
   return { advisorId: "finance", category: "econ_stimulus", mode: "decree_reform", direction: "economic_stimulus",
     title: "Укреплять экономику",
     decree: "Правительству поручаю разработать пакет мер по стимулированию экономики и поддержке несырьевого экспорта.",
-    reason: `Острых угроз нет. Экономика ${economy} — фундамент обоих путей к победе (военный требует ≥36 на момент победы, дипломатический ≥65). Запас прочности против месячной эрозии (до −6) окупается всегда.` };
+    reason: `Острых угроз нет. Экономика ${economy} — фундамент обоих путей к победе (военный требует ≥36 на момент победы, дипломатический ≥65). Запас прочности против месячной эрозии (до −6) окупается всегда.${(() => {
+      const auto = computeExpectedEconomyEffects(stats);
+      return auto.total < 0
+        ? ` Но в ЭТОМ ходу ждите автоматическое ${auto.total} (${auto.effects.map(e => e.label).join(", ")}) — реформа доходит до экономики только через 1-3 хода, база сработает раньше. Это не признак ошибки.`
+        : "";
+    })()}` };
 }
 
-function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode, optimalMove }) {
+function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode, optimalMove, statHistory }) {
   const draftSection = playerDraft
     ? `ЧЕРНОВИК РЕШЕНИЯ ПРЕЗИДЕНТА (советники реагируют на него):\n"${playerDraft}"`
     : `ПРЕЗИДЕНТ ЕЩЁ НЕ СФОРМУЛИРОВАЛ РЕШЕНИЕ. Советники дают общие рекомендации исходя из текущей обстановки и выбранного типа действия.`;
@@ -344,6 +466,7 @@ function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, st
     .replace("{{relations_json}}", JSON.stringify(relations.slice(0, 8)))
     .replace("{{policies_json}}", JSON.stringify(policies))
     .replace("{{econ_indicators}}", buildEconIndicators(stats))
+    .replace("{{trend_section}}", buildTrendSection(stats, statHistory))
     .replace("{{optimal_move}}", optimalMove
       ? `Ход: ${optimalMove.title}\nФормулировка указа: "${optimalMove.decree}"\nРасчёт: ${optimalMove.reason}`
       : "(расчёт недоступен)")
@@ -360,7 +483,7 @@ function stripMarkdownFences(text) {
 }
 
 async function consultAdvisors({ params, callClaudeApi }) {
-  const optimalMove = computeOptimalMove(params.stats || {}, params.turnNumber);
+  const optimalMove = computeOptimalMove(params.stats || {}, params.turnNumber, params.statHistory);
   const prompt = buildAdvisorsPrompt({ ...params, optimalMove });
 
   const response = await callClaudeApi({
