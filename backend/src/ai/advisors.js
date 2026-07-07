@@ -473,27 +473,34 @@ function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, st
 
   const actionModeDesc = SCALE_DESCRIPTIONS[actionMode] || SCALE_DESCRIPTIONS[actionMode?.replace("decree", "decree_reform")] || SCALE_DESCRIPTIONS.decree_reform;
 
+  // БАГ (Петя, 2026-07-07, найден живьём — "{{player_name}}" появлялся буквально в тексте
+  // указа): .replace(str, ...) со строковым аргументом заменяет ТОЛЬКО первое вхождение во всём
+  // тексте, а {{player_name}} и {{country_name}} встречаются в шаблоне SYSTEM_PROMPT дважды
+  // каждый — второе вхождение оставалось нетронутым и уходило в промпт Клоду буквально, а
+  // модель, не имея другого значения, послушно копировала эту строку в нарратив. .replaceAll()
+  // ниже — та же схема, но заменяет ВСЕ вхождения, независимо от того, сколько раз каждый
+  // плейсхолдер встречается в шаблоне сейчас или будет добавлен позже.
   return SYSTEM_PROMPT
-    .replace("{{advisors_json}}", ADVISORS.map(a => `[${a.id}] ${a.name} — ${a.role}\nПерсонаж: ${a.persona}`).join("\n\n"))
-    .replace("{{player_name}}", playerName || "Господин Президент")
-    .replace("{{country_name}}", countryName)
-    .replace("{{game_date}}", gameDate)
-    .replace("{{turn_number}}", turnNumber)
-    .replace("{{action_mode_desc}}", actionModeDesc)
-    .replace("{{stats_json}}", JSON.stringify(stats))
-    .replace("{{relations_json}}", JSON.stringify(relations.slice(0, 8)))
-    .replace("{{policies_json}}", JSON.stringify(policies))
-    .replace("{{econ_indicators}}", buildEconIndicators(stats))
-    .replace("{{trend_section}}", buildTrendSection(stats, statHistory))
-    .replace("{{optimal_move}}", optimalMove
+    .replaceAll("{{advisors_json}}", ADVISORS.map(a => `[${a.id}] ${a.name} — ${a.role}\nПерсонаж: ${a.persona}`).join("\n\n"))
+    .replaceAll("{{player_name}}", playerName || "Господин Президент")
+    .replaceAll("{{country_name}}", countryName)
+    .replaceAll("{{game_date}}", gameDate)
+    .replaceAll("{{turn_number}}", turnNumber)
+    .replaceAll("{{action_mode_desc}}", actionModeDesc)
+    .replaceAll("{{stats_json}}", JSON.stringify(stats))
+    .replaceAll("{{relations_json}}", JSON.stringify(relations.slice(0, 8)))
+    .replaceAll("{{policies_json}}", JSON.stringify(policies))
+    .replaceAll("{{econ_indicators}}", buildEconIndicators(stats))
+    .replaceAll("{{trend_section}}", buildTrendSection(stats, statHistory))
+    .replaceAll("{{optimal_move}}", optimalMove
       ? `Ход: ${optimalMove.title}\nФормулировка указа: ${optimalMove.decree ? `"${optimalMove.decree}"` : "(нет — совет подождать)"}\nРасчёт: ${optimalMove.reason}`
       : "(расчёт недоступен)")
-    .replace("{{optimal_advisor}}", optimalMove?.advisorId || "finance")
-    .replace("{{history_count}}", recentHistory.length)
-    .replace("{{history_json}}", recentHistory.length
+    .replaceAll("{{optimal_advisor}}", optimalMove?.advisorId || "finance")
+    .replaceAll("{{history_count}}", recentHistory.length)
+    .replaceAll("{{history_json}}", recentHistory.length
       ? recentHistory.map(h => `Ход ${h.turn_n}: "${h.player_input}" → ${h.narrative_text}`).join("\n")
       : "(партия только началась, истории нет)")
-    .replace("{{draft_section}}", draftSection);
+    .replaceAll("{{draft_section}}", draftSection);
 }
 
 function stripMarkdownFences(text) {
