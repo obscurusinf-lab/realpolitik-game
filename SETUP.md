@@ -16,6 +16,12 @@ psql <DATABASE_URL> -f backend/src/db/schema.sql
 ```
 Или вставьте содержимое `backend/src/db/schema.sql` в Railway → Data → Query.
 
+Затем накатите миграции (новые изменения схемы после снятия `schema.sql` идут только так,
+не правкой файла руками — см. `backend/migrations/`):
+```
+node backend/scripts/migrate.js
+```
+
 ## 3. Redis (Upstash — бесплатно, без карты)
 
 1. Зарегистрируйтесь на https://upstash.com
