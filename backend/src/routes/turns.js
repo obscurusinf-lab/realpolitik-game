@@ -28,6 +28,7 @@ const {
   UA_RULES_TABLE, UA_CATEGORY_LABELS, UA_CATEGORY_RESPONSES, UA_EXPOSURE_ELIGIBLE,
   computeUaStatDelta, computeUaTerritoryPull,
 } = require("../rules/ukraine-rules-engine");
+const { recordEvent } = require("../db/player-events");
 // verifyToken injected via options
 
 // Масштабирует базовые (баланс-тестированные) дельты действия Украины по magnitude ИИ (0-1) —
@@ -377,7 +378,7 @@ const UA_STRATEGY_MULTIPLIERS = {
   hybrid:      { partisan_resistance: 2.5, black_sea_strike: 1.3, foreign_volunteers: 1.2 },
 };
 
-async function selectUkraineStrategy(stats, recentMoves, callClaudeApi) {
+async function selectUkraineStrategy(stats, recentMoves, callClaudeApi, meta) {
   const uaArmy = stats.ua_army ?? 65;
   const uaWest = stats.ua_west_support ?? 75;
   const uaMorale = stats.ua_morale ?? 65;
@@ -416,7 +417,7 @@ hybrid — смешанная стратегия`;
       model: "claude-haiku-4-5-20251001",
       max_tokens: 15,
       messages: [{ role: "user", content: prompt }],
-    });
+    }, meta);
     const raw = resp.content.filter(b => b.type === "text").map(b => b.text).join("").trim().toLowerCase();
     const valid = ["military", "diplomatic", "economic", "information", "hybrid"];
     for (const v of valid) { if (raw.includes(v)) return v; }
@@ -806,6 +807,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         };
         const v2 = await generateUkraineActionV2({
           uaStats: uaStatsForAi, ruStats: newStats, recentMoves, recentUaTitles, categories, contextLabel, callClaudeApi,
+          meta: { gameId, purpose: "ukraine_action_v2" },
         });
 
         if (v2) {
@@ -845,11 +847,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           fastify.log.info({ gameId, uaCategory: category, severity, contextLabel }, "Ukraine action v2 (full symmetry) fired");
         } else {
           fastify.log.info({ gameId, contextLabel }, "Ukraine action v2 failed, falling back to v1");
-          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi);
+          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi, { gameId, purpose: "ukraine_strategy" });
           const mults = UA_STRATEGY_MULTIPLIERS[uaStrategy] || {};
           const weightedActions = UA_ACTIONS.map(a => ({ ...a, weight: a.weight * (mults[a.type] ?? 1) }));
           const validTypes = weightedActions.filter(a => a.weight > 0).map(a => ({ type: a.type, title: a.title }));
-          const v1 = await generateUkraineAction({ stats: newStats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi });
+          const v1 = await generateUkraineAction({ stats: newStats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi, meta: { gameId, purpose: "ukraine_action" } });
 
           let uaAction;
           if (v1) {
@@ -881,12 +883,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           uaAction = UA_REGROUP_ACTIONS[0];
           for (const a of UA_REGROUP_ACTIONS) { rnd -= a.weight; if (rnd <= 0) { uaAction = a; break; } }
         } else {
-          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi);
+          const uaStrategy = await selectUkraineStrategy(newStats, recentMoves, callClaudeApi, { gameId, purpose: "ukraine_strategy" });
           fastify.log.info({ gameId, uaStrategy }, "Ukraine strategy selected");
           const mults = UA_STRATEGY_MULTIPLIERS[uaStrategy] || {};
           const weightedActions = UA_ACTIONS.map(a => ({ ...a, weight: a.weight * (mults[a.type] ?? 1) }));
           const validTypes = weightedActions.filter(a => a.weight > 0).map(a => ({ type: a.type, title: a.title }));
-          const aiAction = await generateUkraineAction({ stats: newStats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi });
+          const aiAction = await generateUkraineAction({ stats: newStats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi, meta: { gameId, purpose: "ukraine_action" } });
 
           if (aiAction) {
             const base = UA_ACTIONS.find(a => a.type === aiAction.action_type);
@@ -1045,6 +1047,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         actionMode: effectiveActionMode,
       },
       callClaudeApi,
+      meta: { gameId, playerId: payload.userId, purpose: "classify_turn" },
     });
 
     // Военный лимит (продолжение): military_blocked_this_month ставится перегруппировкой на
@@ -1519,6 +1522,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           prevOverview: game.overview || {},
         },
         callClaudeApi,
+        meta: { gameId, purpose: gmClassification.action_type === "nuclear_strike" ? "world_update_nuclear" : "world_update" },
       }).then(async (worldUpdate) => {
         const isNuclearAction = gmClassification.action_type === "nuclear_strike";
         // Если worldUpdate упал и это был ядерный удар — пишем минимальные реакции-заглушки
@@ -1606,7 +1610,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const gameOutcome = detectGameOutcome(newStats, turnNumber, MAX_TURNS);
       if (gameOutcome) {
         await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
+        recordEvent(db, { playerId: payload.userId, eventType: "game_completed", payload: { gameId, outcome: gameOutcome, turnNumber } });
       }
+      recordEvent(db, { playerId: payload.userId, eventType: "turn_submitted", payload: { gameId, turnNumber, actionMode: pendingActionMode, actionType: gmClassification.action_type } });
 
       // --- CHANGELOG: разбивка изменений по источникам ---
       const statChangelog = {};
@@ -2456,7 +2462,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [completedMonth, gameId]);
       if (gameOutcome) {
         await client.query(`UPDATE games SET status = $1 WHERE id = $2`, [gameOutcome, gameId]);
+        recordEvent(db, { playerId: payload.userId, eventType: "game_completed", payload: { gameId, outcome: gameOutcome, turnNumber: completedMonth } });
       }
+      recordEvent(db, { playerId: payload.userId, eventType: "turn_submitted", payload: { gameId, turnNumber: completedMonth, actionMode: "end_month" } });
       // Снимок для лидерборда — раз в месяц
       const scoreKeys = ["stability", "economy", "military", "diplomacy", "approval"];
       const score = Math.round(scoreKeys.map(k => newStats[k] ?? 50).reduce((a, b) => a + b, 0) / scoreKeys.length);
@@ -2638,6 +2646,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
       }
       await client.query("COMMIT");
+      recordEvent(db, { playerId: game.owner_user_id, eventType: "turn_submitted", payload: { gameId, turnNumber, actionMode: "skip" } });
 
       return reply.send({
         turnNumber,
@@ -2718,6 +2727,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [turnNumber, gameId]);
       }
       await client.query("COMMIT");
+      recordEvent(db, { playerId: game.owner_user_id, eventType: "turn_submitted", payload: { gameId, turnNumber, actionMode: "regroup" } });
 
       // Ukraine action (такая же механика как в confirm) — вынесена в runUkraineTurn (2026-07-06,
       // "полная симметрия"), contextLabel: "regroup" даёт ИИ понять контекст (Россия только что
@@ -2770,7 +2780,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
               currentRelations: game.relations || [],
               actionType: "regroup",
             },
-            callClaudeApi: require("../ai/claude-client").callClaudeApi,
+            // БАГ (найдено при подключении учёта расхода, 2026-07-07): тут раньше вызывался
+            // СЫРОЙ callClaudeApi напрямую из claude-client.js, а не обёрнутая версия,
+            // прокинутая в registerTurnRoutes — эти вызовы никогда не попадали в ai_usage.
+            callClaudeApi,
+            meta: { gameId, purpose: "world_update" },
           });
           if (worldResult) {
             const client2 = await db.connect();
@@ -2965,6 +2979,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const gameOutcome = detectGameOutcome(newStats, currentTurn, 24);
       if (gameOutcome) {
         await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
+        recordEvent(db, { playerId: payload.userId, eventType: "game_completed", payload: { gameId, outcome: gameOutcome, turnNumber: currentTurn } });
       }
 
       await client.query("COMMIT");

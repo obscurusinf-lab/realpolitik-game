@@ -10,6 +10,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { recordEvent } = require("../db/player-events");
 // verifyToken injected via options
 
 const COUNTRIES_DIR = path.join(__dirname, "../db/seed/countries");
@@ -134,6 +135,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       }
 
       await client.query("COMMIT");
+      recordEvent(db, { playerId: userId, eventType: "game_started", payload: { gameId, countryId, assistMode: mode, language: gameLanguage } });
       return reply.code(201).send({ gameId, countryId, status: "active", currentTurn: 0, assistMode: mode, language: gameLanguage });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -177,10 +179,17 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     if (!payload) return;
     const { gameId } = request.params;
     const check = await db.query(
-      `SELECT id FROM games WHERE id = $1 AND owner_user_id = $2`,
+      `SELECT id, current_turn, status FROM games WHERE id = $1 AND owner_user_id = $2`,
       [gameId, payload.userId]
     );
     if (check.rowCount === 0) return reply.code(404).send({ error: "Партия не найдена" });
+    // game_abandoned — игрок явно удалил партию (в отличие от admin-деактивации, см. DELETE
+    // /admin/games/:gameId в routes/admin.js). Снимок current_turn/status в payload — после
+    // DELETE сама партия исчезнет (CASCADE), JOIN на games для аналитики станет невозможен.
+    recordEvent(db, {
+      playerId: payload.userId, eventType: "game_abandoned",
+      payload: { gameId, currentTurn: check.rows[0].current_turn, statusAtDeletion: check.rows[0].status },
+    });
     await db.query(`DELETE FROM games WHERE id = $1`, [gameId]);
     return reply.send({ ok: true });
   });
@@ -417,7 +426,7 @@ ${historyLines || "(история пуста)"}
         model: "claude-sonnet-4-6",
         max_tokens: 2000,
         messages: [{ role: "user", content: prompt }],
-      });
+      }, { gameId, purpose: "legacy" });
       const rawText = response.content.filter(b => b.type === "text").map(b => b.text).join("\n");
       const cleaned = rawText.replace(/```json\s*|\s*```/g, "").trim();
       const parsed = JSON.parse(cleaned);

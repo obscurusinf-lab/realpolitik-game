@@ -87,13 +87,13 @@ function selectModel(actionMode) {
  * Основная функция. callClaudeApi — инжектируемая зависимость
  * (в проде — fetch на api.anthropic.com, в тестах — мок).
  */
-async function classifyTurn({ params, callClaudeApi, retryCount = 0 }) {
+async function classifyTurn({ params, callClaudeApi, retryCount = 0, meta }) {
   const response = await callClaudeApi({
     model: selectModel(params.actionMode),
     max_tokens: 4000,
     system: [{ type: "text", text: CACHED_SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: buildUserMessage(params) }],
-  });
+  }, meta);
 
   const rawText = response.content
     .filter((block) => block.type === "text")
@@ -111,6 +111,7 @@ async function classifyTurn({ params, callClaudeApi, retryCount = 0 }) {
         params: { ...params, playerInput: (params.playerInput || "") + `\n\n[Системное: предыдущий ответ не был валидным JSON. Верни ТОЛЬКО JSON-объект.]` },
         callClaudeApi,
         retryCount: retryCount + 1,
+        meta,
       });
     }
     return fallbackResponse("JSON parse failed after retries");
@@ -126,6 +127,7 @@ async function classifyTurn({ params, callClaudeApi, retryCount = 0 }) {
         params: { ...params, playerInput: params.playerInput + `\n\n[Системное: ошибка валидации "${err.message}". Исправь и верни корректный JSON.]` },
         callClaudeApi,
         retryCount: retryCount + 1,
+        meta,
       });
     }
     return fallbackResponse(`Validation failed after retries: ${err.message}`);

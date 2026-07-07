@@ -34,7 +34,7 @@ async function registerSuggestionRoutes(fastify, { db, callClaudeApi }) {
       model: "claude-haiku-4-5-20251001",
       max_tokens: 600,
       messages: [{ role: "user", content: prompt }],
-    });
+    }, { gameId, purpose: "suggestions" });
 
     const rawText = response.content.filter(b => b.type === "text").map(b => b.text).join("\n");
 

@@ -111,7 +111,7 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
 ПРАВИЛА: lat/lon — реальные координаты, разные регионы. stat_delta только если действие реально влияет (economy/military/stability/diplomacy/approval), значения -3..+2. Текст каждой страны уникален и конкретен.`;
 }
 
-async function generateWorldUpdate({ params, callClaudeApi }) {
+async function generateWorldUpdate({ params, callClaudeApi, meta }) {
   const isNuclear = params.actionType === "nuclear_strike";
   // Добавляем контекст исхода разведки в нарратив
   const intelOutcomes = {
@@ -133,7 +133,7 @@ async function generateWorldUpdate({ params, callClaudeApi }) {
       model: isNuclear ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001",
       max_tokens: isNuclear ? 6000 : 2500,
       messages: [{ role: "user", content: prompt }],
-    });
+    }, { ...meta, purpose: meta?.purpose || (isNuclear ? "world_update_nuclear" : "world_update") });
   } catch (err) {
     console.error("worldUpdate Claude call failed:", err.message);
     return null;

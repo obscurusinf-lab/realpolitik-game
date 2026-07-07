@@ -116,3 +116,30 @@ CREATE TABLE feedback_items (
   status        TEXT NOT NULL DEFAULT 'new', -- new | reviewed | resolved
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Система метрик игроков (миграция 0003) — append-only логи аналитики, не игровое состояние.
+CREATE TABLE player_events (
+  id         BIGSERIAL PRIMARY KEY,
+  player_id  UUID REFERENCES users(id) ON DELETE SET NULL,
+  session_id TEXT,
+  event_type TEXT NOT NULL,                  -- registered | game_started | turn_submitted | game_completed | game_abandoned
+  payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_player_events_player_created ON player_events(player_id, created_at);
+CREATE INDEX idx_player_events_type_created ON player_events(event_type, created_at);
+
+CREATE TABLE ai_usage (
+  id             BIGSERIAL PRIMARY KEY,
+  game_id        UUID REFERENCES games(id) ON DELETE SET NULL,
+  player_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+  model          TEXT NOT NULL,
+  purpose        TEXT NOT NULL,              -- classify_turn | advisors_consult | ukraine_action | ukraine_action_v2 | world_update | suggestions | argue | admin_foreign_action
+  input_tokens   INT NOT NULL DEFAULT 0,
+  output_tokens  INT NOT NULL DEFAULT 0,
+  cached_tokens  INT NOT NULL DEFAULT 0,
+  cost_usd       NUMERIC(10,6) NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_ai_usage_player ON ai_usage(player_id);
+CREATE INDEX idx_ai_usage_game ON ai_usage(game_id);

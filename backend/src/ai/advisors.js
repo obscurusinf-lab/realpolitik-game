@@ -507,7 +507,7 @@ function stripMarkdownFences(text) {
   return text.replace(/```json\s*|\s*```/g, "").trim();
 }
 
-async function consultAdvisors({ params, callClaudeApi }) {
+async function consultAdvisors({ params, callClaudeApi, meta }) {
   const optimalMove = computeOptimalMove(params.stats || {}, params.turnNumber, params.statHistory, params.recentCategories);
   const prompt = buildAdvisorsPrompt({ ...params, optimalMove });
 
@@ -515,7 +515,7 @@ async function consultAdvisors({ params, callClaudeApi }) {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 2500,
     messages: [{ role: "user", content: prompt }],
-  });
+  }, meta);
 
   const rawText = response.content
     .filter(b => b.type === "text")

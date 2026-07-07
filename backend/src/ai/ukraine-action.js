@@ -20,7 +20,7 @@ function stripMarkdownFences(text) {
   return text.replace(/```json\s*|\s*```/g, "").trim();
 }
 
-async function generateUkraineAction({ stats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi }) {
+async function generateUkraineAction({ stats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi, meta }) {
   if (!validTypes || validTypes.length === 0) return null;
 
   const uaArmy = stats.ua_army ?? 65;
@@ -78,7 +78,7 @@ ${typesText}
       model: "claude-haiku-4-5-20251001",
       max_tokens: 400,
       messages: [{ role: "user", content: prompt }],
-    });
+    }, meta);
     const rawText = resp.content.filter(b => b.type === "text").map(b => b.text).join("").trim();
     const parsed = JSON.parse(stripMarkdownFences(rawText));
 

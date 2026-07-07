@@ -163,7 +163,7 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
         model: "claude-sonnet-4-6",
         max_tokens: 400,
         messages: [{ role: "user", content: prompt }],
-      });
+      }, { gameId, purpose: "admin_foreign_action" });
       const rawText = raw.content?.filter(b => b.type === "text").map(b => b.text).join("") || "";
       parsed = JSON.parse(rawText.replace(/```json\s*|\s*```/g, "").trim());
     } catch (e) {
@@ -338,6 +338,9 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
   // GET /admin/users — все пользователи с агрегатами по партиям
   fastify.get("/admin/users", async (request, reply) => {
     if (!checkAuth(request, reply)) return;
+    // ai_cost_usd/event_count — система метрик игроков (2026-07-07, миграция 0003). Подзапросы,
+    // а не прямой JOIN на ai_usage/player_events, чтобы не размножать строки games в основном
+    // GROUP BY (ai_usage/player_events не привязаны 1:1 к games).
     const res = await db.query(`
       SELECT
         u.id, u.username, u.display_name, u.is_anonymous, u.created_at,
@@ -346,10 +349,14 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
         MAX(g.updated_at)                                       AS last_active,
         MAX(g.current_turn)                                     AS max_turn,
         MAX(g.last_ping_at)                                     AS last_ping_at,
-        BOOL_OR(g.last_ping_at > now() - interval '45 seconds') AS online
+        BOOL_OR(g.last_ping_at > now() - interval '45 seconds') AS online,
+        COALESCE(au.total_cost_usd, 0)                          AS ai_cost_usd,
+        COALESCE(pe.event_count, 0)                             AS event_count
       FROM users u
       LEFT JOIN games g ON g.owner_user_id = u.id
-      GROUP BY u.id
+      LEFT JOIN (SELECT player_id, SUM(cost_usd) AS total_cost_usd FROM ai_usage GROUP BY player_id) au ON au.player_id = u.id
+      LEFT JOIN (SELECT player_id, COUNT(*) AS event_count FROM player_events GROUP BY player_id) pe ON pe.player_id = u.id
+      GROUP BY u.id, au.total_cost_usd, pe.event_count
       ORDER BY last_active DESC NULLS LAST
     `);
     return reply.send({ users: res.rows });
@@ -398,7 +405,25 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     }
 
     const games = gamesRes.rows.map(g => ({ ...g, turns: turnsMap[g.id] || [] }));
-    return reply.send({ user: userRes.rows[0], games });
+
+    // Метрики игрока (2026-07-07, миграция 0003) — расход по назначению вызова + последние события.
+    const usageRes = await db.query(`
+      SELECT purpose, COUNT(*)::int AS calls, SUM(cost_usd) AS cost_usd,
+             SUM(input_tokens)::int AS input_tokens, SUM(output_tokens)::int AS output_tokens
+      FROM ai_usage WHERE player_id = $1 GROUP BY purpose ORDER BY cost_usd DESC
+    `, [userId]);
+    const eventsRes = await db.query(`
+      SELECT event_type, payload, created_at FROM player_events
+      WHERE player_id = $1 ORDER BY created_at DESC LIMIT 20
+    `, [userId]);
+
+    return reply.send({
+      user: userRes.rows[0],
+      games,
+      aiUsageByPurpose: usageRes.rows,
+      aiCostTotalUsd: usageRes.rows.reduce((s, r) => s + Number(r.cost_usd || 0), 0),
+      recentEvents: eventsRes.rows,
+    });
   });
 
   // GET /admin/feedback — все репорты

@@ -15,7 +15,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
 
     const gameRes = await db.query(
       `SELECT g.current_turn, gs.stats, gs.relations, gs.policies, gs.overview, g.admin_advisor_notes,
-              c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
+              g.owner_user_id, c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id
@@ -64,6 +64,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
         actionMode: actionMode || "decree_reform",
       },
       callClaudeApi,
+      meta: { gameId, playerId: game.owner_user_id, purpose: "advisors_consult" },
     });
 
     // Ручная правка админа (2026-07-06, POST /admin/games/:gameId/advisor-note) — подменяет

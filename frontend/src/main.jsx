@@ -884,6 +884,9 @@ function AdminTabPlayers({ pwd }) {
             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
               @{u.username || "anon"} · {u.games_total} парт. · {u.max_turn || 0} ходов макс
             </div>
+            <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginTop: 1 }}>
+              💸 ${Number(u.ai_cost_usd || 0).toFixed(3)} · 📊 {u.event_count || 0} событий
+            </div>
             {u.last_active && <div className="mono-font" style={{ fontSize: 8, color: "#3a4156", marginTop: 1 }}>
               {new Date(u.last_active).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
             </div>}
@@ -919,6 +922,38 @@ function AdminTabPlayers({ pwd }) {
                 <div className="mono-font" style={{ fontSize: 22, fontWeight: 700, color: "#9c8347" }}>{detail.games.length} парт.</div>
               </div>
             </div>
+
+            {/* Метрики (2026-07-07, миграция 0003) — расход ИИ по назначению + последние события */}
+            {(detail.aiUsageByPurpose?.length > 0 || detail.recentEvents?.length > 0) && (
+              <div style={{ padding: "12px 20px 4px", display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {detail.aiUsageByPurpose?.length > 0 && (
+                  <div style={{ flex: "1 1 260px", minWidth: 220 }}>
+                    <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.1em", marginBottom: 6 }}>
+                      💸 РАСХОД ИИ · ВСЕГО ${Number(detail.aiCostTotalUsd || 0).toFixed(3)}
+                    </div>
+                    {detail.aiUsageByPurpose.map(p => (
+                      <div key={p.purpose} className="mono-font" style={{ fontSize: 9, color: "#5a6070", display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
+                        <span>{p.purpose} ({p.calls}×)</span>
+                        <span>${Number(p.cost_usd || 0).toFixed(3)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {detail.recentEvents?.length > 0 && (
+                  <div style={{ flex: "1 1 260px", minWidth: 220 }}>
+                    <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", letterSpacing: "0.1em", marginBottom: 6 }}>
+                      📊 ПОСЛЕДНИЕ СОБЫТИЯ
+                    </div>
+                    {detail.recentEvents.slice(0, 8).map((e, i) => (
+                      <div key={i} className="mono-font" style={{ fontSize: 9, color: "#5a6070", display: "flex", justifyContent: "space-between", padding: "1px 0", gap: 8 }}>
+                        <span>{e.event_type}</span>
+                        <span style={{ color: "#3a4156", flexShrink: 0 }}>{new Date(e.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Партии */}
             <div style={{ padding: "12px 20px" }}>

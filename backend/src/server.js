@@ -18,7 +18,9 @@ const { registerAdminRoutes } = require("./routes/admin");
 const { registerFeedbackRoutes } = require("./routes/feedback");
 const { createPendingTurnStore } = require("./db/pending-turns");
 const { createAdminEventStore } = require("./db/admin-events");
-const { callClaudeApi } = require("./ai/claude-client");
+const { callClaudeApi: rawCallClaudeApi } = require("./ai/claude-client");
+const { wrapCallClaudeApi } = require("./ai/usage-tracker");
+const { recordEvent } = require("./db/player-events");
 
 function getJwtSecret() {
   const s = process.env.JWT_SECRET;
@@ -120,6 +122,7 @@ async function buildServer() {
     );
     const user = res.rows[0];
     const token = signToken({ userId: user.id, username: user.username });
+    recordEvent(db, { playerId: user.id, eventType: "registered", payload: { username: user.username } });
     return reply.code(201).send({ token, userId: user.id, username: user.username, displayName: user.display_name });
   });
 
@@ -164,6 +167,11 @@ async function buildServer() {
   });
 
   fastify.log.info("AUTH ROUTES REGISTERED OK");
+
+  // callClaudeApi обёрнут ОДИН раз здесь (usage-tracker.js) — каждый вызов из любого ai/*-модуля
+  // (gamemaster/advisors/ukraine-action*/worldUpdate/suggestions/argue/admin) автоматически
+  // пишется в ai_usage, без правки самого claude-client.js.
+  const callClaudeApi = wrapCallClaudeApi({ db, callClaudeApi: rawCallClaudeApi, logger: fastify.log });
 
   // --- Остальные роуты ---
   await registerUserRoutes(fastify, { db });
