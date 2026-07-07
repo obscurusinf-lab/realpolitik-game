@@ -6,6 +6,52 @@
 
 ---
 
+## 📥 ОТ ЛОКАЛЬНОЙ СЕССИИ [Клод Второй Домашний] (2026-07-07) — система метрик игроков реализована целиком (коммит `bb5d3e9`)
+
+Игрок: раз schema.sql/миграции уже готовы (моя предыдущая запись ниже) — "делай ты" вместо
+ожидания облачной сессии. Реализовано полностью по плану, который облако уже согласовало с
+игроком (см. запись "ЗАДАЧА ДЛЯ ЛОКАЛЬНОЙ СЕССИИ" ниже) — таблицы, обёртка расхода, точки учёта
+событий, расширение админки.
+
+**Что сделано**:
+- Миграция `0003_player_metrics.sql` — таблицы `player_events` (append-only: player_id nullable,
+  session_id, event_type, payload jsonb) и `ai_usage` (game_id/player_id nullable ON DELETE SET
+  NULL, model, purpose, input/output/cached tokens, cost_usd). Прогнана на проде.
+- `backend/src/ai/usage-tracker.js` — оборачивает `callClaudeApi` ОДИН раз в `server.js` (сам
+  `claude-client.js` не тронут). Каждый вызывающий модуль передаёт вторым аргументом
+  `meta = { gameId, playerId, purpose }` — проброшено точечно через ~12 файлов (gamemaster,
+  advisors, ukraine-action, ukraine-action-v2, worldUpdate, suggestions, argue, admin
+  foreign-action, games.js legacy, плюс сами роуты в turns.js). Цены Sonnet 4.6/Haiku 4.5 —
+  единственное место в коде, где считается $-расход.
+- 5 событий: `registered` (auth/register), `game_started` (POST /games), `turn_submitted`
+  (confirm/end-month/skip/regroup), `game_completed` (все 3 места смены статуса на victory_*/
+  defeat_*), `game_abandoned` (DELETE /games/:gameId — явное удаление игроком, не admin).
+- `backend/src/db/player-events.js` — общий `recordEvent()` хелпер, fire-and-forget (как и
+  запись в ai_usage) — сбой аналитики никогда не ломает основной игровой ответ.
+- Админка: `/admin/users` — добавлены `ai_cost_usd`/`event_count` на игрока (подзапросы, не
+  трогают существующий GROUP BY). `/admin/users/:userId` — `aiUsageByPurpose` (разбивка расхода
+  по назначению) + `recentEvents` (последние 20). `AdminTabPlayers` в `main.jsx` — оба поля
+  показаны в списке и в шапке досье.
+
+**Побочный баг, найденный по пути**: `/turns/regroup` вызывал СЫРОЙ `callClaudeApi` напрямую из
+`claude-client.js` вместо обёрнутой версии из `registerTurnRoutes` — эти вызовы никогда не
+попадали бы в учёт расхода. Исправлено заодно.
+
+**Проверено вживую** (тестовый аккаунт против прод-БД, удалён после): миграция применена и
+идемпотентно зафиксирована; полный цикл регистрация→партия→указ дал все 3 ожидаемых события +
+3 строки в `ai_usage` (включая подтверждённое кэширование промпта — 5983 cached_tokens на
+`classify_turn`); `/admin/users`/`/admin/users/:userId` возвращают корректно агрегированные
+данные. `node --check`/`npm run build` — чисто.
+
+**Не сделано / следующий шаг, если понадобится**: `player_id` у `ukraine_action_v2`/
+`world_update` в `ai_usage` сейчас `null` (эти вызовы — в async fire-and-forget блоках turns.js,
+где playerId не был под рукой без доп. запроса) — `game_id` есть всегда, так что агрегация по
+игре работает, просто прямой JOIN на юзера для ЭТИХ конкретных строк требует `games.owner_user_id`
+вместо `ai_usage.player_id` напрямую. Не критично, но если понадобится 100% точная привязка к
+игроку по каждой строке — можно дотянуть.
+
+---
+
 ## 📥 ОТ ЛОКАЛЬНОЙ СЕССИИ [Клод Второй Домашний] (2026-07-07, продолжение) — живая проверка багфиксов облачной сессии + найден и исправлен реальный баг ({{player_name}} утекал в текст указов)
 
 Прогнал живую проверку по всем "Что стоит перепроверить живьём" из записей облачной сессии выше
