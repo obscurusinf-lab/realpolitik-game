@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { createGame, createUser, deleteGame, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
+import { createGame, deleteGame, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, LangToggle, useLang } from "./i18n";
 
@@ -297,6 +297,19 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                   </button>
                 ))}
               </div>
+
+              {/* Реальная обратная связь с беты: слово "регистрация" само по себе отпугивает
+                  быстрее, чем реальная форма (2 поля, без email) — тестер отказался играть,
+                  ожидая анкету, ещё до того как увидел форму. Обыграли как "президентский
+                  допуск" — та же лексика, что уже используется в игре после входа
+                  ("ДОПУСК ПОДТВЕРЖДЁН", "Проверка допуска…"), серьёзный тон сохранён,
+                  бюрократического "регистрация" больше нет. */}
+              {authMode === "register" && (
+                <div style={{ marginBottom: 14 }}>
+                  <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 4 }}>{t("start.register_clearance_label")}</div>
+                  <div className="mono-font" style={{ fontSize: 10.5, color: "#5a6070" }}>{t("start.register_subheading")}</div>
+                </div>
+              )}
 
               <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>{t("start.field_login")}</div>
               <input value={username} onChange={e => setUsername(e.target.value)}

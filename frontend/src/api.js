@@ -130,16 +130,6 @@ export async function fetchLog(gameId) {
   return res.json();
 }
 
-export async function createUser(displayName) {
-  const res = await fetchWithTimeout(`${API_BASE}/users`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ displayName }),
-  }, 15000);
-  if (!res.ok) throw new Error("Не удалось создать пользователя");
-  return res.json();
-}
-
 export async function fetchLeaderboard(countryId) {
   const params = countryId ? `?countryId=${countryId}` : "";
   const res = await fetchWithTimeout(`${API_BASE}/leaderboard${params}`, {}, 15000);

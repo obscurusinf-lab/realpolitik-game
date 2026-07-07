@@ -28,7 +28,9 @@ const RU = {
 
   // ---- StartScreen: форма входа ----
   "start.tab_login": "ВХОД",
-  "start.tab_register": "РЕГИСТРАЦИЯ",
+  "start.tab_register": "ДОПУСК",
+  "start.register_clearance_label": "ПРЕЗИДЕНТСКИЙ ДОПУСК",
+  "start.register_subheading": "без email и подтверждений",
   "start.field_login": "ЛОГИН",
   "start.placeholder_login": "имя пользователя",
   "start.field_display_name": "ПОЗЫВНОЙ АККАУНТА (общий для всех партий)",
@@ -36,7 +38,7 @@ const RU = {
   "start.field_password": "ПАРОЛЬ",
   "start.btn_checking": "Проверка допуска…",
   "start.btn_login": "Войти →",
-  "start.btn_register": "Зарегистрироваться →",
+  "start.btn_register": "Получить допуск →",
 
   // ---- StartScreen: после входа ----
   "start.access_confirmed": "ДОПУСК ПОДТВЕРЖДЁН · ",
@@ -248,7 +250,9 @@ const EN = {
   "start.pitch": "REALPOLITIK gives you a shot at getting it right — become president.",
 
   "start.tab_login": "LOG IN",
-  "start.tab_register": "REGISTER",
+  "start.tab_register": "CLEARANCE",
+  "start.register_clearance_label": "PRESIDENTIAL CLEARANCE",
+  "start.register_subheading": "no email, no confirmations",
   "start.field_login": "USERNAME",
   "start.placeholder_login": "username",
   "start.field_display_name": "ACCOUNT CALLSIGN (shared across all games)",
@@ -256,7 +260,7 @@ const EN = {
   "start.field_password": "PASSWORD",
   "start.btn_checking": "Verifying clearance…",
   "start.btn_login": "Log in →",
-  "start.btn_register": "Register →",
+  "start.btn_register": "Get clearance →",
 
   "start.access_confirmed": "CLEARANCE CONFIRMED · ",
   "start.edit_name_title": "Change name",
