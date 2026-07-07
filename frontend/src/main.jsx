@@ -1228,6 +1228,173 @@ function AdminTabStats({ pwd }) {
   );
 }
 
+// ── Вкладка «Воронка» ────────────────────────────────────────────────────────
+// Поверх системы метрик игроков (миграция 0003, 2026-07-07): registered → game_started →
+// turn_submitted → game_completed, разбивка по исходам партий, регистрации по дням.
+// Воронка начинается с "registered", а не "зашёл на сайт" — отслеживание анонимных визитов
+// (до регистрации) не реализовано, требует cookie-сессий, отдельная задача.
+const ADMIN_OUTCOME_LABELS = {
+  victory: "Победа — мир достигнут", victory_military: "Военная победа", victory_combined: "Принуждение к миру",
+  partial_peace: "Договор подписан", partial: "Достойное правление", partial_military: "Военное доминирование",
+  defeat_time: "Срок истёк", defeat_coup: "Госпереворот", defeat_collapse: "Экономический коллапс",
+  defeat_unrest: "Народные волнения", defeat_isolation: "Международная изоляция", defeat_war: "Спираль войны",
+  defeat_military_collapse: "Фронт рухнул", defeat_donbass_lost: "Донбасс отбит",
+};
+
+function FunnelStage({ label, value, prevValue, first }) {
+  const pctOfPrev = !first && prevValue > 0 ? Math.round((value / prevValue) * 100) : null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ flex: 1, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{label}</span>
+        <span className="mono-font" style={{ fontSize: 20, fontWeight: 700, color: "#9c8347" }}>{value}</span>
+      </div>
+      {pctOfPrev !== null && (
+        <span className="mono-font" style={{ fontSize: 10, color: pctOfPrev >= 50 ? "#7fae93" : "#e09090", width: 44, textAlign: "right", flexShrink: 0 }}>
+          {pctOfPrev}%
+        </span>
+      )}
+      {first && <span style={{ width: 44, flexShrink: 0 }} />}
+    </div>
+  );
+}
+
+function AdminTabFunnel({ pwd }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adm(pwd, "/funnel").then(r => r.json()).then(d => setData(d)).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", padding: 20 }}>Загрузка…</div>;
+  if (!data) return null;
+
+  const f = data.funnel || {};
+  const stages = [
+    { key: "registered", label: "Зарегистрировались" },
+    { key: "started_game", label: "Начали партию" },
+    { key: "submitted_turn", label: "Сделали ход" },
+    { key: "completed_game", label: "Завершили партию" },
+  ];
+  const maxDaily = Math.max(1, ...(data.dailyRegistrations || []).map(d => d.count));
+  const totalOutcomes = (data.outcomes || []).reduce((s, o) => s + o.completions, 0);
+
+  return (
+    <div style={{ padding: "16px 20px" }}>
+      <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.08em" }}>
+        ВОРОНКА (ВСЁ ВРЕМЯ) — % ОТ ПРЕДЫДУЩЕГО ЭТАПА
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 26 }}>
+        {stages.map((s, i) => (
+          <FunnelStage key={s.key} label={s.label} value={f[s.key] ?? 0} prevValue={i > 0 ? f[stages[i - 1].key] ?? 0 : null} first={i === 0} />
+        ))}
+      </div>
+
+      <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.08em" }}>ИСХОДЫ ЗАВЕРШЁННЫХ ПАРТИЙ</div>
+      {totalOutcomes === 0 && <div className="mono-font" style={{ fontSize: 11, color: "#3a4156", marginBottom: 26 }}>Пока нет завершённых партий</div>}
+      {totalOutcomes > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 26 }}>
+          {(data.outcomes || []).map(o => {
+            const isVictory = (o.outcome || "").startsWith("victory") || (o.outcome || "").startsWith("partial");
+            const pct = Math.round((o.completions / totalOutcomes) * 100);
+            return (
+              <div key={o.outcome || "unknown"} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="doc-font" style={{ fontSize: 12, width: 190, flexShrink: 0, color: isVictory ? "#7fae93" : "#e09090" }}>
+                  {ADMIN_OUTCOME_LABELS[o.outcome] || o.outcome || "неизвестно"}
+                </span>
+                <div style={{ flex: 1, background: "#1a2030", borderRadius: 3, height: 14, overflow: "hidden" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: isVictory ? "#7fae93" : "#e08080" }} />
+                </div>
+                <span className="mono-font" style={{ fontSize: 10, color: "#a8a294", width: 60, textAlign: "right", flexShrink: 0 }}>{o.completions} ({pct}%)</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.08em" }}>РЕГИСТРАЦИИ ПО ДНЯМ (30 ДН.)</div>
+      {(!data.dailyRegistrations || data.dailyRegistrations.length === 0) && (
+        <div className="mono-font" style={{ fontSize: 11, color: "#3a4156" }}>Нет регистраций за последние 30 дней</div>
+      )}
+      {data.dailyRegistrations && data.dailyRegistrations.length > 0 && (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 80 }}>
+          {data.dailyRegistrations.map(d => (
+            <div key={d.day} title={`${d.day}: ${d.count}`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+              <div style={{ width: "100%", maxWidth: 18, background: "#9c8347", borderRadius: "2px 2px 0 0", height: `${Math.max(4, (d.count / maxDaily) * 100)}%` }} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Вкладка «Ретеншен» ───────────────────────────────────────────────────────
+// Недельные когорты по дате регистрации. "Вернулся через N+ дней" = была любая активность
+// (не сам registered) не раньше чем через N дней после регистрации. Когорты младше N дней
+// помечены "—" вместо 0% — иначе свежая когорта выглядела бы так, будто все ушли, хотя
+// на самом деле N дней ещё не прошло (частая ошибка ретеншен-дашбордов на молодых продуктах).
+function RetentionCell({ retained, eligible, cohortSize }) {
+  if (eligible === 0) return <span className="mono-font" style={{ fontSize: 11, color: "#3a4156" }}>— рано</span>;
+  const pct = Math.round((retained / eligible) * 100);
+  const color = pct >= 40 ? "#7fae93" : pct >= 15 ? "#9c8347" : "#e08080";
+  return (
+    <span className="mono-font" style={{ fontSize: 12, color, fontWeight: 700 }}>
+      {pct}% <span style={{ color: "#5a6070", fontWeight: 400 }}>({retained}/{eligible})</span>
+    </span>
+  );
+}
+
+function AdminTabRetention({ pwd }) {
+  const [cohorts, setCohorts] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adm(pwd, "/retention").then(r => r.json()).then(d => setCohorts(d.cohorts || [])).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", padding: 20 }}>Загрузка…</div>;
+
+  return (
+    <div style={{ padding: "16px 20px" }}>
+      <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 4, letterSpacing: "0.08em" }}>
+        КОГОРТЫ ПО НЕДЕЛЕ РЕГИСТРАЦИИ
+      </div>
+      <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", marginBottom: 16, fontStyle: "italic" }}>
+        «Вернулся через N+ дней» — была любая активность (не сама регистрация) не раньше N дней после неё.
+      </div>
+      {(!cohorts || cohorts.length === 0) && <div className="mono-font" style={{ fontSize: 11, color: "#3a4156" }}>Нет данных</div>}
+      {cohorts && cohorts.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 480 }}>
+            <thead>
+              <tr>
+                {["Неделя", "Когорта", "D1", "D7", "D30"].map(h => (
+                  <th key={h} className="mono-font" style={{ fontSize: 9, color: "#5a6070", textAlign: "left", padding: "6px 10px", borderBottom: "1px solid #2a3040", letterSpacing: "0.06em" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {cohorts.map(c => (
+                <tr key={c.cohort_week}>
+                  <td className="mono-font" style={{ fontSize: 11, color: "#a8a294", padding: "8px 10px", borderBottom: "1px solid #1f2733" }}>
+                    {new Date(c.cohort_week).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })}
+                  </td>
+                  <td className="mono-font" style={{ fontSize: 11, color: "#ece7d8", padding: "8px 10px", borderBottom: "1px solid #1f2733" }}>{c.cohort_size}</td>
+                  <td style={{ padding: "8px 10px", borderBottom: "1px solid #1f2733" }}><RetentionCell retained={c.retained_d1} eligible={c.eligible_d1} cohortSize={c.cohort_size} /></td>
+                  <td style={{ padding: "8px 10px", borderBottom: "1px solid #1f2733" }}><RetentionCell retained={c.retained_d7} eligible={c.eligible_d7} cohortSize={c.cohort_size} /></td>
+                  <td style={{ padding: "8px 10px", borderBottom: "1px solid #1f2733" }}><RetentionCell retained={c.retained_d30} eligible={c.eligible_d30} cohortSize={c.cohort_size} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Главная админ-панель (полноэкранная страница) ────────────────────────────
 function AdminPanel({ onClose }) {
   const [step, setStep] = useState("auth");
@@ -1246,8 +1413,8 @@ function AdminPanel({ onClose }) {
     } catch (e) { setAuthError(e.message); } finally { setAuthLoading(false); }
   }
 
-  const TABS = [["players","👥 Игроки"],["games","🎮 Партии"],["feedback","🐞 Репорты"],["stats","📊 Статистика"]];
-  const TABS_MOBILE = [["players","👥"],["games","🎮"],["feedback","🐞"],["stats","📊"]];
+  const TABS = [["players","👥 Игроки"],["games","🎮 Партии"],["feedback","🐞 Репорты"],["stats","📊 Статистика"],["funnel","🔻 Воронка"],["retention","🔁 Ретеншен"]];
+  const TABS_MOBILE = [["players","👥"],["games","🎮"],["feedback","🐞"],["stats","📊"],["funnel","🔻"],["retention","🔁"]];
 
   if (step === "auth") return (
     <div style={{ position: "fixed", inset: 0, background: "#1a1f2c", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',Georgia,serif" }}>
@@ -1295,6 +1462,8 @@ function AdminPanel({ onClose }) {
         {tab === "games"    && <AdminTabGames    pwd={password} />}
         {tab === "feedback" && <AdminTabFeedback pwd={password} />}
         {tab === "stats"    && <AdminTabStats    pwd={password} />}
+        {tab === "funnel"    && <AdminTabFunnel    pwd={password} />}
+        {tab === "retention" && <AdminTabRetention pwd={password} />}
       </div>
     </div>
   );

@@ -15,6 +15,8 @@
  * DELETE /admin/games/:gameId             — сбросить/деактивировать игру
  * GET  /admin/games/:gameId/detail
  * GET  /admin/games/:gameId/pending
+ * GET  /admin/funnel     — воронка registered → game_started → turn_submitted → game_completed
+ * GET  /admin/retention  — недельные когорты по регистрации, вернулись ли через 1/7/30 дней
  */
 
 async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore }) {
@@ -458,6 +460,81 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     );
     if (res.rowCount === 0) return reply.code(404).send({ error: "Not found" });
     return reply.send({ ok: true, id: res.rows[0].id, status: res.rows[0].status });
+  });
+
+  // GET /admin/funnel — воронка registered → game_started → turn_submitted → game_completed
+  // (2026-07-07, поверх системы метрик игроков из миграции 0003). Считаем DISTINCT player_id
+  // по каждому типу события за всё время — без отдельного отслеживания визитов до регистрации
+  // (это отдельная, ещё не реализованная фича — требует cookie-сессий для анонимных визитов),
+  // поэтому воронка начинается с "registered", а не с "зашёл на сайт".
+  fastify.get("/admin/funnel", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const [funnelRes, outcomeRes, dailyRes] = await Promise.all([
+      db.query(`
+        SELECT
+          COUNT(DISTINCT CASE WHEN event_type = 'registered'     THEN player_id END)::int AS registered,
+          COUNT(DISTINCT CASE WHEN event_type = 'game_started'   THEN player_id END)::int AS started_game,
+          COUNT(DISTINCT CASE WHEN event_type = 'turn_submitted' THEN player_id END)::int AS submitted_turn,
+          COUNT(DISTINCT CASE WHEN event_type = 'game_completed' THEN player_id END)::int AS completed_game
+        FROM player_events
+        WHERE player_id IS NOT NULL
+      `),
+      db.query(`
+        SELECT payload->>'outcome' AS outcome, COUNT(*)::int AS completions
+        FROM player_events
+        WHERE event_type = 'game_completed'
+        GROUP BY payload->>'outcome'
+        ORDER BY completions DESC
+      `),
+      db.query(`
+        SELECT date_trunc('day', created_at)::date AS day, COUNT(DISTINCT player_id)::int AS count
+        FROM player_events
+        WHERE event_type = 'registered' AND created_at > now() - interval '30 days'
+        GROUP BY day
+        ORDER BY day ASC
+      `),
+    ]);
+    return reply.send({
+      funnel: funnelRes.rows[0],
+      outcomes: outcomeRes.rows,
+      dailyRegistrations: dailyRes.rows,
+    });
+  });
+
+  // GET /admin/retention — недельные когорты по дате регистрации, "вернулись ли через N+ дней"
+  // (была ли АКТИВНОСТЬ — любое событие кроме самого registered — не раньше чем через N дней
+  // после регистрации). Когорты, которым ещё не исполнилось N дней, помечены eligible=false —
+  // иначе свежая когорта показала бы 0% D30 просто потому, что 30 дней ещё не прошло, а не
+  // потому что все ушли (частая ошибка ретеншен-дашбордов на молодых продуктах).
+  fastify.get("/admin/retention", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const res = await db.query(`
+      WITH registrations AS (
+        SELECT player_id, MIN(created_at) AS registered_at
+        FROM player_events
+        WHERE event_type = 'registered' AND player_id IS NOT NULL
+        GROUP BY player_id
+      ),
+      activity AS (
+        SELECT player_id, created_at
+        FROM player_events
+        WHERE event_type != 'registered' AND player_id IS NOT NULL
+      )
+      SELECT
+        date_trunc('week', r.registered_at)::date AS cohort_week,
+        COUNT(DISTINCT r.player_id)::int AS cohort_size,
+        COUNT(DISTINCT CASE WHEN now() >= r.registered_at + interval '1 day' THEN r.player_id END)::int AS eligible_d1,
+        COUNT(DISTINCT CASE WHEN now() >= r.registered_at + interval '1 day' AND a.created_at >= r.registered_at + interval '1 day' THEN r.player_id END)::int AS retained_d1,
+        COUNT(DISTINCT CASE WHEN now() >= r.registered_at + interval '7 day' THEN r.player_id END)::int AS eligible_d7,
+        COUNT(DISTINCT CASE WHEN now() >= r.registered_at + interval '7 day' AND a.created_at >= r.registered_at + interval '7 day' THEN r.player_id END)::int AS retained_d7,
+        COUNT(DISTINCT CASE WHEN now() >= r.registered_at + interval '30 day' THEN r.player_id END)::int AS eligible_d30,
+        COUNT(DISTINCT CASE WHEN now() >= r.registered_at + interval '30 day' AND a.created_at >= r.registered_at + interval '30 day' THEN r.player_id END)::int AS retained_d30
+      FROM registrations r
+      LEFT JOIN activity a ON a.player_id = r.player_id
+      GROUP BY cohort_week
+      ORDER BY cohort_week DESC
+    `);
+    return reply.send({ cohorts: res.rows });
   });
 }
 
