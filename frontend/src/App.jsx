@@ -1177,11 +1177,27 @@ function renderStatDeltaItem(stat, delta, current) {
 // Основные статы всегда видны; остальное — за одним переключателем "Показать ещё N".
 // showSecondary/toggleSecondary — состояние держит каждый экран сам (превью и результаты хода
 // не должны шарить, раскрыт ли список у одного, когда открывается у другого).
+// Второстепенные статы больше не одной общей плиткой — раскладываем по DELTA_GROUPS (та же
+// таблица категорий, что раньше приводила к отдельному аккордеону), чтобы Техника/Боеготовность/
+// Опыт войск оказались рядом с Армией, Рост ВВП/Занятость/Резервы — рядом с Экономикой, и т.д.
+// (Петя, 2026-07-07: "статы техники, боеготовности, опыта — расположить к армии, и дальше
+// растащить остальные статы к основным большим"). Внутри "Показать ещё" — не единая шапка
+// категории с раскрытием (это и был старый аккордеон, от которого игрок отказался), а лёгкие
+// подписи-разделители групп — сворачивать/разворачивать тут больше нечего, всё уже открыто разом.
+function groupSecondaryEntries(secondary) {
+  const groups = DELTA_GROUPS
+    .map(g => ({ key: g.key, label: g.label, items: secondary.filter(([s]) => g.stats.includes(s)) }))
+    .filter(g => g.items.length > 0);
+  const groupedKeys = new Set(groups.flatMap(g => g.items.map(([s]) => s)));
+  const leftover = secondary.filter(([s]) => !groupedKeys.has(s));
+  return { groups, leftover };
+}
 function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondary }) {
   const { primary, secondary } = partitionPrimarySecondary(deltas);
   if (primary.length === 0 && secondary.length === 0) {
     return <span className="mono-font" style={{ fontSize: 11, color: "#8a8472" }}>Без заметных изменений</span>;
   }
+  const { groups: secondaryGroups, leftover: secondaryLeftover } = groupSecondaryEntries(secondary);
   return (
     <>
       {primary.length > 0 && (
@@ -1204,8 +1220,23 @@ function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondar
             <span style={{ color: "#6a7080", fontSize: 9, transform: showSecondary ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
           </button>
           {showSecondary && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-              {secondary.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+            <div style={{ display: "grid", gap: 10 }}>
+              {secondaryGroups.map(g => (
+                <div key={g.key}>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{g.label}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    {g.items.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+                  </div>
+                </div>
+              ))}
+              {secondaryLeftover.length > 0 && (
+                <div>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Прочее</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    {secondaryLeftover.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2588,8 +2619,14 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         if (es && (es.after - es.before <= -2 || es.after <= 35)) {
           setFinanceWarning(es);
         }
-        // Показываем обзор накопленных за месяц реакций мира / действий Украины
-        setEndTurnResult(lastActionResult || { narrative: `Месяц завершён. Наступает месяц ${res.nextMonth}.`, statDeltasPreview: {}, actionMode: "decree" });
+        // Показываем обзор накопленных за месяц реакций мира / действий Украины.
+        // res.statDeltas — реальный диф месяца (decay/бюджет/ставка ЦБ/Украина и т.д.), а не
+        // пустышка: раньше без lastActionResult (игрок завершил месяц без единого указа) сюда
+        // подставлялся {} и "Результаты хода" показывали статы плоско, без изменений, хотя
+        // на самом деле за месяц многое произошло (Петя, 2026-07-07: "завершил месяц без
+        // указов, и вообще ничего не произошло в статах" — на деле произошло, просто не
+        // было видно).
+        setEndTurnResult(lastActionResult || { narrative: `Месяц завершён. Наступает месяц ${res.nextMonth}.`, statDeltasPreview: res.statDeltas || {}, actionMode: "decree" });
         setLastActionResult(null);
       } catch (err) {
         setTurnError(err.message);
@@ -8504,9 +8541,14 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
               </div>
             )}
             {isWorldMove && analystNote && (
-              <div style={{ background: "#120a08", padding: "7px 13px 10px", borderTop: "1px solid #4a2010" }}>
-                <div className="mono-font" style={{ fontSize: 9, color: "#6a3020", marginBottom: 4, letterSpacing: "0.05em" }}>ОЦЕНКА АНАЛИТИКА</div>
-                <div className="doc-font" style={{ fontSize: 12.5, color: "#c08070", lineHeight: 1.4 }}>{analystNote.text}</div>
+              // БАГ (Петя, 2026-07-07, "тут вроде положительная новость, а цвет красный"):
+              // фон/цвета тут раньше были жёстко зашиты под "враждебную" стойку (тёмно-красный),
+              // хотя реальная стойка источника (cooperative/neutral/hostile) уже посчитана выше
+              // в meta и красит остальную карточку — просто этот блок её игнорировал. Теперь
+              // берём цвета из meta, как и всё остальное в карточке.
+              <div style={{ background: "rgba(0,0,0,0.22)", padding: "7px 13px 10px", borderTop: `1px solid ${meta.border}` }}>
+                <div className="mono-font" style={{ fontSize: 9, color: meta.color, marginBottom: 4, letterSpacing: "0.05em" }}>ОЦЕНКА АНАЛИТИКА</div>
+                <div className="doc-font" style={{ fontSize: 12.5, color: meta.text, lineHeight: 1.4 }}>{analystNote.text}</div>
               </div>
             )}
           </div>

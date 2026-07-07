@@ -1675,6 +1675,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const completedMonth = game.current_turn + 1;
       const crisisMode = !!(game.stats?.crisis_mode || game.overview?.crisis_mode);
       const newStats = { ...game.stats };
+      // Снапшот "до" — end-month раньше не возвращал statDeltas вообще (только narrative-текст
+      // в economySummary/newsfeed), поэтому "Результаты хода" без предшествующего указа в этом
+      // месяце показывали ПУСТОЙ прогноз (statDeltasPreview: {} на фронте) — реальные изменения
+      // (ставка ЦБ, военное бремя, бюджет и т.д.) были только текстом в ленте, не в барах
+      // (Петя, 2026-07-07: "завершил месяц без указов, и вообще ничего не произошло в статах").
+      const statsBeforeMonth = { ...game.stats };
+      // Уже сработало ли действие Украины в этом месяце (через confirm/regroup) — читаем ДО
+      // сброса флага ниже (см. "Сбрасываем флаг действия Украины"), иначе теряем информацию.
+      const uaAlreadyActedThisMonth = !!newStats.ukraine_action_this_month;
       // БАЛАНС: экономика на начало месяца — используется в конце блока, чтобы ограничить
       // суммарную автоматическую эрозию за месяц (ставка ЦБ + военное бремя + инфляция +
       // спираль казны + случайный кризис могли раньше сложиться в −10..−15 за один ход без
@@ -2402,6 +2411,21 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
       }
 
+      // --- ДЕЙСТВИЕ УКРАИНЫ, ЕСЛИ ИГРОК НЕ ПОДТВЕРДИЛ НИ ОДНОГО УКАЗА В ЭТОМ МЕСЯЦЕ ---
+      // БАГ (Петя, 2026-07-07, найден на живой партии — "Украина не нападала и ничего не делала,
+      // хотя должна ходить независимо от моих ходов"): runUkraineTurn был подключён только к
+      // /turns/confirm и /turns/regroup — если игрок за месяц не вызвал НИ ОДНОГО из них (только
+      // "Завершить месяц" напрямую), Украина молча пропускала весь месяц. Это прямо противоречит
+      // цели полной симметрии ("Украина должна ходить в независимости от моих ходов") — здесь
+      // подстраховка: та же проверка флага "уже сработало", что и в confirm/regroup, чтобы не
+      // задвоить действие, если игрок всё-таки что-то подтверждал.
+      if (!uaAlreadyActedThisMonth) {
+        await runUkraineTurn({
+          newStats, gameId, turnNumber: completedMonth, callClaudeApi, client,
+          pendingActionMode: undefined, contextLabel: "end_month",
+        });
+      }
+
       // --- ФИНАЛЬНАЯ ГЛАВА: эскалация на ходах 17–23 ---
       // ВАЖНО: применяем ДО detectGameOutcome — иначе поражение/победу, вызванные именно этим
       // событием, обнаружили бы только на следующем ходу (games.status ещё хранил бы старый исход).
@@ -2485,11 +2509,28 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       await client.query("COMMIT");
       await pendingTurnStore.clear(gameId);
 
+      // statDeltas — реальный диф "было/стало" за весь месяц (decay + бюджет + ставка ЦБ +
+      // военное бремя + Украина + финальная глава и т.д.) — см. комментарий у statsBeforeMonth
+      // выше. Исключаем нестатовые экономические индикаторы (своя шкала/единицы, не 0-100) и
+      // служебные флаги — фронт ожидает тут только то же самое множество ключей, что и в
+      // statDeltasPreview у /turns/confirm.
+      const NON_STAT_NUMERIC_KEYS = new Set(["key_rate", "oil_price", "usd_rub", "ofz_count", "war_escalation_counter"]);
+      const statDeltas = {};
+      for (const k of new Set([...Object.keys(statsBeforeMonth), ...Object.keys(newStats)])) {
+        if (NON_STAT_NUMERIC_KEYS.has(k) || k.startsWith("_") || k === "military_streak") continue;
+        const before = typeof statsBeforeMonth[k] === "number" ? statsBeforeMonth[k] : null;
+        const after = typeof newStats[k] === "number" ? newStats[k] : null;
+        if (before === null || after === null) continue;
+        const d = after - before;
+        if (d !== 0) statDeltas[k] = d;
+      }
+
       return reply.send({
         month: completedMonth,
         nextMonth: completedMonth + 1,
         date: newGameDate,
         initiative: newStats.initiative,
+        statDeltas,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
         budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, oilIncome, fxIncome, corruptionDrain, net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow), oilPrice: newStats.oil_price, usdRub: newStats.usd_rub },
