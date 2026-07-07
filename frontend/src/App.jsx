@@ -100,11 +100,69 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
         <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 6, textAlign: "center" }}>СВОДКА ХОДА · ХОД {(fromTurn ?? prevState?.turn ?? 0) + 1}</div>
         <div className="doc-font" style={{ fontSize: 22, fontWeight: 700, textAlign: "center", marginBottom: 28, letterSpacing: "0.02em" }}>РЕЗУЛЬТАТЫ ХОДА</div>
 
-        {/* Фаза 1: твоё действие */}
-        <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 6, padding: "16px 18px", marginBottom: 14 }}>
-          <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 8, letterSpacing: "0.1em" }}>{ACTION_MODE_LABEL[turnResult?.actionMode] || "📜 УКАЗ"}</div>
-          <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6 }}>{turnResult?.narrative}</div>
-        </div>
+        {/* Фаза 1: твои решения. Месяц может содержать НЕСКОЛЬКО указов (multiActionTurns) —
+            раньше здесь показывался только последний (Петя, 2026-07-07: "показан только
+            последний указ, а не все"). turnResult.actions — все решения месяца по порядку;
+            если их несколько, показываем каждое отдельной карточкой, иначе как раньше. */}
+        {Array.isArray(turnResult?.actions) && turnResult.actions.length > 1 ? (
+          <div style={{ marginBottom: 14 }}>
+            {turnResult.actions.map((a, i) => (
+              <div key={i} className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 6, padding: "14px 16px", marginBottom: 8 }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 6, letterSpacing: "0.1em" }}>{ACTION_MODE_LABEL[a.actionMode] || "📜 УКАЗ"} · РЕШЕНИЕ {i + 1}/{turnResult.actions.length}</div>
+                <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.55 }}>{a.narrative}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 6, padding: "16px 18px", marginBottom: 14 }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 8, letterSpacing: "0.1em" }}>{ACTION_MODE_LABEL[turnResult?.actionMode] || "📜 УКАЗ"}</div>
+            <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6 }}>{turnResult?.narrative}</div>
+          </div>
+        )}
+
+        {/* Куда тает/растёт экономика — ВСЕГДА видимая разбивка (не только в модалке-предупреждении
+            Минфина, которая всплывает лишь в плохие месяцы). Петя, 2026-07-07: "делаю указ, и
+            экономика падает — а почему, я не понимаю". economySummary.effects — тот же список
+            автоэффектов (ставка ЦБ, военное бремя, инфляция, стагнация ВВП и т.д.), что бэкенд
+            уже считает каждый месяц (см. FinanceMinisterWarningModal) — просто теперь видно всегда. */}
+        {turnResult?.economySummary && turnResult.economySummary.effects?.length > 0 && (() => {
+          const { before, after, effects, capped, cap } = turnResult.economySummary;
+          const netChange = after - before;
+          const negatives = effects.filter(e => e.delta < 0).sort((a, b) => a.delta - b.delta);
+          const positives = effects.filter(e => e.delta > 0);
+          return (
+            <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 18px", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8, letterSpacing: "0.1em" }}>ИЗ ЧЕГО СЛОЖИЛАСЬ ЭКОНОМИКА В ЭТОМ МЕСЯЦЕ</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+                <span className="mono-font" style={{ fontSize: 18, fontWeight: 700, color: netChange < 0 ? "#e09090" : netChange > 0 ? "#8fbf8f" : "#cdd3e0" }}>{before} → {after}</span>
+                <span className="mono-font" style={{ fontSize: 11, color: netChange < 0 ? "#e09090" : "#8fbf8f" }}>({netChange >= 0 ? "+" : ""}{netChange})</span>
+              </div>
+              {negatives.length > 0 && (
+                <div style={{ marginBottom: positives.length > 0 ? 8 : 0 }}>
+                  {negatives.map((e, i) => (
+                    <div key={i} className="doc-font" style={{ fontSize: 12, color: "#d8b0b0", lineHeight: 1.5, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span>{e.label}</span><span className="mono-font">{e.delta}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {positives.length > 0 && (
+                <div>
+                  {positives.map((e, i) => (
+                    <div key={i} className="doc-font" style={{ fontSize: 12, color: "#b0d8b8", lineHeight: 1.5, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span>{e.label}</span><span className="mono-font">+{e.delta}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {capped && (
+                <div className="doc-font" style={{ fontSize: 11, color: "#8a8472", fontStyle: "italic", marginTop: 8 }}>
+                  Автоматические потери месяца превысили потолок в −{cap} — часть эффекта уже компенсирована.
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Фаза 2: изменения статов */}
         {phase >= 1 && (
@@ -2331,6 +2389,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // просто ничего с этим не делал. Показываем ТОЛЬКО когда месяц реально плохой, не каждый раз.
   const [financeWarning, setFinanceWarning] = useState(null);
   const [lastActionResult, setLastActionResult] = useState(null); // результат последнего действия (не завершает ход)
+  // Все решения текущего месяца (Петя, 2026-07-07: "в конце хода показан только последний
+  // указ, а не все") — lastActionResult перезаписывается на каждое решение, поэтому по
+  // «Завершить месяц» до сих пор долетал только самый последний. Копим отдельно, чтобы
+  // на итоговом экране показать ВСЕ указы месяца, а не один.
+  const [monthActions, setMonthActions] = useState([]);
   const [sessionTurnStart, setSessionTurnStart] = useState(null); // ход в начале сессии действий
   const [diplomaticReactions, setDiplomaticReactions] = useState(null);
   const [pendingNextState, setPendingNextState] = useState(null);
@@ -2454,7 +2517,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       const confirmResult = await confirmTurn(gameId);
       nuclearConfirmRef.current = false;
       setShowNuclearConfirm(false);
-      setLastActionResult({
+      const confirmedActionResult = {
         narrative: preview?.narrative,
         statDeltasPreview: preview?.statDeltasPreview,
         actionMode,
@@ -2464,7 +2527,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         // Исход раскрытия тайной операции — известен ТОЛЬКО сейчас, после confirm
         // (см. revealCovertOutcome в rules-engine.js). undefined для не-шпионских категорий.
         covertExposed: confirmResult?.covertExposed,
-      });
+      };
+      setLastActionResult(confirmedActionResult);
+      if (state?.multiActionTurns) setMonthActions(prev => [...prev, confirmedActionResult]);
       if (confirmResult?.gameOutcome) {
         setGameOutcome(confirmResult.gameOutcome);
       }
@@ -2575,7 +2640,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       const r = { narrative: result.narrative || "Гражданская передышка.", statDeltasPreview: result.statDeltas || {}, actionMode: "skip" };
       if (state?.multiActionTurns) {
         // Внутри месяца — остаёмся, обновляем состояние
-        setLastActionResult(r); setDraftInput(""); await loadState();
+        setLastActionResult(r); setMonthActions(prev => [...prev, r]); setDraftInput(""); await loadState();
       } else {
         setEndTurnResult(r); setDraftInput("");
       }
@@ -2594,7 +2659,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       const result = await regroupTurn(gameId);
       const r = { narrative: result.narrative || "Войска переформированы.", statDeltasPreview: result.statDeltas || {}, actionMode: "regroup" };
       if (state?.multiActionTurns) {
-        setLastActionResult(r); setDraftInput(""); await loadState();
+        setLastActionResult(r); setMonthActions(prev => [...prev, r]); setDraftInput(""); await loadState();
       } else {
         setEndTurnResult(r); setDraftInput("");
       }
@@ -2614,7 +2679,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       try {
         const res = await endMonth(gameId);
         setConfirming(false);
-        if (res.gameOutcome) { setLastActionResult(null); setGameOutcome(res.gameOutcome); return; }
+        if (res.gameOutcome) { setLastActionResult(null); setMonthActions([]); setGameOutcome(res.gameOutcome); return; }
         // Предупреждение Силина — только если месяц реально плохой (заметный спад ИЛИ уже
         // приближаемся к порогу поражения economy<30), не на каждое небольшое колебание.
         const es = res.economySummary;
@@ -2628,8 +2693,29 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         // на самом деле за месяц многое произошло (Петя, 2026-07-07: "завершил месяц без
         // указов, и вообще ничего не произошло в статах" — на деле произошло, просто не
         // было видно).
-        setEndTurnResult(lastActionResult || { narrative: `Месяц завершён. Наступает месяц ${res.nextMonth}.`, statDeltasPreview: res.statDeltas || {}, actionMode: "decree" });
+        //
+        // ВАЖНО (Петя, 2026-07-07: "показан только последний указ... непонятно куда тает
+        // экономика"): раньше здесь подставлялся lastActionResult целиком — т.е. если месяц
+        // содержал НЕСКОЛЬКО указов, "Результаты хода" показывали narrative И statDeltas
+        // ТОЛЬКО последнего из них, полностью теряя вклад более ранних указов и реальных
+        // автоэффектов месяца (ставка ЦБ, военное бремя, инфляция и т.д.) — числа на экране
+        // могли не совпадать с тем, что реально произошло. Теперь statDeltasPreview/economySummary
+        // берутся ТОЛЬКО из res (реальный, полный, всегда точный итог месяца), а narrative —
+        // список ВСЕХ указов месяца (actions), не один последний. statChangelog (разбивка
+        // указ/события ОДНОГО решения) больше не применим к месяцу из нескольких указов —
+        // явно убираем, чтобы не вводить в заблуждение.
+        setEndTurnResult({
+          narrative: monthActions.length > 0 ? monthActions[monthActions.length - 1].narrative : `Месяц завершён. Наступает месяц ${res.nextMonth}.`,
+          actions: monthActions,
+          statDeltasPreview: res.statDeltas || {},
+          economySummary: res.economySummary || null,
+          actionMode: monthActions.length > 0 ? monthActions[monthActions.length - 1].actionMode : "decree",
+          gmActionType: monthActions.length > 0 ? monthActions[monthActions.length - 1].gmActionType : undefined,
+          actualPrevStats: monthActions[0]?.actualPrevStats,
+          statChangelog: null,
+        });
         setLastActionResult(null);
+        setMonthActions([]);
       } catch (err) {
         setTurnError(err.message);
         setConfirming(false);

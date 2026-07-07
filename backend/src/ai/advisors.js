@@ -164,9 +164,13 @@ const SYSTEM_PROMPT = `Ты — система моделирования каб
 {{optimal_move}}
 
 ОБЯЗАТЕЛЬНО: советник [{{optimal_advisor}}] должен предложить ИМЕННО этот ход —
-его proposed_decree должен близко повторять формулировку выше, а recommendation —
-объяснить расчёт своими словами (в стиле персонажа). Остальные советники могут
-соглашаться или предлагать альтернативы из СВОЕЙ сферы.
+если указана "Формулировка указа", его proposed_decree должен близко повторять её,
+а recommendation — объяснить расчёт своими словами (в стиле персонажа). Если вместо
+формулировки указа стоит "(нет — совет подождать)" — указ НЕ придумывать: recommendation
+объясняет, почему сейчас лучше не подписывать новый указ в этой сфере (например, реформа
+уже в работе), suggested_direction для этого советника — "null_action", proposed_decree
+— пустая строка. Остальные советники могут соглашаться или предлагать альтернативы из
+СВОЕЙ сферы.
 
 РАЗНООБРАЗИЕ КЛАССОВ: среди пяти suggested_scale должны встретиться минимум три
 разных класса (например decree_fast, decree_reform, decree_program) — советники
@@ -333,7 +337,7 @@ function buildTrendSection(stats, statHistory) {
  * рушится за 2-3 хода — раньше, чем "безопасный" margin≥10 это заметит. Поэтому опасность
  * теперь считается и по margin, и по проекции "через сколько ходов порог при текущем темпе".
  */
-function computeOptimalMove(stats, turnNumber = 1, statHistory = []) {
+function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCategories = []) {
   const s = (k, d = 50) => (typeof stats[k] === "number" ? stats[k] : d);
   const economy = s("economy"), approval = s("approval"), stability = s("stability"),
     diplomacy = s("diplomacy"), treasury = s("treasury", 52), inflation = s("inflation", 64),
@@ -437,6 +441,20 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = []) {
       reason: `Мирный трек ${peace} — самая дешёвая дипломатическая операция и главный двигатель к дипломатической победе (нужен трек 100 и экономика/рейтинг/стабильность ≥65; сейчас ${economy}/${approval}/${stability}).` };
   }
 
+  // Дефолт (экономика) — но НЕ дублировать реформу, если она уже в работе. Реальный баг из
+  // живой партии: этот дефолт срабатывает каждый ход, когда острых угроз нет, — раньше он
+  // ВСЕГДА советовал одну и ту же экономическую реформу, даже если игрок только что её
+  // подписал. Игрок подписал 5 реформ за 3 хода подряд, ни одна не успела дать эффект (лаг
+  // 1-3 хода через ВВП), экономика рухнула быстрее, чем реформы окупились. Проверяем последние
+  // ходы: если экономическая реформа уже в работе — советуем ПОДОЖДАТЬ, а не дублировать.
+  const ECON_REFORM_CATEGORIES = new Set(["econ_stimulus", "econ_infrastructure", "econ_tech"]);
+  const REFORM_COOLDOWN_TURNS = 3; // тот же лаг, что и у компаундинга gdp_growth → economy
+  if (recentCategories.slice(-REFORM_COOLDOWN_TURNS).some(c => ECON_REFORM_CATEGORIES.has(c))) {
+    return { advisorId: "finance", category: "econ_hold", mode: "decree_fast", direction: "null_action",
+      title: "Дать реформе сработать",
+      decree: null,
+      reason: `Острых угроз нет, экономическая реформа уже подписана в последних ходах — её эффект доходит до экономики с лагом 1-3 хода через рост ВВП, а не сразу. Подписывать ещё одну поверх непрошедшей — тратить инициативу и глушить сигнал: станет непонятно, что от чего сработало. Дайте текущей реформе отработать, в следующие ходы оцените результат по темпу роста ВВП.` };
+  }
   return { advisorId: "finance", category: "econ_stimulus", mode: "decree_reform", direction: "economic_stimulus",
     title: "Укреплять экономику",
     decree: "Правительству поручаю разработать пакет мер по стимулированию экономики и поддержке несырьевого экспорта.",
@@ -468,7 +486,7 @@ function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, st
     .replace("{{econ_indicators}}", buildEconIndicators(stats))
     .replace("{{trend_section}}", buildTrendSection(stats, statHistory))
     .replace("{{optimal_move}}", optimalMove
-      ? `Ход: ${optimalMove.title}\nФормулировка указа: "${optimalMove.decree}"\nРасчёт: ${optimalMove.reason}`
+      ? `Ход: ${optimalMove.title}\nФормулировка указа: ${optimalMove.decree ? `"${optimalMove.decree}"` : "(нет — совет подождать)"}\nРасчёт: ${optimalMove.reason}`
       : "(расчёт недоступен)")
     .replace("{{optimal_advisor}}", optimalMove?.advisorId || "finance")
     .replace("{{history_count}}", recentHistory.length)
@@ -483,7 +501,7 @@ function stripMarkdownFences(text) {
 }
 
 async function consultAdvisors({ params, callClaudeApi }) {
-  const optimalMove = computeOptimalMove(params.stats || {}, params.turnNumber, params.statHistory);
+  const optimalMove = computeOptimalMove(params.stats || {}, params.turnNumber, params.statHistory, params.recentCategories);
   const prompt = buildAdvisorsPrompt({ ...params, optimalMove });
 
   const response = await callClaudeApi({

@@ -30,7 +30,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
 
     // Последние 5 ходов для памяти советников
     const historyRes = await db.query(
-      `SELECT turn_n, player_input, narrative_text, stats_snapshot
+      `SELECT turn_n, player_input, narrative_text, stats_snapshot, gm_classification->>'action_type' AS action_type
        FROM turns WHERE game_id = $1 ORDER BY turn_n DESC LIMIT 5`,
       [gameId]
     );
@@ -41,6 +41,12 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
     const statHistory = recentHistory
       .filter(h => h.stats_snapshot)
       .map(h => ({ turn_n: h.turn_n, stats: h.stats_snapshot }));
+    // Категории недавних решений (econ_stimulus, mil_operational_offensive, ...) — источник
+    // для антидубликатной проверки в computeOptimalMove (см. её комментарий): без этого
+    // "оптимальный ход" рекомендовал одну и ту же реформу каждый ход, игрок подписывал её
+    // повторно поверх ещё не отработавшей — см. реальную партию, где 5 реформ за 3 хода
+    // угробили экономику быстрее, чем успели дать эффект.
+    const recentCategories = recentHistory.map(h => h.action_type).filter(Boolean);
 
     const result = await consultAdvisors({
       params: {
@@ -53,6 +59,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
         policies: game.policies || [],
         recentHistory,
         statHistory,
+        recentCategories,
         playerDraft: playerDraft?.trim() || null,
         actionMode: actionMode || "decree_reform",
       },
