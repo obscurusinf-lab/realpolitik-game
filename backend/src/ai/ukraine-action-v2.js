@@ -19,11 +19,13 @@
  * провалится — на чистый Math.random() (UA_ACTIONS) — трёхуровневый fallback.
  */
 
+const { languageInstruction } = require("./language-instruction");
+
 function stripMarkdownFences(text) {
   return text.replace(/```json\s*|\s*```/g, "").trim();
 }
 
-async function generateUkraineActionV2({ uaStats, ruStats, recentMoves, recentUaTitles, categories, contextLabel, callClaudeApi, meta }) {
+async function generateUkraineActionV2({ uaStats, ruStats, recentMoves, recentUaTitles, categories, contextLabel, callClaudeApi, meta, language }) {
   if (!categories || categories.length === 0) return null;
 
   const uaArmy = uaStats.ua_army ?? 65;
@@ -80,7 +82,7 @@ ${categoriesText}
   "text": "2-4 предложения нарратива на русском, конкретно и по-новому, в духе военной сводки для российского читателя (см. точку зрения выше)",
   "severity": 1 | 2 | 3,
   "exposure_risk": "low" | "medium" | "high" | null
-}`;
+}${languageInstruction(language)}`;
 
   try {
     const resp = await callClaudeApi({

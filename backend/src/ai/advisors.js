@@ -6,6 +6,7 @@
  */
 
 const { TREASURY_PER_TRILLION } = require("../rules/rules-engine");
+const { languageInstruction } = require("./language-instruction");
 
 const ADVISORS = [
   {
@@ -466,7 +467,7 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
     })()}` };
 }
 
-function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode, optimalMove, statHistory }) {
+function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode, optimalMove, statHistory, language }) {
   const draftSection = playerDraft
     ? `ЧЕРНОВИК РЕШЕНИЯ ПРЕЗИДЕНТА (советники реагируют на него):\n"${playerDraft}"`
     : `ПРЕЗИДЕНТ ЕЩЁ НЕ СФОРМУЛИРОВАЛ РЕШЕНИЕ. Советники дают общие рекомендации исходя из текущей обстановки и выбранного типа действия.`;
@@ -500,7 +501,8 @@ function buildAdvisorsPrompt({ countryName, playerName, gameDate, turnNumber, st
     .replaceAll("{{history_json}}", recentHistory.length
       ? recentHistory.map(h => `Ход ${h.turn_n}: "${h.player_input}" → ${h.narrative_text}`).join("\n")
       : "(партия только началась, истории нет)")
-    .replaceAll("{{draft_section}}", draftSection);
+    .replaceAll("{{draft_section}}", draftSection)
+    + languageInstruction(language);
 }
 
 function stripMarkdownFences(text) {

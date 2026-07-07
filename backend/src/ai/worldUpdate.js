@@ -4,7 +4,9 @@
  * поэтому каждое поле ограничено 1-2 предложениями чтобы не обрезаться.
  */
 
-function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, narrative }) {
+const { languageInstruction } = require("./language-instruction");
+
+function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, narrative, language }) {
   return `Ты — система мирового моделирования. Президент ${countryName} только что нанёс ядерный удар (ход ${turnNumber}).
 
 Нарратив: "${narrative}"
@@ -35,7 +37,7 @@ function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, nar
   ]
 }
 escalation: 1=осуждение, 2=ультиматум, 3=угроза ядерного ответа.
-stat_delta: реальные изменения статов игрока от хода противника (из набора: economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. Заполни все поля реальными текстами.`;
+stat_delta: реальные изменения статов игрока от хода противника (из набора: economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. Заполни все поля реальными текстами.${languageInstruction(language)}`;
 }
 
 // БАЛАНС (2026-07-04): игрок пожаловался, что ответы других стран (Анкара, Китай) "ощущаются
@@ -66,7 +68,7 @@ function countryLine(name) {
   return `${name} (${COUNTRY_PROFILES[name] || "без особых деталей"})`;
 }
 
-function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrative, statDeltas, relationDeltas, currentRelations, prevOverview }) {
+function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrative, statDeltas, relationDeltas, currentRelations, prevOverview, language }) {
   const deltaLines = Object.entries(statDeltas)
     .filter(([, d]) => d !== 0)
     .map(([k, v]) => `${k}:${v > 0 ? "+" : ""}${v}`)
@@ -108,7 +110,7 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
     {"country": "1 страна из СОЮЗНИКИ или НЕЙТРАЛЫ", "action": "конкретное действие (торговля/поддержка/сделка)", "impact": "1 предложение", "direction": "cooperative", "stat_delta": {"economy": 1}}
   ]
 }
-ПРАВИЛА: lat/lon — реальные координаты, разные регионы. stat_delta только если действие реально влияет (economy/military/stability/diplomacy/approval), значения -3..+2. Текст каждой страны уникален и конкретен.`;
+ПРАВИЛА: lat/lon — реальные координаты, разные регионы. stat_delta только если действие реально влияет (economy/military/stability/diplomacy/approval), значения -3..+2. Текст каждой страны уникален и конкретен.${languageInstruction(language)}`;
 }
 
 async function generateWorldUpdate({ params, callClaudeApi, meta }) {

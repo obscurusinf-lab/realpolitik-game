@@ -14,7 +14,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
     const { playerDraft, actionMode = "decree_reform" } = request.body || {};
 
     const gameRes = await db.query(
-      `SELECT g.current_turn, gs.stats, gs.relations, gs.policies, gs.overview, g.admin_advisor_notes,
+      `SELECT g.current_turn, g.language, gs.stats, gs.relations, gs.policies, gs.overview, g.admin_advisor_notes,
               g.owner_user_id, c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
@@ -62,6 +62,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
         recentCategories,
         playerDraft: playerDraft?.trim() || null,
         actionMode: actionMode || "decree_reform",
+        language: game.language,
       },
       callClaudeApi,
       meta: { gameId, playerId: game.owner_user_id, purpose: "advisors_consult" },

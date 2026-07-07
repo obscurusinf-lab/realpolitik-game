@@ -8,6 +8,7 @@
  */
 
 const { ALLOWED_CATEGORIES, validateGmResponse } = require("./validateGmResponse");
+const { languageInstruction } = require("./language-instruction");
 
 const FULL_PROMPT = require("fs").readFileSync(
   require("path").join(__dirname, "system-prompt.txt"),
@@ -40,7 +41,7 @@ const MAX_RETRIES = 2;
 const KEY_STATS = ["economy", "military", "stability", "diplomacy", "approval", "peace_progress", "initiative",
   "army_morale", "readiness", "donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"];
 
-function buildUserMessage({ countryName, playerName, gameDate, turnNumber, currentState, activePolicies, delayedEffects, playerInput, actionMode = "decree" }) {
+function buildUserMessage({ countryName, playerName, gameDate, turnNumber, currentState, activePolicies, delayedEffects, playerInput, actionMode = "decree", language }) {
   // Trim stats — только ключевые, без субметрик
   const trimmedStats = {};
   for (const k of KEY_STATS) {
@@ -65,7 +66,7 @@ ${JSON.stringify(trimmedPolicies, null, 2)}
 ${JSON.stringify((delayedEffects || []).slice(0, 3), null, 2)}
 
 ХОД ИГРОКА: "${playerInput}"
-ТИП ДЕЙСТВИЯ: ${actionMode}`;
+ТИП ДЕЙСТВИЯ: ${actionMode}${languageInstruction(language)}`;
 }
 
 function stripMarkdownFences(text) {

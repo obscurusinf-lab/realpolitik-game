@@ -11,6 +11,7 @@
 const fs = require("fs");
 const path = require("path");
 const { recordEvent } = require("../db/player-events");
+const { languageInstruction } = require("../ai/language-instruction");
 // verifyToken injected via options
 
 const COUNTRIES_DIR = path.join(__dirname, "../db/seed/countries");
@@ -363,7 +364,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const { outcome } = request.body || {};
 
     const gameRes = await db.query(
-      `SELECT g.current_turn, g.status, gs.stats, gs.relations, c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
+      `SELECT g.current_turn, g.status, g.language, gs.stats, gs.relations, c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
        FROM games g JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id
        LEFT JOIN users u ON u.id = g.owner_user_id
@@ -419,7 +420,7 @@ ${historyLines || "(история пуста)"}
 - chapters: 3-4 раздела (экономика, внешняя политика, армия/безопасность, итог)
 - highlights: 4-6 пунктов — конкретные решения из хроники, хорошие и плохие
 - Тон: документальный, без пафоса, как настоящий учебник истории
-- Только JSON, без markdown-обёрток`;
+- Только JSON, без markdown-обёрток${languageInstruction(game.language)}`;
 
     try {
       const response = await callClaudeApi({

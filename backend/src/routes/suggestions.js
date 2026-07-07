@@ -6,13 +6,15 @@
  * Лёгкий вызов (~400 токенов ответа) — нет валидации, нет retry.
  */
 
+const { languageInstruction } = require("../ai/language-instruction");
+
 async function registerSuggestionRoutes(fastify, { db, callClaudeApi }) {
   fastify.post("/games/:gameId/suggestions", async (request, reply) => {
     const { gameId } = request.params;
     const { actionMode = "decree" } = request.body || {};
 
     const gameRes = await db.query(
-      `SELECT g.current_turn, gs.stats, gs.relations, gs.overview, gs.policies, c.name AS country_name
+      `SELECT g.current_turn, g.language, gs.stats, gs.relations, gs.overview, gs.policies, c.name AS country_name
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id
@@ -103,7 +105,7 @@ function buildSuggestionsPrompt(game, recentTurns, actionMode = "decree") {
 Сгенерируй ровно 6 конкретных вариантов ${mode.label} — коротких (1 предложение), реалистичных, на русском языке. Учти слабые показатели. ВСЕ варианты должны соответствовать режиму «${actionMode}» — не смешивай типы.
 
 Верни ТОЛЬКО JSON без markdown:
-{"suggestions": ["вариант 1", "вариант 2", "вариант 3", "вариант 4", "вариант 5", "вариант 6"]}`;
+{"suggestions": ["вариант 1", "вариант 2", "вариант 3", "вариант 4", "вариант 5", "вариант 6"]}${languageInstruction(game.language)}`;
 }
 
 function fallbackSuggestions() {

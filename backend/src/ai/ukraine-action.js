@@ -16,11 +16,13 @@
  * код откатывается на старый Math.random()-выбор, как было раньше (ноль риска регресса).
  */
 
+const { languageInstruction } = require("./language-instruction");
+
 function stripMarkdownFences(text) {
   return text.replace(/```json\s*|\s*```/g, "").trim();
 }
 
-async function generateUkraineAction({ stats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi, meta }) {
+async function generateUkraineAction({ stats, uaStrategy, recentMoves, recentUaTitles, validTypes, callClaudeApi, meta, language }) {
   if (!validTypes || validTypes.length === 0) return null;
 
   const uaArmy = stats.ua_army ?? 65;
@@ -71,7 +73,7 @@ ${typesText}
   "title": "короткий заголовок новости, до 60 символов",
   "text": "2-4 предложения нарратива на русском, конкретно и по-новому, в духе военной сводки для российского читателя (см. точку зрения выше)",
   "magnitude": 0.0-1.0
-}`;
+}${languageInstruction(language)}`;
 
   try {
     const resp = await callClaudeApi({

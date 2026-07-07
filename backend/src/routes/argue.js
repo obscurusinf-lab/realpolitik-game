@@ -30,7 +30,7 @@ async function registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore
     }
 
     const gameRes = await db.query(
-      `SELECT c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
+      `SELECT c.name AS country_name, g.language, COALESCE(g.president_name, u.display_name) AS player_name
        FROM games g JOIN countries c ON c.id = g.country_id JOIN users u ON u.id = g.owner_user_id WHERE g.id = $1`,
       [gameId]
     );
@@ -45,6 +45,7 @@ async function registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore
       narrative: pending.gmClassification.narrative,
       objection,
       playerArgument: playerArgument.trim(),
+      language: gameRes.rows[0]?.language,
     });
 
     const response = await callClaudeApi({
@@ -77,7 +78,9 @@ async function registerArgueRoute(fastify, { db, callClaudeApi, pendingTurnStore
   });
 }
 
-function buildArguePrompt({ countryName, playerTitle, narrative, objection, playerArgument }) {
+const { languageInstruction } = require("../ai/language-instruction");
+
+function buildArguePrompt({ countryName, playerTitle, narrative, objection, playerArgument, language }) {
   return `Ты — советник президента ${countryName} в геополитической стратегии. Ты только что выразил возражение против решения президента, и теперь президент тебе отвечает.
 Обращайся к президенту: "${playerTitle}".
 
@@ -95,7 +98,7 @@ function buildArguePrompt({ countryName, playerTitle, narrative, objection, play
 - Отвечай живым разговорным языком, 2-3 предложения, в роли конкретного советника. Обращайся к президенту как "${playerTitle}"
 
 Верни ТОЛЬКО JSON без markdown:
-{"withdrawn": true/false, "advisor_response": "ответ советника 2-3 предложения", "revised_note": "если withdrawn=true: одна фраза о том, что именно скорректировано в подходе — иначе null"}`;
+{"withdrawn": true/false, "advisor_response": "ответ советника 2-3 предложения", "revised_note": "если withdrawn=true: одна фраза о том, что именно скорректировано в подходе — иначе null"}${languageInstruction(language)}`;
 }
 
 module.exports = { registerArgueRoute };
