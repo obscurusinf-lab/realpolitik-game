@@ -2754,22 +2754,49 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   function handleTabPointerDown(e, tabId) {
     if (e.button !== 0) return;
     const startX = e.clientX, startY = e.clientY;
+    const isTouch = e.pointerType === "touch";
+    const targetEl = e.currentTarget;
     let dragStarted = false;
-    // Порог движения — 6px — прежде чем реально войти в режим drag (см. коммент у ref выше).
-    // Обычный клик (палец/мышь не сдвинулись) не трогает draggedTabId/pointerEvents вообще.
+    let cancelled = false;
+    // На тач-устройствах бар вкладок в первую очередь листают свайпом (overflow-x: auto) —
+    // обычное движение пальца должно скроллить, а не сразу хватать вкладку для переноса.
+    // Поэтому drag на touch стартует только после короткого удержания на месте (long-press),
+    // а не от первого же движения, как на мыши (там конфликта со скроллом нет). Пока long-press
+    // не сработал, у кнопки touch-action: pan-x (см. style ниже) — палец свободно скроллит бар.
+    // В момент активации drag временно переключаем на touch-action: none — иначе браузер может
+    // перехватить последующее горизонтальное движение как нативный скролл и оборвать drag на полпути.
+    const longPressTimer = isTouch ? setTimeout(() => {
+      if (!cancelled) {
+        dragStarted = true;
+        targetEl.style.touchAction = "none";
+        setDraggedTabId(tabId);
+      }
+    }, 350) : null;
     function onMove(ev) {
+      const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
       if (!dragStarted) {
-        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+        if (isTouch) {
+          // Палец сдвинулся раньше срабатывания long-press — это скролл, не drag:
+          // отменяем таймер и полностью выходим, оставляя жест браузеру.
+          if (dist > 6) { cancelled = true; clearTimeout(longPressTimer); onUp(ev); }
+          return;
+        }
+        // Порог движения — 6px — прежде чем реально войти в режим drag (см. коммент выше).
+        // Обычный клик (мышь не сдвинулась) не трогает draggedTabId/pointerEvents вообще.
+        if (dist < 6) return;
         dragStarted = true;
         setDraggedTabId(tabId);
       }
       setTabDragOffset({ dx: ev.clientX - startX, dy: ev.clientY - startY });
     }
     function onUp(ev) {
+      clearTimeout(longPressTimer);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       setTabDragOffset(null);
-      if (!dragStarted) return; // обычный клик — пусть onClick сам переключит вкладку
+      if (isTouch) targetEl.style.touchAction = "pan-x";
+      if (!dragStarted) return; // обычный клик/скролл — пусть onClick сам переключит вкладку
       tabDragSuppressClickRef.current = true;
       const hit = document.elementsFromPoint(ev.clientX, ev.clientY)
         .find(el => el.dataset && el.dataset.tabId && el.dataset.tabId !== tabId);
@@ -2777,6 +2804,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   const isNuclearWorld = (state.newsfeed || []).some(n => n.type === "nuclear_reaction");
@@ -2931,7 +2959,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 transform: dragging && tabDragOffset ? `translate(${tabDragOffset.dx}px, ${tabDragOffset.dy}px) scale(1.05) rotate(-1.5deg)` : "none",
                 zIndex: dragging ? 50 : 1,
                 pointerEvents: dragging ? "none" : "auto",
-                cursor: "grab", touchAction: "none",
+                cursor: "grab", touchAction: dragging ? "none" : "pan-x",
                 transition: dragging ? "none" : "transform 0.15s, box-shadow 0.15s",
                 position: "relative",
               }}
