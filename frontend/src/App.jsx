@@ -8946,11 +8946,10 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
   );
 }
 
-// Чип дельты стата на СВЕТЛОМ фоне Журнала (#ece7d8) — своя пара цветов, не renderStatDeltaCompact/
-// deltaColor (те рассчитаны на тёмные карточки превью/результатов хода — там же прямой текст без
-// фоновой плашки даёт контраст ~2:1 на пергаментном фоне, практически нечитаемо). Пара красный/
-// зелёный + светлая плашка под цвет — тот же паттерн, что уже используется в StatsTab на этом же
-// фоне (там расхождение указ/событие показано так же).
+// Чип дельты стата на СВЕТЛОМ фоне (кремовые карточки "news" в Ленте, #f5f1e6/#ece7d8) — своя пара
+// цветов, не renderStatDeltaCompact/deltaColor (те рассчитаны на тёмные карточки превью/результатов
+// хода — там же прямой текст без фоновой плашки даёт контраст ~2:1 на пергаментном фоне, практически
+// нечитаемо). Пара красный/зелёный + светлая плашка под цвет.
 function LogDeltaChip({ stat, delta }) {
   const bad = INVERTED_STATS.has(stat) ? delta > 0 : delta < 0;
   const bg = delta === 0 ? "#eee6d0" : bad ? "#fde8e8" : "#e8f5e8";
@@ -8959,6 +8958,55 @@ function LogDeltaChip({ stat, delta }) {
     <span className="mono-font" style={{ fontSize: 10.5, background: bg, color, borderRadius: 3, padding: "1px 6px", fontWeight: 700 }}>
       {statLabel(stat, ALL_STAT_LABELS[stat] ?? stat)} {delta > 0 ? `+${delta}` : delta}
     </span>
+  );
+}
+
+// Чип дельты стата на ТЁМНОМ фоне Журнала — сплошные светлые плашки LogDeltaChip выше на тёмном
+// фоне выглядели "вырвиглазно" (Петя, 2026-07-08): десяток+ ярких пастельных пилюль разом, без
+// иерархии. Приглушённая версия — прозрачный фон, цветная обводка/текст, тот же принцип, что уже
+// в StatDeltaBadges (дельты world_move) на тёмных карточках.
+function LogDeltaChipDark({ stat, delta }) {
+  const bad = INVERTED_STATS.has(stat) ? delta > 0 : delta < 0;
+  const color = delta === 0 ? "#8a9aaa" : bad ? "#e09090" : "#7fae93";
+  return (
+    <span className="mono-font" style={{ fontSize: 10, color, border: `1px solid ${color}44`, borderRadius: 3, padding: "1px 6px" }}>
+      {statLabel(stat, ALL_STAT_LABELS[stat] ?? stat)} {delta > 0 ? `+${delta}` : delta}
+    </span>
+  );
+}
+
+// Разбивка дельт хода на "главное всегда видно" + "остальное по клику" (тот же принцип, что уже
+// решил ту же проблему в EndTurnScreen/PreviewCard — PrimarySecondaryDeltas/partitionPrimarySecondary,
+// переиспользованы как есть). Военные операции легко двигают 15-20+ статов разом — без разбивки
+// это стена из чипов одинакового веса, в которой ничего не найти и на которую больно смотреть.
+function LogEntryDeltas({ deltaEntries }) {
+  const [showSecondary, setShowSecondary] = useState(false);
+  const { primary, secondary } = partitionPrimarySecondary(deltaEntries);
+  if (primary.length === 0 && secondary.length === 0) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      {primary.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {primary.map(([stat, delta]) => <LogDeltaChipDark key={stat} stat={stat} delta={delta} />)}
+        </div>
+      )}
+      {secondary.length > 0 && (
+        <div style={{ marginTop: primary.length > 0 ? 6 : 0 }}>
+          <button
+            onClick={() => setShowSecondary(v => !v)}
+            className="mono-font"
+            style={{ background: "none", border: "none", color: "#6a7080", fontSize: 9, letterSpacing: "0.06em", cursor: "pointer", padding: 0 }}
+          >
+            {showSecondary ? t("delta.hide_details") : t("delta.show_more", { n: secondary.length })}
+          </button>
+          {showSecondary && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+              {secondary.map(([stat, delta]) => <LogDeltaChipDark key={stat} stat={stat} delta={delta} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -8992,11 +9040,7 @@ function LogTab({ state }) {
               </div>
             )}
             <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#cdd3e0" }}>{entry.body}</div>
-            {deltaEntries.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
-                {deltaEntries.map(([stat, delta]) => <LogDeltaChip key={stat} stat={stat} delta={delta} />)}
-              </div>
-            )}
+            <LogEntryDeltas deltaEntries={deltaEntries} />
           </div>
         );
       })}
