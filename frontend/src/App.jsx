@@ -8735,7 +8735,7 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
               <ExpandableText
                 text={item.text}
                 className="doc-font"
-                style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? meta.text : undefined }}
+                style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? meta.text : "#3a362e" }}
                 toggleColor={isWorldMove ? meta.toggle : "#8a8472"}
               />
               {isWorldMove && <StatDeltaBadges delta={moveDelta} />}
