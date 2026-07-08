@@ -151,7 +151,9 @@ ${Object.values(SCALE_DESCRIPTIONS).join("\n\n")}
 ═══════════════════════════════════════════
 ФОРМАТ ОТВЕТА
 ═══════════════════════════════════════════
-Верни ТОЛЬКО валидный JSON без markdown-обёрток.
+Президент спрашивает мнение ОДНОГО конкретного советника за раз — какого именно, указано в
+сообщении пользователя (раздел «СЕЙЧАС СПРАШИВАЮТ МНЕНИЕ СОВЕТНИКА»). Отвечай ТОЛЬКО от лица
+этого советника, ТОЛЬКО валидным JSON без markdown-обёрток, без массива и без мнений остальных.
 "recommendation" — мнение советника живой речью (3-4 предложения, в стиле персонажа).
 "proposed_decree" — ОТДЕЛЬНО: готовая формулировка указа от первого лица президента,
 которую можно сразу подать как решение. Одно-два повелительных предложения, БЕЗ ремарок
@@ -159,20 +161,11 @@ ${Object.values(SCALE_DESCRIPTIONS).join("\n\n")}
 льготами для оборонных предприятий." Это НЕ пересказ мнения, а конкретный приказ.
 
 {
-  "advisors": [
-    {
-      "id": "defense",
-      "recommendation": "...",
-      "proposed_decree": "...",
-      "suggested_direction": "одно из: military_offensive | military_defensive | diplomacy_outreach | diplomacy_confrontation | economic_stimulus | economic_austerity | domestic_repression | domestic_liberalization | info_narrative | intelligence_covert | peace_initiative | null_action",
-      "suggested_scale": "одно из: decree_fast | decree_reform | decree_program | intel | military",
-      "tone": "одно из: supportive | cautious | critical | alarmed"
-    },
-    { "id": "foreign", "recommendation": "...", "proposed_decree": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
-    { "id": "finance", "recommendation": "...", "proposed_decree": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
-    { "id": "security", "recommendation": "...", "proposed_decree": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." },
-    { "id": "press", "recommendation": "...", "proposed_decree": "...", "suggested_direction": "...", "suggested_scale": "...", "tone": "..." }
-  ]
+  "recommendation": "...",
+  "proposed_decree": "...",
+  "suggested_direction": "одно из: military_offensive | military_defensive | diplomacy_outreach | diplomacy_confrontation | economic_stimulus | economic_austerity | domestic_repression | domestic_liberalization | info_narrative | intelligence_covert | peace_initiative | null_action",
+  "suggested_scale": "одно из: decree_fast | decree_reform | decree_program | intel | military",
+  "tone": "одно из: supportive | cautious | critical | alarmed"
 }`;
 
 function buildEconIndicators(stats) {
@@ -435,10 +428,14 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
 // CACHED_SYSTEM). Собирается через обычную интерполяцию шаблонных строк, а не replaceAll по
 // плейсхолдерам — это заодно устраняет исходный класс бага (2026-07-07: строковый .replace брал
 // только первое вхождение повторяющегося плейсхолдера, второе уходило в промпт буквально).
-function buildAdvisorsUserMessage({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode, optimalMove, statHistory, language }) {
+function buildAdvisorsUserMessage({ countryName, playerName, gameDate, turnNumber, stats, relations, policies, recentHistory, playerDraft, actionMode, optimalMove, statHistory, language, advisorId }) {
+  // Свободный текст от президента именно этому советнику — может быть черновиком указа,
+  // прямым вопросом или просто описанием ситуации своими словами. Формулировка инструкции
+  // намеренно не предполагает конкретный жанр — советник должен ответить по существу написанного,
+  // а не считать это обязательно готовым указом.
   const draftSection = playerDraft
-    ? `ЧЕРНОВИК РЕШЕНИЯ ПРЕЗИДЕНТА (советники реагируют на него):\n"${playerDraft}"`
-    : `ПРЕЗИДЕНТ ЕЩЁ НЕ СФОРМУЛИРОВАЛ РЕШЕНИЕ. Советники дают общие рекомендации исходя из текущей обстановки и выбранного типа действия.`;
+    ? `СООБЩЕНИЕ ПРЕЗИДЕНТА ИМЕННО ВАМ (может быть черновиком указа, вопросом или описанием ситуации — отреагируйте по существу написанного):\n"${playerDraft}"`
+    : `Президент пока ничего не написал вам напрямую — дайте рекомендацию исходя из текущей обстановки и выбранного типа действия.`;
 
   const actionModeDesc = SCALE_DESCRIPTIONS[actionMode] || SCALE_DESCRIPTIONS[actionMode?.replace("decree", "decree_reform")] || SCALE_DESCRIPTIONS.decree_reform;
   // Полный текст масштаба уже есть в CACHED_SYSTEM (раздел "МАСШТАБ ДЕЙСТВИЯ") — здесь достаточно
@@ -454,10 +451,36 @@ function buildAdvisorsUserMessage({ countryName, playerName, gameDate, turnNumbe
     ? recentHistory.map(h => `Ход ${h.turn_n}: "${h.player_input}" → ${h.narrative_text}`).join("\n")
     : "(партия только началась, истории нет)";
 
-  return `Президент: ${playerName || "Господин Президент"}
+  const advisorMeta = ADVISORS.find(a => a.id === advisorId);
+  const isOptimalCarrier = !!optimalMove && optimalMove.advisorId === advisorId;
+
+  // Раньше (когда все 5 советников отвечали одним вызовом) расчётный ход всегда доставался
+  // тому советнику, чья сфера ему соответствует, а остальные явно видели, что могут
+  // соглашаться/предлагать альтернативы. Теперь каждый советник отвечает отдельным вызовом —
+  // если СЕЙЧАС спрашивают не носителя расчёта, он просто не знает о нём вообще (это не его
+  // сфера) и даёт совет исключительно из своей роли, без ссылки на чужой расчёт.
+  const optimalSection = isOptimalCarrier
+    ? `═══════════════════════════════════════════
+МАТЕМАТИЧЕСКИ РАССЧИТАННЫЙ ОПТИМАЛЬНЫЙ ХОД (из формул движка, не мнение)
+═══════════════════════════════════════════
+${optimalMoveText}
+
+ОБЯЗАТЕЛЬНО: именно ВЫ (${advisorMeta?.name || advisorId}) должны предложить ИМЕННО этот ход —
+если указана "Формулировка указа", ваш proposed_decree должен близко повторять её, а
+recommendation — объяснить расчёт своими словами (в стиле персонажа). Если вместо формулировки
+указа стоит "(нет — совет подождать)" — указ НЕ придумывать: recommendation объясняет, почему
+сейчас лучше не подписывать новый указ в этой сфере (например, реформа уже в работе),
+suggested_direction — "null_action", proposed_decree — пустая строка.
+`
+    : "";
+
+  return `СЕЙЧАС СПРАШИВАЮТ МНЕНИЕ СОВЕТНИКА: [${advisorId}] ${advisorMeta?.name || ""} — ${advisorMeta?.role || ""}
+Отвечайте ТОЛЬКО от лица этого советника.
+
+Президент: ${playerName || "Господин Президент"}
 
 ПРЕЗИДЕНТ СЕЙЧАС РАССМАТРИВАЕТ: ${actionModeLabel}
-(полное описание этого масштаба — в разделе «МАСШТАБ ДЕЙСТВИЯ» выше; советы должны
+(полное описание этого масштаба — в разделе «МАСШТАБ ДЕЙСТВИЯ» выше; совет должен
 соответствовать ИМЕННО этому масштабу, а не остальным перечисленным там же)
 
 ═══════════════════════════════════════════
@@ -470,7 +493,7 @@ function buildAdvisorsUserMessage({ countryName, playerName, gameDate, turnNumbe
 Отношения: ${JSON.stringify(relations.slice(0, 8))}
 Активные политики: ${JSON.stringify(policies)}
 
-ЭКОНОМИЧЕСКИЕ ИНДИКАТОРЫ (Силин должен их прокомментировать):
+ЭКОНОМИЧЕСКИЕ ИНДИКАТОРЫ (Силин должен их прокомментировать, если сейчас спрашивают его):
 ${buildEconIndicators(stats)}
 
 ═══════════════════════════════════════════
@@ -478,30 +501,10 @@ ${buildEconIndicators(stats)}
 ═══════════════════════════════════════════
 ${buildTrendSection(stats, statHistory)}
 ВАЖНО: показатель с большим запасом до порога, но падающий быстро, может обрушиться
-за 2-3 хода — раньше, чем "безопасный" запас это подскажет. Если ниже отмечено ⚠️ —
-советник, отвечающий за этот показатель, ОБЯЗАН прямо предупредить о темпе, а не
-только назвать текущее значение.
+за 2-3 хода — раньше, чем "безопасный" запас это подскажет. Если ниже отмечено ⚠️ и это
+ваша сфера — прямо предупредите о темпе, а не только назовите текущее значение.
 
-═══════════════════════════════════════════
-МАТЕМАТИЧЕСКИ РАССЧИТАННЫЙ ОПТИМАЛЬНЫЙ ХОД (из формул движка, не мнение)
-═══════════════════════════════════════════
-${optimalMoveText}
-
-ОБЯЗАТЕЛЬНО: советник [${optimalMove?.advisorId || "finance"}] должен предложить ИМЕННО этот ход —
-если указана "Формулировка указа", его proposed_decree должен близко повторять её,
-а recommendation — объяснить расчёт своими словами (в стиле персонажа). Если вместо
-формулировки указа стоит "(нет — совет подождать)" — указ НЕ придумывать: recommendation
-объясняет, почему сейчас лучше не подписывать новый указ в этой сфере (например, реформа
-уже в работе), suggested_direction для этого советника — "null_action", proposed_decree
-— пустая строка. Остальные советники могут соглашаться или предлагать альтернативы из
-СВОЕЙ сферы.
-
-РАЗНООБРАЗИЕ КЛАССОВ: среди пяти suggested_scale должны встретиться минимум три
-разных класса (например decree_fast, decree_reform, decree_program) — советники
-не должны хором предлагать один масштаб. Быстрый указ — точечная мера на 1–2 мес,
-реформа — системное изменение на 3–6 мес, программа — нацпроект на 7–12 мес:
-содержание совета обязано соответствовать выбранному классу.
-
+${optimalSection}
 ИСТОРИЯ (${recentHistory.length} ходов, от старых к новым):
 ${historyText}
 
@@ -512,13 +515,22 @@ function stripMarkdownFences(text) {
   return text.replace(/```json\s*|\s*```/g, "").trim();
 }
 
-async function consultAdvisors({ params, callClaudeApi, meta }) {
+// Расход ИИ (Петя, 2026-07-08): раньше ОДИН вызов возвращал мнения ВСЕХ пяти советников сразу,
+// и фронт дёргал его автоматически при загрузке/смене режима/переключении вкладки — большая
+// часть из пяти мнений часто даже не читалась. Теперь фронт показывает портреты с приветствием
+// (без ИИ) и просит мнение ОДНОГО конкретного советника по явному клику — типичный игрок читает
+// 1-2 мнения вместо всех пяти на каждый чих, кратное снижение числа вызовов. Заодно max_tokens
+// упал с 2500 (пять мнений) до 700 (одно) — четвёртый рычаг экономии сверх кэширования.
+async function consultAdvisor({ params, advisorId, callClaudeApi, meta }) {
+  if (!ADVISORS.some(a => a.id === advisorId)) {
+    throw new Error(`Unknown advisorId: ${advisorId}`);
+  }
   const optimalMove = computeOptimalMove(params.stats || {}, params.turnNumber, params.statHistory, params.recentCategories);
-  const userMessage = buildAdvisorsUserMessage({ ...params, optimalMove });
+  const userMessage = buildAdvisorsUserMessage({ ...params, optimalMove, advisorId });
 
   const response = await callClaudeApi({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 2500,
+    max_tokens: 700,
     system: [{ type: "text", text: CACHED_SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userMessage }],
   }, meta);
@@ -532,42 +544,39 @@ async function consultAdvisors({ params, callClaudeApi, meta }) {
   try {
     parsed = JSON.parse(stripMarkdownFences(rawText));
   } catch {
-    return fallbackConsult(optimalMove);
+    return fallbackConsult(advisorId, optimalMove);
   }
 
-  // Обогащаем ответ статичными данными советников (имя, роль).
-  // Советник, несущий математически рассчитанный ход, помечается is_optimal —
-  // фронт показывает бейдж «расчёт» на его карточке.
-  const enriched = (parsed.advisors || []).map(a => {
-    const meta = ADVISORS.find(adv => adv.id === a.id) || {};
-    return { ...meta, ...a, persona: undefined, is_optimal: a.id === optimalMove.advisorId };
-  });
+  const advisorMeta = ADVISORS.find(a => a.id === advisorId) || {};
+  const isOptimal = !!optimalMove && optimalMove.advisorId === advisorId;
 
-  return { advisors: enriched, optimalMove };
+  return {
+    advisor: { id: advisorId, name: advisorMeta.name, role: advisorMeta.role, ...parsed, is_optimal: isOptimal },
+    optimalMove,
+  };
 }
 
-function fallbackConsult(optimalMove) {
+function fallbackConsult(advisorId, optimalMove) {
   // ИИ недоступен, но детерминированный расчёт работает всегда —
   // носитель оптимального хода получает его текстом вместо заглушки.
+  const advisorMeta = ADVISORS.find(a => a.id === advisorId) || {};
+  const isOptimal = !!optimalMove && optimalMove.advisorId === advisorId;
   return {
-    advisors: ADVISORS.map(a => {
-      const isOptimal = optimalMove && a.id === optimalMove.advisorId;
-      return {
-        id: a.id,
-        name: a.name,
-        role: a.role,
-        recommendation: isOptimal
-          ? `По расчёту аппарата: ${optimalMove.reason}`
-          : "Запрос к советнику временно недоступен. Примите решение самостоятельно.",
-        proposed_decree: isOptimal ? optimalMove.decree : undefined,
-        suggested_direction: isOptimal ? optimalMove.direction : "null_action",
-        suggested_scale: isOptimal ? optimalMove.mode : undefined,
-        tone: "cautious",
-        is_optimal: !!isOptimal,
-      };
-    }),
+    advisor: {
+      id: advisorId,
+      name: advisorMeta.name,
+      role: advisorMeta.role,
+      recommendation: isOptimal
+        ? `По расчёту аппарата: ${optimalMove.reason}`
+        : "Запрос к советнику временно недоступен. Примите решение самостоятельно.",
+      proposed_decree: isOptimal ? optimalMove.decree : undefined,
+      suggested_direction: isOptimal ? optimalMove.direction : "null_action",
+      suggested_scale: isOptimal ? optimalMove.mode : undefined,
+      tone: "cautious",
+      is_optimal: isOptimal,
+    },
     optimalMove: optimalMove || null,
   };
 }
 
-module.exports = { consultAdvisors, computeOptimalMove, ADVISORS };
+module.exports = { consultAdvisor, computeOptimalMove, ADVISORS };

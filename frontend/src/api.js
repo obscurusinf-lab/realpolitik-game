@@ -194,15 +194,15 @@ export async function fetchSuggestions(gameId, actionMode = "decree") {
   return res.json();
 }
 
-export async function consultAdvisors(gameId, playerDraft, actionMode) {
+export async function consultAdvisor(gameId, advisorId, playerDraft, actionMode) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/advisors/consult`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ playerDraft: playerDraft || null, actionMode: actionMode || "decree_reform" }),
+    body: JSON.stringify({ advisorId, playerDraft: playerDraft || null, actionMode: actionMode || "decree_reform" }),
   }, 60000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `consultAdvisors failed: ${res.status}`);
+    throw new Error(body.error || `consultAdvisor failed: ${res.status}`);
   }
   return res.json();
 }

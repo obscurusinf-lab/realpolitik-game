@@ -2,16 +2,27 @@
  * routes/advisors.js
  *
  * POST /games/:gameId/advisors/consult
- *   Body: { playerDraft?: string }  — черновик решения (опционально)
- *   Returns: { advisors: [...] }
+ *   Body: { advisorId: string, playerDraft?: string, actionMode?: string }
+ *   Returns: { advisor: {...}, optimalMove }
+ *
+ * Расход ИИ (Петя, 2026-07-08): раньше один вызов возвращал мнения ВСЕХ пяти советников —
+ * фронт дёргал его автоматически при загрузке/смене режима/переключении вкладки, большая часть
+ * из пяти мнений часто даже не читалась. Теперь запрос — на ОДНОГО советника по явному клику
+ * (см. AdvisorsTab на фронте — портреты с приветствием без ИИ + кнопка "Жду ваш совет" на
+ * каждого), advisorId обязателен.
  */
 
-const { consultAdvisors } = require("../ai/advisors");
+const { consultAdvisor, ADVISORS } = require("../ai/advisors");
+const ADVISOR_IDS = new Set(ADVISORS.map(a => a.id));
 
 async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
   fastify.post("/games/:gameId/advisors/consult", async (request, reply) => {
     const { gameId } = request.params;
-    const { playerDraft, actionMode = "decree_reform" } = request.body || {};
+    const { advisorId, playerDraft, actionMode = "decree_reform" } = request.body || {};
+
+    if (!advisorId || !ADVISOR_IDS.has(advisorId)) {
+      return reply.code(400).send({ error: "advisorId is required and must be one of: " + [...ADVISOR_IDS].join(", ") });
+    }
 
     const gameRes = await db.query(
       `SELECT g.current_turn, g.language, gs.stats, gs.relations, gs.policies, gs.overview, g.admin_advisor_notes,
@@ -48,7 +59,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
     // угробили экономику быстрее, чем успели дать эффект.
     const recentCategories = recentHistory.map(h => h.action_type).filter(Boolean);
 
-    const result = await consultAdvisors({
+    const result = await consultAdvisor({
       params: {
         countryName: game.country_name,
         playerName: game.player_name || null,
@@ -64,6 +75,7 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
         actionMode: actionMode || "decree_reform",
         language: game.language,
       },
+      advisorId,
       callClaudeApi,
       meta: { gameId, playerId: game.owner_user_id, purpose: "advisors_consult" },
     });
@@ -72,10 +84,8 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
     // текст рекомендации конкретного министра ПОСЛЕ генерации ИИ, персистентно (пока админ не
     // сменит/не очистит заметку) — не одноразово, в отличие от очереди действия Украины.
     const notes = game.admin_advisor_notes || {};
-    if (Object.keys(notes).length > 0 && Array.isArray(result.advisors)) {
-      result.advisors = result.advisors.map(a =>
-        notes[a.id] ? { ...a, recommendation: notes[a.id], admin_note: true } : a
-      );
+    if (notes[advisorId]) {
+      result.advisor = { ...result.advisor, recommendation: notes[advisorId], admin_note: true };
     }
 
     return reply.send(result);

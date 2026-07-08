@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame, updateGameLanguage } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame, updateGameLanguage } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel } from "./i18n";
 
@@ -2417,11 +2417,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [nuclearConfirmError, setNuclearConfirmError] = useState(null);
   const [nuclearAftermath, setNuclearAftermath] = useState(null);
 
-  const [advisors, setAdvisors] = useState(null);
-  const [consulting, setConsulting] = useState(false);
-  const [advisorError, setAdvisorError] = useState(null);
+  // Расход ИИ (Петя, 2026-07-08): вместо одного вызова, возвращающего мнения всех пяти
+  // советников автоматически, — состояние на каждого советника отдельно, запрос идёт только
+  // по явному клику "Жду ваш совет" на конкретной карточке (см. AdvisorsTab).
+  const [advisorState, setAdvisorState] = useState(() => Object.fromEntries(ADVISOR_INFO.map(a => [a.id, { status: "idle", data: null, error: null }])));
   const actionModeRef = useRef("decree_fast");
-  const consultingRef = useRef(false);
 
   const [showTreasuryTip, setShowTreasuryTip] = useState(false);
 
@@ -2466,32 +2466,15 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     return () => { clearInterval(interval); document.removeEventListener("visibilitychange", pingIfVisible); };
   }, [gameId]);
 
-  // Предзагрузка советников сразу после загрузки игры
+  // Синхронизируем ref с actionMode чтобы handleConsultAdvisor всегда читал свежее значение,
+  // и сбрасываем карточки советников на "не спрошено" — старый совет был под другой масштаб
+  // решения, показывать его как актуальный было бы неверно. НЕ запрашиваем автоматически:
+  // раньше смена масштаба/загрузка партии/переключение вкладки сами по себе дёргали ИИ на всех
+  // пятерых советников сразу — теперь только явный клик "Жду ваш совет" на конкретной карточке.
   useEffect(() => {
-    if (loaded && state && !advisors && !consulting) {
-      handleConsult();
-    }
-  }, [loaded]);
-
-  // Синхронизируем ref с actionMode чтобы handleConsult всегда читал свежее значение
-  useEffect(() => { actionModeRef.current = actionMode; }, [actionMode]);
-
-  // Авто-обновление советников при смене режима
-  useEffect(() => {
-    if (!loaded || !state) return;
-    setAdvisors(null);
-    // Если сейчас идёт запрос — дождёмся его конца через consultingRef
-    if (!consultingRef.current) {
-      handleConsult();
-    }
+    actionModeRef.current = actionMode;
+    setAdvisorState(Object.fromEntries(ADVISOR_INFO.map(a => [a.id, { status: "idle", data: null, error: null }])));
   }, [actionMode]);
-
-  // Обновить советников при переключении на вкладку если данных нет
-  useEffect(() => {
-    if (tab === "advisors" && !advisors && !consulting) {
-      handleConsult();
-    }
-  }, [tab]);
 
   async function handlePreview() {
     if (!draftInput.trim() || previewing) return;
@@ -2744,28 +2727,19 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     }
   }
 
-  async function handleConsult() {
-    if (consultingRef.current) return;
-    consultingRef.current = true;
-    setConsulting(true);
-    setAdvisorError(null);
+  async function handleConsultAdvisor(advisorId, questionText) {
+    if (advisorState[advisorId]?.status === "loading") return;
     const modeForThisRequest = actionModeRef.current;
+    setAdvisorState(prev => ({ ...prev, [advisorId]: { status: "loading", data: null, error: null } }));
     try {
-      const result = await consultAdvisors(gameId, draftInput, modeForThisRequest);
-      // Если пока запрос шёл пользователь сменил режим — сбрасываем и перезапрашиваем
-      if (actionModeRef.current !== modeForThisRequest) {
-        setAdvisors(null);
-        consultingRef.current = false;
-        setConsulting(false);
-        handleConsult();
-        return;
-      }
-      setAdvisors(result.advisors);
+      const result = await consultAdvisor(gameId, advisorId, questionText, modeForThisRequest);
+      // Если пока запрос шёл пользователь сменил масштаб решения — результат уже не актуален,
+      // молча отбрасываем (карточка и так сброшена на "idle" эффектом смены actionMode).
+      if (actionModeRef.current !== modeForThisRequest) return;
+      setAdvisorState(prev => ({ ...prev, [advisorId]: { status: "loaded", data: result.advisor, error: null } }));
     } catch (err) {
-      setAdvisorError(err.message);
-    } finally {
-      consultingRef.current = false;
-      setConsulting(false);
+      if (actionModeRef.current !== modeForThisRequest) return;
+      setAdvisorState(prev => ({ ...prev, [advisorId]: { status: "error", data: null, error: err.message } }));
     }
   }
 
@@ -3094,12 +3068,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         {tab === "world" && <WorldTab state={state} />}
         {tab === "advisors" && (
           <AdvisorsTab
-            advisors={advisors}
-            consulting={consulting}
-            advisorError={advisorError}
-            draftInput={draftInput}
+            advisorState={advisorState}
             actionMode={actionMode}
-            onConsult={handleConsult}
+            onConsultAdvisor={handleConsultAdvisor}
             onSelectMode={setActionMode}
             onSelectAdvice={(adv) => {
               setDraftInput(adv.proposed_decree || adv.recommendation || "");
@@ -3469,8 +3440,63 @@ const ACTION_MODE_BADGE = {
 
 const CABINET_TIER_OPTIONS = ["decree_fast", "decree_reform", "decree_program"];
 
-function AdvisorsTab({ advisors, consulting, advisorError, draftInput, actionMode, onConsult, onSelectMode, onSelectAdvice }) {
+// Расход ИИ (Петя, 2026-07-08): статичные данные советников на фронте — id/имя/роль/инициалы
+// нужны ДО любого обращения к ИИ, чтобы нарисовать портрет и приветствие без единого вызова.
+// Порядок и id строго совпадают с ADVISORS в backend/src/ai/advisors.js.
+const ADVISOR_INFO = [
+  { id: "defense", name: "Белоев А.Р.", role: "Министр обороны", initials: "БА" },
+  { id: "foreign", name: "Лавин С.В.", role: "Министр иностранных дел", initials: "ЛС" },
+  { id: "finance", name: "Силин А.Г.", role: "Министр финансов", initials: "СА" },
+  { id: "security", name: "Патров Н.П.", role: "Секретарь Совета Безопасности", initials: "ПН" },
+  { id: "press", name: "Пестов Д.С.", role: "Пресс-секретарь Президента", initials: "ПД" },
+];
+
+// Портрет — /advisors/{id}.png в frontend/public (Петя рисует отдельно). Пока файла нет —
+// <img> падает на onError и рендер уходит на инициалы, никакого кода менять не придётся,
+// достаточно положить файл по пути.
+function AdvisorPortrait({ id, initials, size = 48 }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div style={{ width: size, height: size, borderRadius: "50%", background: "#2a3040", border: "1px solid #3a4156", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <span className="mono-font" style={{ fontSize: size * 0.32, color: "#9c8347", fontWeight: 700 }}>{initials}</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={`/advisors/${id}.png`}
+      onError={() => setFailed(true)}
+      alt=""
+      style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0, background: "#2a3040", border: "1px solid #3a4156" }}
+    />
+  );
+}
+
+// Чисто декоративные приветствия — НЕ ИИ, статичный пул на каждого советника (в стиле его
+// персоны из advisors.js), рендерятся до первого клика "Жду ваш совет". Не несут игровой
+// информации специально, чтобы не создавать иллюзию содержательного совета без реального запроса.
+const ADVISOR_GREETINGS = {
+  defense: ["Слушаю, господин Президент. Докладывайте.", "Жду приказа. Время не ждёт.", "Обстановка на фронте под контролем. Что решаете?"],
+  foreign: ["Господин Президент... я вас слушаю.", "Партнёры ждут нашего хода. Что скажете?", "Как в семьдесят третьем — всё повторяется. Ваше мнение?"],
+  finance: ["Казна на месте, господин Президент. Что обсуждаем?", "Цифры перед вами. Готов доложить.", "Деньги любят счёт. Слушаю вас."],
+  security: ["Господин Президент. Ситуация под наблюдением.", "Докладываю по готовности.", "Слушаю. Тихо, но внимательно."],
+  press: ["Готов обсудить, как это подать, господин Президент.", "Пресса ждёт. Что говорим?", "Слушаю — надо продумать подачу."],
+};
+function pickGreeting(id, seedKey) {
+  const pool = ADVISOR_GREETINGS[id] || ["Слушаю, господин Президент."];
+  // Детерминированный псевдослучайный выбор по ключу (advisorId+actionMode) — не меняется от
+  // ре-рендера к ре-рендеру, но меняется при смене масштаба решения.
+  let hash = 0;
+  for (let i = 0; i < seedKey.length; i++) hash = (hash * 31 + seedKey.charCodeAt(i)) >>> 0;
+  return pool[hash % pool.length];
+}
+
+function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice }) {
   const badge = ACTION_MODE_BADGE[actionMode] || ACTION_MODE_BADGE.decree_fast;
+  // Свой текст на каждого советника отдельно (не общий черновик указа) — можно спросить
+  // конкретного министра о чём-то своём, а можно просто нажать "Получить совет" пустым полем.
+  const [questionDrafts, setQuestionDrafts] = useState({});
   return (
     <div>
       <div style={{ marginBottom: 10 }}>
@@ -3498,117 +3524,137 @@ function AdvisorsTab({ advisors, consulting, advisorError, draftInput, actionMod
           })}
         </div>
       </div>
-      <div style={{ marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em" }}>СОВЕТ ПО РЕЖИМУ:</span>
-          <span style={{ background: badge.color + "22", border: `1px solid ${badge.color}55`, borderRadius: 4, padding: "3px 10px", color: badge.color, fontFamily: "'PT Serif',serif", fontSize: 12 }}>{badge.label}</span>
-          {consulting && <span className="mono-font" style={{ fontSize: 9, color: "#9c8347", animation: "pulse 1.2s infinite" }}>обновляется…</span>}
-        </div>
-        <button
-          onClick={onConsult}
-          disabled={consulting}
-          style={{ background: consulting ? "#5a5040" : "#9c8347", color: "#1a1f2c", border: "none", borderRadius: 4, padding: "7px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, cursor: consulting ? "default" : "pointer", opacity: consulting ? 0.7 : 1 }}
-        >
-          {draftInput.trim() ? "Совет по черновику" : "Обновить совет"}
-        </button>
+      <div style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+        <span className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em" }}>СОВЕТ ПО РЕЖИМУ:</span>
+        <span style={{ background: badge.color + "22", border: `1px solid ${badge.color}55`, borderRadius: 4, padding: "3px 10px", color: badge.color, fontFamily: "'PT Serif',serif", fontSize: 12 }}>{badge.label}</span>
       </div>
-      {draftInput.trim() && !consulting && (
-        <div className="doc-font" style={{ marginBottom: 10, fontSize: 12, color: "#5c5648", fontStyle: "italic" }}>
-          Советники прочитают ваш черновик: «{draftInput.slice(0, 80)}{draftInput.length > 80 ? "…" : ""}»
-        </div>
-      )}
-      {advisorError && (
-        <div className="doc-font" style={{ marginBottom: 10, fontSize: 12.5, color: "#a8313a" }}>
-          Ошибка: {advisorError}
-        </div>
-      )}
-
-      {!advisors && !consulting && (
-        <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>
-          Нажмите кнопку, чтобы получить мнения советников. Можно сначала написать черновик решения внизу экрана — советники отреагируют на него.
-        </div>
-      )}
-
-      {advisors && (
-        <div style={{ display: "grid", gap: 14 }}>
-          {advisors.map((adv) => {
-            const toneColor = ADVISOR_TONE_COLOR[adv.tone] || "#8a8472";
-            return (
-              <div
-                key={adv.id}
-                style={{
-                  background: "#f5f1e6",
-                  border: `1px solid #d8d2bf`,
-                  borderLeft: `4px solid ${toneColor}`,
-                  borderRadius: 4,
-                  padding: "13px 14px",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                  <div>
-                    <div className="doc-font" style={{ fontSize: 15, fontWeight: 700 }}>{adv.name}</div>
-                    <div className="mono-font" style={{ fontSize: 10, color: "#8a8472", letterSpacing: "0.06em" }}>{adv.role?.toUpperCase()}</div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                    {adv.is_optimal && (
-                      <span className="mono-font" title="Этот совет совпадает с математически рассчитанным оптимальным ходом (детерминированный расчёт по формулам игры, не мнение ИИ)"
-                        style={{ fontSize: 9, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 3, background: "#1a3a2a", color: "#5adc8c", border: "1px solid #2a6a4a", fontWeight: 700 }}>
-                        📐 РАСЧЁТ: ОПТИМАЛЬНЫЙ ХОД
-                      </span>
+      <div style={{ display: "grid", gap: 14 }}>
+        {ADVISOR_INFO.map((info) => {
+          const st = advisorState[info.id] || { status: "idle" };
+          const adv = st.data;
+          const toneColor = adv ? (ADVISOR_TONE_COLOR[adv.tone] || "#8a8472") : "#3a4156";
+          return (
+            <div
+              key={info.id}
+              style={{
+                background: "#f5f1e6",
+                border: `1px solid #d8d2bf`,
+                borderLeft: `4px solid ${toneColor}`,
+                borderRadius: 4,
+                padding: "13px 14px",
+              }}
+            >
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <AdvisorPortrait id={info.id} initials={info.initials} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 8 }}>
+                    <div>
+                      <div className="doc-font" style={{ fontSize: 15, fontWeight: 700 }}>{info.name}</div>
+                      <div className="mono-font" style={{ fontSize: 10, color: "#8a8472", letterSpacing: "0.06em" }}>{info.role.toUpperCase()}</div>
+                    </div>
+                    {adv && (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                        {adv.is_optimal && (
+                          <span className="mono-font" title="Этот совет совпадает с математически рассчитанным оптимальным ходом (детерминированный расчёт по формулам игры, не мнение ИИ)"
+                            style={{ fontSize: 9, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 3, background: "#1a3a2a", color: "#5adc8c", border: "1px solid #2a6a4a", fontWeight: 700 }}>
+                            📐 РАСЧЁТ: ОПТИМАЛЬНЫЙ ХОД
+                          </span>
+                        )}
+                        <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 3, background: toneColor + "22", color: toneColor }}>
+                          {(ADVISOR_TONE_LABEL[adv.tone] || adv.tone)?.toUpperCase()}
+                        </span>
+                        {adv.suggested_direction && adv.suggested_direction !== "null_action" && (
+                          <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>
+                            → {DIRECTION_LABEL[adv.suggested_direction] || adv.suggested_direction}
+                          </span>
+                        )}
+                        {adv.suggested_scale && (
+                          <span className="mono-font" style={{ fontSize: 8, padding: "2px 6px", borderRadius: 2, background: adv.suggested_scale === "decree_program" ? "#2a1f3a" : adv.suggested_scale === "decree_reform" ? "#1a2a1f" : "#1f2a2a", color: adv.suggested_scale === "decree_program" ? "#9c7ab0" : adv.suggested_scale === "decree_reform" ? "#7ab09c" : "#7a9cb0", letterSpacing: "0.06em" }}>
+                            {{ decree_fast: "БЫСТРЫЙ УКАЗ", decree_reform: "РЕФОРМА", decree_program: "ПРОГРАММА", intel: "РАЗВЕДКА", military: "ВОЕННАЯ ОП." }[adv.suggested_scale] || adv.suggested_scale}
+                          </span>
+                        )}
+                      </div>
                     )}
-                    <span
-                      className="mono-font"
+                  </div>
+
+                  {st.status === "idle" && (
+                    <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#5c5648", fontStyle: "italic", marginBottom: 10 }}>
+                      «{pickGreeting(info.id, info.id + actionMode)}»
+                    </div>
+                  )}
+                  {st.status === "loading" && (
+                    <div className="mono-font" style={{ fontSize: 12, color: "#9c8347", marginBottom: 10, animation: "pulse 1.2s infinite" }}>
+                      обдумывает ответ…
+                    </div>
+                  )}
+                  {st.status === "error" && (
+                    <div className="doc-font" style={{ fontSize: 12.5, color: "#a8313a", marginBottom: 10 }}>
+                      Ошибка: {st.error}
+                    </div>
+                  )}
+                  {st.status === "loaded" && adv && (
+                    <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.55, color: "#3a362e", marginBottom: 10 }}>
+                      {adv.recommendation}
+                    </div>
+                  )}
+
+                  {st.status === "loaded" && adv?.proposed_decree && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
+                    <div style={{ background: "#ece3cf", borderLeft: "3px solid #9c8347", borderRadius: 3, padding: "6px 9px", marginBottom: 10 }}>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#9c8347", letterSpacing: "0.08em", marginBottom: 2 }}>ПРЕДЛАГАЕМЫЙ УКАЗ</div>
+                      <div className="doc-font" style={{ fontSize: 12.5, color: "#3a362e", fontStyle: "italic", lineHeight: 1.45 }}>«{adv.proposed_decree}»</div>
+                    </div>
+                  )}
+
+                  <textarea
+                    value={questionDrafts[info.id] || ""}
+                    onChange={(e) => setQuestionDrafts(prev => ({ ...prev, [info.id]: e.target.value }))}
+                    placeholder="Необязательно: спросите о чём-то конкретном…"
+                    rows={2}
+                    disabled={st.status === "loading"}
+                    style={{
+                      width: "100%", resize: "vertical", marginBottom: 6, padding: "6px 8px",
+                      background: "#fbf8f0", border: "1px solid #d8d2bf", borderRadius: 3,
+                      fontFamily: "'PT Serif',serif", fontSize: 12.5, color: "#3a362e", boxSizing: "border-box",
+                    }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                    <button
+                      onClick={() => onConsultAdvisor(info.id, questionDrafts[info.id] || "")}
+                      disabled={st.status === "loading"}
                       style={{
-                        fontSize: 9,
-                        letterSpacing: "0.06em",
-                        padding: "2px 7px",
-                        borderRadius: 3,
-                        background: toneColor + "22",
-                        color: toneColor,
+                        background: st.status === "loading" ? "#5a5040" : "#9c8347", color: "#1a1f2c", border: "none",
+                        borderRadius: 3, padding: "6px 14px", fontFamily: "'PT Serif',serif", fontSize: 12.5,
+                        cursor: st.status === "loading" ? "default" : "pointer", fontWeight: 700, opacity: st.status === "loading" ? 0.7 : 1,
                       }}
                     >
-                      {(ADVISOR_TONE_LABEL[adv.tone] || adv.tone)?.toUpperCase()}
-                    </span>
-                    {adv.suggested_direction && adv.suggested_direction !== "null_action" && (
-                      <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>
-                        → {DIRECTION_LABEL[adv.suggested_direction] || adv.suggested_direction}
+                      {st.status === "loading" ? "Думает…" : "Получить совет"}
+                    </button>
+                    {!questionDrafts[info.id]?.trim() && st.status !== "loading" && (
+                      <span className="doc-font" style={{ fontSize: 11, color: "#8a8472", fontStyle: "italic" }}>
+                        без текста — общая рекомендация по обстановке
                       </span>
                     )}
-                    {adv.suggested_scale && (
-                      <span className="mono-font" style={{ fontSize: 8, padding: "2px 6px", borderRadius: 2, background: adv.suggested_scale === "decree_program" ? "#2a1f3a" : adv.suggested_scale === "decree_reform" ? "#1a2a1f" : "#1f2a2a", color: adv.suggested_scale === "decree_program" ? "#9c7ab0" : adv.suggested_scale === "decree_reform" ? "#7ab09c" : "#7a9cb0", letterSpacing: "0.06em" }}>
-                        {{ decree_fast: "БЫСТРЫЙ УКАЗ", decree_reform: "РЕФОРМА", decree_program: "ПРОГРАММА", intel: "РАЗВЕДКА", military: "ВОЕННАЯ ОП." }[adv.suggested_scale] || adv.suggested_scale}
-                      </span>
+                    {st.status === "loaded" && adv?.suggested_direction && adv.suggested_direction !== "null_action" && (
+                      <button
+                        onClick={() => onSelectAdvice(adv)}
+                        title={adv.proposed_decree ? `Вставит указ: «${adv.proposed_decree}»` : undefined}
+                        style={{
+                          background: "transparent", color: "#9c8347", border: "1px solid #9c8347",
+                          borderRadius: 3, padding: "6px 14px",
+                          fontFamily: "'PT Serif',serif", fontSize: 12.5,
+                          cursor: "pointer", fontWeight: 700,
+                        }}
+                      >
+                        Принять совет →
+                      </button>
                     )}
                   </div>
                 </div>
-                <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.55, color: "#3a362e", marginBottom: 10 }}>
-                  {adv.recommendation}
-                </div>
-                {adv.proposed_decree && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
-                  <div style={{ background: "#ece3cf", borderLeft: "3px solid #9c8347", borderRadius: 3, padding: "6px 9px", marginBottom: 10 }}>
-                    <div className="mono-font" style={{ fontSize: 8, color: "#9c8347", letterSpacing: "0.08em", marginBottom: 2 }}>ПРЕДЛАГАЕМЫЙ УКАЗ</div>
-                    <div className="doc-font" style={{ fontSize: 12.5, color: "#3a362e", fontStyle: "italic", lineHeight: 1.45 }}>«{adv.proposed_decree}»</div>
-                  </div>
-                )}
-                {adv.suggested_direction && adv.suggested_direction !== "null_action" && (
-                  <button
-                    onClick={() => onSelectAdvice(adv)}
-                    title={adv.proposed_decree ? `Вставит указ: «${adv.proposed_decree}»` : undefined}
-                    style={{
-                      background: "#9c8347", color: "#1a1f2c", border: "none",
-                      borderRadius: 3, padding: "5px 12px",
-                      fontFamily: "'PT Serif',serif", fontSize: 12,
-                      cursor: "pointer", fontWeight: 700,
-                    }}
-                  >
-                    Принять совет →
-                  </button>
-                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
