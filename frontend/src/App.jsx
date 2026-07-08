@@ -8798,6 +8798,7 @@ function richText(str, accentStyle) {
 }
 
 const WIKI_SECTIONS_META = [
+  { id: "overview", icon: "🏛", key: "wiki.nav.overview" },
   { id: "strategy", icon: "🎯", key: "wiki.nav.strategy" },
   { id: "resources", icon: "⚡", key: "wiki.nav.resources" },
   { id: "stats", icon: "📊", key: "wiki.nav.stats" },
@@ -8816,8 +8817,8 @@ function WikiTab({ dark = false }) {
     : { h: { fontFamily: "'JetBrains Mono',monospace", fontSize: 11.5, color: "#8a6f30", letterSpacing: "0.1em", fontWeight: 700 }, p: { fontFamily: "'PT Serif',serif", fontSize: 15.5, color: "#3a3f4c", lineHeight: 1.75, marginBottom: 12 }, b: { color: "#6a5520", fontWeight: 700 }, sectionBg: "#fbf8f0", sectionBorder: "#e0dac8", navBg: "#efe9d8", navBorder: "#d8d2bf", navColor: "#6a6458" };
 
   // Ликбез систематизирован по разделам-аккордеонам вместо сплошной простыни текста —
-  // «Стиль игры» открыт по умолчанию (самое ценное и самое новое), остальное сворачиваемо.
-  const [openSections, setOpenSections] = useState(() => new Set(["strategy"]));
+  // «С чего начать» открыт по умолчанию (первое, что нужно прочитать), остальное сворачиваемо.
+  const [openSections, setOpenSections] = useState(() => new Set(["overview"]));
   const sectionRefs = useRef({});
   const toggleSection = (id) => setOpenSections(prev => {
     const n = new Set(prev);
@@ -8860,6 +8861,12 @@ function WikiTab({ dark = false }) {
           </button>
         ))}
       </div>
+
+      <WikiSection id="overview">
+        {P("wiki.overview.p1")}
+        {P("wiki.overview.p2")}
+        {P("wiki.overview.p3", { marginBottom: 0 })}
+      </WikiSection>
 
       <WikiSection id="strategy">
         <div className="doc-font" style={{ fontSize: 12, color: dark ? "#8a9aaa" : "#8a8060", marginBottom: 10, fontStyle: "italic" }}>

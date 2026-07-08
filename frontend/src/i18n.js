@@ -145,8 +145,9 @@ const RU = {
 
   // ---- App.jsx: WikiTab (Ликбез) ----
   "wiki.title": "📖 ЛИКБЕЗ — КАК РАБОТАЕТ ИГРА",
-  "wiki.subtitle": "Разделы кликабельны — открывайте по одному, не обязательно читать всё подряд. Если времени мало — начните с «Стиль игры».",
+  "wiki.subtitle": "Разделы кликабельны — открывайте по одному, не обязательно читать всё подряд. Если времени мало — начните с «С чего начать».",
 
+  "wiki.nav.overview": "С чего начать",
   "wiki.nav.strategy": "Стиль игры",
   "wiki.nav.resources": "Ресурсы",
   "wiki.nav.stats": "Показатели",
@@ -156,6 +157,11 @@ const RU = {
   "wiki.nav.policies": "Политики",
   "wiki.nav.victory": "Победа и поражение",
   "wiki.nav.advisors": "Советники",
+
+  "wiki.overview.h": "С ЧЕГО НАЧАТЬ: ЦЕЛЬ И ИНСТРУМЕНТЫ ПРЕЗИДЕНТА",
+  "wiki.overview.p1": "Вы — глава государства (страну выбираете в начале партии). Задача — провести страну через несколько десятков ходов (каждый ход ≈ месяц) и прийти к одному из исходов победы, не допустив коллапса по пути. Все исходы разобраны подробно в разделе «Победа и поражение» — начните с этого обзора, чтобы понять, из чего вообще складывается партия.",
+  "wiki.overview.p2": "Каждый месяц вы принимаете решения — указы. Указ можно выбрать из готовых формулировок или написать своими словами, а игра сама классифицирует его по одному из направлений: **экономика и внутренняя политика** (реформы, программы, законы), **дипломатия** (переговоры, санкции, мирный трек), **военные операции** (наступления, оборона, мобилизация) и **разведка/тайные операции** (диверсии, дезинформация, ликвидации). Все они собраны во вкладке «Башни Кремля».",
+  "wiki.overview.p3": "Побеждать одним рычагом почти невозможно: чисто военный путь без экономики и дипломатии обваливает казну и рейтинг, а чистая дипломатия без сильной армии не даёт принуждения к миру. Реальная партия — это баланс всех четырёх направлений одновременно, с постоянными компромиссами между ними. Как именно балансировать — раздел «Стиль игры» ниже, с конкретными уроками из реальных партий.",
 
   "wiki.strategy.h": "РЕКОМЕНДУЕМЫЙ СТИЛЬ ИГРЫ",
   "wiki.strategy.intro": "Не теория — эти советы добыты потом и кровью в реальных партиях (включая победную). Каждый пункт — то, что реально приводило к поражению или затягивало игру.",
@@ -366,8 +372,9 @@ const EN = {
 
   // ---- App.jsx: WikiTab (in-game guide) ----
   "wiki.title": "📖 GUIDE — HOW THE GAME WORKS",
-  "wiki.subtitle": "Sections are clickable — open them one at a time, no need to read everything in order. Short on time? Start with \"Playstyle\".",
+  "wiki.subtitle": "Sections are clickable — open them one at a time, no need to read everything in order. Short on time? Start with \"Where to start\".",
 
+  "wiki.nav.overview": "Where to start",
   "wiki.nav.strategy": "Playstyle",
   "wiki.nav.resources": "Resources",
   "wiki.nav.stats": "Stats",
@@ -377,6 +384,11 @@ const EN = {
   "wiki.nav.policies": "Policies",
   "wiki.nav.victory": "Victory & defeat",
   "wiki.nav.advisors": "Advisors",
+
+  "wiki.overview.h": "WHERE TO START: THE PRESIDENT'S GOAL AND TOOLS",
+  "wiki.overview.p1": "You are the head of state (you pick the country at the start of the game). Your task is to steer the country through several dozen turns (each turn ≈ one month) and reach one of the victory outcomes without collapsing along the way. All outcomes are covered in detail in the \"Victory & defeat\" section — start with this overview to understand what the game is actually about.",
+  "wiki.overview.p2": "Every month you make decisions — decrees. You can pick a decree from ready-made phrasings or write your own, and the game automatically classifies it into one of four directions: **economy and domestic policy** (reforms, programs, laws), **diplomacy** (negotiations, sanctions, the peace track), **military operations** (offensives, defense, mobilization), and **intelligence/covert operations** (sabotage, disinformation, assassinations). All of them are gathered in the \"Kremlin Towers\" tab.",
+  "wiki.overview.p3": "Winning through a single lever is nearly impossible: a purely military path without economy and diplomacy collapses the treasury and approval rating, while pure diplomacy without a strong army won't get you forced peace. A real playthrough is a constant balance of all four directions, with ongoing trade-offs between them. For concrete lessons from real games on how to balance it, see the \"Playstyle\" section below.",
 
   "wiki.strategy.h": "RECOMMENDED PLAYSTYLE",
   "wiki.strategy.intro": "Not theory — these lessons were earned in blood and sweat across real games (including one win). Every point is something that actually caused a defeat or dragged the game out.",
