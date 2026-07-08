@@ -3608,15 +3608,20 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                   <textarea
                     value={questionDrafts[info.id] || ""}
                     onChange={(e) => setQuestionDrafts(prev => ({ ...prev, [info.id]: e.target.value }))}
-                    placeholder="Необязательно: спросите о чём-то конкретном…"
+                    placeholder="Напишите о чём-нибудь конкретном…"
                     rows={2}
                     disabled={st.status === "loading"}
                     style={{
-                      width: "100%", resize: "vertical", marginBottom: 6, padding: "6px 8px",
+                      width: "100%", resize: "vertical", marginBottom: 4, padding: "6px 8px",
                       background: "#0f131c", border: "1px solid #2a3040", borderRadius: 3,
                       fontFamily: "'PT Serif',serif", fontSize: 12.5, color: "#ece7d8", boxSizing: "border-box",
                     }}
                   />
+                  {!questionDrafts[info.id]?.trim() && st.status !== "loading" && (
+                    <div className="doc-font" style={{ fontSize: 11, color: "#a8a294", fontStyle: "italic", marginBottom: 6 }}>
+                      либо оставьте поле пустым, чтобы получить общую рекомендацию по обстановке
+                    </div>
+                  )}
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                     <button
                       onClick={() => onConsultAdvisor(info.id, questionDrafts[info.id] || "")}
@@ -3629,11 +3634,6 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                     >
                       {st.status === "loading" ? "Думает…" : "Получить совет"}
                     </button>
-                    {!questionDrafts[info.id]?.trim() && st.status !== "loading" && (
-                      <span className="doc-font" style={{ fontSize: 11, color: "#a8a294", fontStyle: "italic" }}>
-                        без текста — общая рекомендация по обстановке
-                      </span>
-                    )}
                     {st.status === "loaded" && adv?.suggested_direction && adv.suggested_direction !== "null_action" && (
                       <button
                         onClick={() => onSelectAdvice(adv)}
