@@ -252,6 +252,339 @@ const RU = {
   "delta.show_more": "ПОКАЗАТЬ ЕЩЁ {n} ПОКАЗАТЕЛЕЙ",
   "delta.hide_details": "СКРЫТЬ ПОДРОБНОСТИ",
   "delta.other": "Прочее",
+
+  // ---- i18n Фаза 3 (2026-07-08, "переведем всё и вся") — RelationsTab/CountryWidget ----
+  "relations.stance.cooperative": "ДРУЖЕСТВЕННО",
+  "relations.stance.neutral": "НЕЙТРАЛЬНО",
+  "relations.stance.hostile": "ВРАЖДЕБНО",
+  "relations.more": "ПОДРОБНЕЕ ▾",
+  "relations.more_arrow": "ПОДРОБНЕЕ →",
+  "relations.collapse": "СВЕРНУТЬ ▴",
+  "relations.events_header": "СОБЫТИЯ, ВЛИЯЮЩИЕ НА ОТНОШЕНИЯ",
+  "relations.no_events": "Пока не зафиксировано.",
+  "relations.turn_short": "ХОД",
+  "relations.empty": "Отношения появятся после начала партии.",
+  "relations.title_suffix": "ОТНОШЕНИЯ",
+
+  // ---- WorldTab ----
+  "world.stance.cooperative": "СОЮЗНИК",
+  "world.stance.neutral": "НЕЙТРАЛЬНО",
+  "world.stance.hostile": "ПРОТИВНИК",
+  "world.empty": "Ходы других стран появятся после вашего первого хода.",
+  "world.turn_short": "ХОД",
+  "world.turn_header": "ХОД {turn} — ДЕЙСТВИЯ ДРУГИХ ГОСУДАРСТВ",
+  "world.analysts": "ОЦЕНКА АНАЛИТИКОВ",
+
+  // ---- NEWSFEED_TYPE / WORLD_MOVE_STANCE_STYLE (используются в Ленте на вкладке «Обстановка» и в WorldTab) ----
+  "newsfeed.type.decree": "УКАЗ",
+  "newsfeed.type.news": "НОВОСТИ",
+  "newsfeed.type.reaction": "РЕАКЦИЯ",
+  "newsfeed.type.nuclear_reaction": "ЯДЕРНЫЙ КРИЗИС",
+  "newsfeed.stance.cooperative": "ДЕЙСТВИЕ СОЮЗНИКА",
+  "newsfeed.stance.neutral": "ДЕЙСТВИЕ ГОСУДАРСТВА",
+  "newsfeed.stance.hostile": "ДЕЙСТВИЕ ПРОТИВНИКА",
+
+  // ---- NewsfeedTab / MarketTicker ----
+  "newsfeed.fx_floating": "⚙ курс в свободном плавании",
+  "newsfeed.empty": "Лента пуста.",
+  "newsfeed.comments": "КОММЕНТАРИИ",
+  "newsfeed.analyst_note": "ОЦЕНКА АНАЛИТИКА",
+
+  // ---- AdvisorsTab ----
+  "advisors.scale_label": "МАСШТАБ РЕШЕНИЯ:",
+  "advisors.mode_advice_label": "СОВЕТ ПО РЕЖИМУ:",
+  "advisors.optimal_tooltip": "Этот совет совпадает с математически рассчитанным оптимальным ходом (детерминированный расчёт по формулам игры, не мнение ИИ)",
+  "advisors.optimal_badge": "📐 РАСЧЁТ: ОПТИМАЛЬНЫЙ ХОД",
+  "advisors.thinking": "обдумывает ответ…",
+  "advisors.error_prefix": "Ошибка: ",
+  "advisors.proposed_decree": "ПРЕДЛАГАЕМЫЙ УКАЗ",
+  "advisors.question_placeholder": "Напишите о чём-нибудь конкретном…",
+  "advisors.empty_hint": "либо оставьте поле пустым, чтобы получить общую рекомендацию по обстановке",
+  "advisors.btn_thinking": "Думает…",
+  "advisors.btn_get_advice": "Получить совет",
+  "advisors.accept_tooltip": "Вставит указ: «{decree}»",
+  "advisors.btn_accept": "Принять совет →",
+
+  // ---- WidgetCard (Казна/Отношения) ----
+  "widget.drag_tooltip": "Потяните за эту область, чтобы переставить виджет",
+  "widget.resize_tooltip": "Потяните, чтобы изменить размер (не дальше конца контента)",
+
+  // ---- TreasuryTab ----
+  "treasury.trillion": "трлн",
+  "treasury.w.treasury_title": "КАЗНА — ТЕКУЩЕЕ СОСТОЯНИЕ",
+  "treasury.points": "{n} пунктов",
+  "treasury.points_deficit": "{n} пунктов (ДЕФИЦИТ)",
+  "treasury.per_month": "/ мес.",
+  "treasury.forecast": "прогноз: ₽{n} трлн",
+  "treasury.deficit_warning": "⚠ БЮДЖЕТНЫЙ ДЕФИЦИТ — инфляция и экономика под давлением",
+  "treasury.w.economy_title": "ЭКОНОМИКА — ЧТО ЕЁ ДВИГАЕТ",
+  "treasury.nominal_gdp": "Номинальный ВВП",
+  "treasury.gdp_growth_yoy": "г/г",
+  "treasury.last_gdp_contribution": "ПОСЛЕДНИЙ ВКЛАД В РОСТ ВВП",
+  "treasury.gdp_growth_note": "Это подстата «Рост ВВП», не сама Экономика — указы двигают ТОЛЬКО её напрямую. В Экономику она перетекает постепенно, в конце месяца, и только если отклонение от базового уровня накопилось и держится (см. ниже).",
+  "treasury.turn_short": "Ход",
+  "treasury.w.balance_title": "МЕСЯЧНЫЙ БАЛАНС (ПРОГНОЗ)",
+  "treasury.tax_income": "+ Налоговый доход (экономика {eco})",
+  "treasury.tax_policies": "+ Налоговые политики",
+  "treasury.program_upkeep": "− Содержание программ ({n} активных)",
+  "treasury.oil_fx_row": "Нефть и курс (${oil} / ₽{fx})",
+  "treasury.ofz_service": "− Обслуживание ОФЗ ({n} выпуска)",
+  "treasury.corruption_loss": "− Коррупционные потери (внутренний балл {score}, CPI {cpi})",
+  "treasury.territory_upkeep": "− Содержание отвоёванных территорий",
+  "treasury.total": "ИТОГ",
+  "treasury.points_per_month": "пунктов/мес.",
+  "treasury.w.ofz_title": "ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ",
+  "treasury.ofz_bond": "ОФЗ-{n}",
+  "treasury.ofz_active_summary": "Активных выпусков: {count}/{max} · Обслуживание: −{debt} пунктов/мес. (≈₽{rub} трлн) · Инфляционное давление +{pressure}/мес.",
+  "treasury.ofz_none": "Активных выпусков нет. Долговая нагрузка: нулевая.",
+  "treasury.ofz_issuing": "Выпуск…",
+  "treasury.ofz_used": "⚠ Выпуск уже использован в этом месяце",
+  "treasury.ofz_limit": "✕ Лимит долга исчерпан",
+  "treasury.ofz_issue_btn": "📄 Выпустить ОФЗ (+20 казны; далее +0.3 инфляции/мес., пока выпуск активен)",
+  "treasury.ofz_repaying": "Погашение…",
+  "treasury.ofz_repay_btn": "💸 Погасить выпуск (−22 казны, премия за досрочный выкуп; далее −0.3 инфляции/мес.)",
+
+  "treasury.cb_dove": "«голубь» (мягкая политика)",
+  "treasury.cb_hawk": "«ястреб» (жёсткая политика)",
+  "treasury.cb_neutral": "нейтральный",
+  "treasury.pressure_minus": "−1 давление/мес.",
+  "treasury.economy_minus": "−1 экономика/мес.",
+  "treasury.pressure_plus": "+1 давление/мес.",
+  "treasury.economy_plus": "+1 экономика/мес.",
+  "treasury.neutral_lower": "нейтрально",
+  "treasury.trend_rising": "▲ растёт",
+  "treasury.trend_falling": "▼ снижается",
+  "treasury.trend_stable": "→ стабильна",
+  "treasury.w.keyrate_title": "КЛЮЧЕВАЯ СТАВКА ЦБ",
+  "treasury.cb_target": "цель ЦБ ~{target}%",
+  "treasury.cb_head_label": "ГЛАВА ЦБ · {head}",
+  "treasury.inflation_short": "Инфл.: {v}",
+  "treasury.economy_short": "Эк.: {v}",
+  "treasury.rate_scale_stimulus": "5% (стимул)",
+  "treasury.rate_scale_hard": "25% (жёстко)",
+  "treasury.cb_pressure_label": "ОКАЗАТЬ ДАВЛЕНИЕ НА ЦБ · ⚡25 · 30% шанс утечки в прессу",
+  "treasury.keyrate_raise_btn": "▲ Повысить ставку (+2%)",
+  "treasury.keyrate_lower_btn": "▼ Снизить ставку (−2%)",
+  "treasury.cb_pressure_used_note": "Давление уже оказано в этом месяце. Доступно снова после завершения месяца.",
+  "treasury.cb_replace_label": "СМЕНИТЬ ГЛАВУ ЦБ · ⚡40 · {status}",
+  "treasury.already_used": "УЖЕ ИСПОЛЬЗОВАНО",
+  "treasury.once_per_game": "одноразово за игру",
+  "treasury.hawk_btn": "🦅 «Ястреб»\nВысокая ставка, против инфляции",
+  "treasury.dove_btn": "🕊 «Голубь»\nНизкая ставка, стимул роста",
+  "treasury.cb_current_head": "Действующий глава: {head}. Повторная замена невозможна.",
+
+  "treasury.w.corruption_title": "КОРРУПЦИЯ",
+  "treasury.cpi_desc": "индекс восприятия коррупции (Transparency International) · выше = лучше (меньше коррупции) · {risk}",
+  "treasury.corruption_high_risk": "высокий риск скандалов",
+  "treasury.corruption_leak": "заметная утечка бюджета",
+  "treasury.corruption_controlled": "под контролем",
+  "treasury.corruption_internal": "внутренний уровень тяжести: {score}/100 (выше = хуже — обратно CPI; им и заполнена шкала ниже)",
+  "treasury.monthly_leak": "ЕЖЕМЕСЯЧНАЯ УТЕЧКА КАЗНЫ",
+  "treasury.corruption_drain_amount": "−₽{n} трлн/мес.",
+  "treasury.corruption_drain_none": "нет (уровень ≤ 50)",
+  "treasury.anticorruption_label": "АНТИКОРРУПЦИОННАЯ КАМПАНИЯ · ⚡35, −8 казны · риск: саботаж / показательные аресты",
+  "treasury.campaign_running": "Кампания идёт…",
+  "treasury.campaign_used": "⚠ Кампания уже запущена в этом месяце",
+  "treasury.campaign_btn": "🔍 Запустить антикоррупционную кампанию",
+  "treasury.campaign_used_note": "Доступно снова после завершения месяца. Возможные исходы: успешные аресты (коррупция −6…−10, элиты недовольны), показательный процесс (тот же эффект + рост одобрения), либо саботаж расследования (минимальный эффект, удар по стабильности).",
+
+  "treasury.w.reserves_title": "РЕЗЕРВЫ (ФНБ)",
+  "treasury.reserves_none": "ЦБ нечем защищать рубль",
+  "treasury.reserves_thin": "буфер тонкий",
+  "treasury.reserves_solid": "надёжный демпфер",
+  "treasury.reserves_headroom": "Доступно на конвертацию: ₽{headroom} трлн (ниже ₽{floor} трлн опускать нельзя — это резерв ЦБ для защиты рубля)",
+  "treasury.convert_label": "КОНВЕРТАЦИЯ В КАЗНУ · ⚡20, +₽{amount} трлн казны, −₽{amount} трлн резервов · инфляция +0.3",
+  "treasury.convert_running": "Конвертация…",
+  "treasury.convert_used": "⚠ Резервы уже конвертировались в этом месяце",
+  "treasury.convert_btn": "💰 Распечатать ₽{amount} трлн ФНБ в казну",
+  "treasury.reserves_floor_note": "Резервы нельзя опускать ниже ₽{floor} трлн — ниже этого уровня ЦБ нечем защищать рубль от шоков курса.",
+  "treasury.reserves_confirm_title": "ПОДТВЕРДИТЕ: ПЕЧАТЬ ФНБ",
+  "treasury.reserves_confirm_body": "Вы собираетесь распечатать ₽{amount} трлн из Фонда национального благосостояния и перевести их в казну.",
+  "treasury.consequences": "ПОСЛЕДСТВИЯ",
+  "treasury.reserves_consequence_1": "− ⚡20 очков инициативы за ход",
+  "treasury.reserves_consequence_2": "+ ₽{amount} трлн в казну",
+  "treasury.reserves_consequence_3": "− ₽{amount} трлн из резервов (останется ₽{left} трлн)",
+  "treasury.reserves_consequence_4": "+ инфляция 0.3",
+  "treasury.reserves_consequence_5": "Действие одноразовое на этот месяц — повторно распечатать нельзя до следующего хода.",
+  "treasury.btn_cancel": "Отмена",
+  "treasury.btn_convert_confirm": "Распечатать",
+
+  "treasury.w.fxregime_title": "КУРСОВАЯ ПОЛИТИКА",
+  "treasury.fx_floating_label": "Плавающий курс",
+  "treasury.fx_managed_label": "Управляемый курс",
+  "treasury.fx_floating_desc": "Резервы НЕ гасят курсовые шоки — сильнее валютный доход казны при ослаблении рубля, но и заметно выше инфляция",
+  "treasury.fx_managed_desc": "ЦБ гасит курсовые шоки резервами — курс стабильнее, инфляция ниже, но и валютный доход от слабого рубля скромнее",
+  "treasury.fx_switching": "Переключение…",
+  "treasury.fx_to_managed_btn": "⚙ Вернуться к управляемому курсу (⚡15)",
+  "treasury.fx_to_floating_btn": "⚙ Отпустить курс в свободное плавание (⚡15)",
+  "treasury.fx_not_enough": "Недостаточно инициативы (нужно ⚡15).",
+  "treasury.fx_confirm_title": "ПОДТВЕРДИТЕ: КУРСОВАЯ ПОЛИТИКА",
+  "treasury.fx_confirm_to_managed": "Вы собираетесь вернуться к управляемому курсу — ЦБ снова будет тратить резервы на сглаживание валютных шоков.",
+  "treasury.fx_confirm_to_floating": "Вы собираетесь отпустить курс рубля в свободное плавание — ЦБ перестанет использовать резервы для сглаживания шоков.",
+  "treasury.fx_consequence_intro": "− ⚡15 очков инициативы",
+  "treasury.fx_consequence_managed_1": "+ Резервы снова защищают курс от резких шоков",
+  "treasury.fx_consequence_managed_2": "− Валютный доход казны от слабого рубля станет скромнее",
+  "treasury.fx_consequence_managed_3": "+ Инфляция от курсовых скачков будет ниже",
+  "treasury.fx_consequence_floating_1": "− Резервы больше не тратятся на защиту курса — шоки проходят полностью",
+  "treasury.fx_consequence_floating_2": "+ Более сильный валютный доход казны при ослаблении рубля",
+  "treasury.fx_consequence_floating_3": "− Инфляция от курсовых скачков будет заметно выше",
+  "treasury.fx_consequence_footer": "Можно переключить обратно в любой момент за ту же цену.",
+  "treasury.fx_confirm_btn_managed": "Вернуться к управляемому курсу",
+  "treasury.fx_confirm_btn_float": "Отпустить курс",
+
+  "treasury.w.inflation_title": "ИНФЛЯЦИОННОЕ ДАВЛЕНИЕ",
+  "treasury.inflation_label": "Инфляция",
+  "treasury.inflation_yoy_pressure": "г/г · давление {n}/100",
+  "treasury.inflation_storm": "АКТИВНЫЙ ИНФЛЯЦИОННЫЙ ШТОРМ (выше {pct}% г/г)",
+  "treasury.economy_penalty": "Экономика −{n}/мес.",
+  "treasury.approval_penalty": "Одобрение −{n}/мес.",
+  "treasury.inflation_advice": "Погасите ОФЗ или проведите политику аустерити, чтобы снизить давление.",
+  "treasury.inflation_ok": "Инфляция в норме. Штрафов нет — порог активируется выше {pct}% г/г.",
+  "treasury.ofz_inflation_contribution": "ОФЗ вклад: +{n} давления/мес.",
+
+  "treasury.w.oilfx_title": "НЕФТЕДОХОДЫ И ВАЛЮТА",
+  "treasury.oil_brent": "Нефть Brent",
+  "treasury.oil_per_barrel": "/барр.",
+  "treasury.oil_cutoff": "цена отсечения бюджета: ${cutoff} · {v}",
+  "treasury.oil_surplus": "+{n} (доход сверх бюджета)",
+  "treasury.oil_shortfall": "{n} (недобор к бюджету)",
+  "treasury.fx_rate_label": "Курс ₽/$",
+  "treasury.fx_base": "база: ₽{base} · {v}",
+  "treasury.weak_ruble_note": "слабый рубль → +доход, +инфляция",
+  "treasury.strong_ruble_note": "крепкий рубль → −доход экспорта",
+  "treasury.oil_income_calc_title": "РАСЧЁТ НЕФТЕДОХОДА / МЕС.",
+  "treasury.oil_income_formula": "Нефтяной доход (Brent−база)×0.7",
+  "treasury.fx_income_formula": "Валютный эффект (курс−база)×0.4",
+  "treasury.sanction_discount": "⚠ Санкционный дисконт (изоляция {n})",
+  "treasury.ally_mitigation": "🤝 Смягчение от союзников (доверие {n})",
+  "treasury.pp_suffix": "п.п.",
+  "treasury.oil_fx_total": "ИТОГ нефть+валюта",
+  "treasury.how_to_increase_oil": "КАК УВЕЛИЧИТЬ НЕФТЕДОХОДЫ",
+  "treasury.lever.isolation.title": "🤝 Снизить изоляцию (дипломатия)",
+  "treasury.lever.isolation.desc": "Изоляция {isolation} → санкционный дисконт {discount}%. Каждые −10 изоляции ≈ +1% к нефтедоходу. Инструменты: ОПЕК+ договорённости, торговые соглашения с нейтральными странами, дипломатические контакты.",
+  "treasury.lever.isolation.consequence": "Ослабление санкций займёт несколько ходов. Требует уступок в других областях.",
+  "treasury.lever.shadow_fleet.title": "📦 Теневой флот и параллельный экспорт",
+  "treasury.lever.shadow_fleet.desc": "Политика развития теневого флота снижает потери от санкций — повышает фактическую цену продажи нефти. Эффект: оилдоход ×1.1–1.2.",
+  "treasury.lever.shadow_fleet.consequence": "Риск ужесточения санкций (изоляция +3–5) при обнаружении. Требует вложений.",
+  "treasury.lever.weak_ruble.title": "⚡ Поддержать слабый рубль",
+  "treasury.lever.weak_ruble.desc": "Рубль {rate}₽/$. Каждые +10₽ к курсу дают +4 к казне/мес. Инструменты: снижение ключевой ставки, скупка валюты ЦБ, ограничения на обязательную продажу экспортной выручки.",
+  "treasury.lever.weak_ruble.consequence": "Слабый рубль разгоняет инфляцию (+1 инфл. давление при >₽90). Бьёт по импорту и доходам населения.",
+  "treasury.lever.ally_trust.title": "🤝 Укреплять доверие союзников",
+  "treasury.lever.ally_trust.desc": "Доверие союзников {trust} → смягчение дисконта {mitigation} п.п. (максимум 15 при 100). Выше 50 каждые +10 доверия дают +1 п.п. смягчения — параллельная торговля и расчёты через Китай, Беларусь, Иран компенсируют часть санкций.",
+  "treasury.lever.ally_trust.consequence": "Требует дипломатических инструментов (договоры, коалиции) — сама по себе не растёт от военных действий.",
+  "treasury.lever.opec.title": "🛢 Влиять на цену нефти через ОПЕК+",
+  "treasury.lever.opec.desc": "Координация с Саудовской Аравией и ОПЕК+ по сокращению добычи поднимает мировую цену. Каждые +$10 к цене ≈ +7 к казне/мес. (до санкционного дисконта).",
+  "treasury.lever.opec.consequence": "Сокращение добычи снижает доходы в краткосроке. Ненадёжный инструмент — Эр-Рияд преследует собственные интересы.",
+
+  // ---- StatsTab ----
+  "stats.events_count": "{n} событий",
+  "stats.auto_negative": "{n}/мес авто",
+  "stats.auto_positive": "+{n}/мес авто",
+  "stats.detailed_metrics": "ДЕТАЛЬНЫЕ ПОКАЗАТЕЛИ",
+  "stats.events_header": "СОБЫТИЯ",
+  "stats.turn_short": "х.{n}",
+  "stats.auto_effects_header": "АВТО-ЭФФЕКТЫ · КАЖДЫЙ МЕСЯЦ",
+  "stats.auto_total": "ИТОГО / МЕС (без учёта твоих ходов)",
+  "stats.detail_analysis_btn": "Подробный анализ →",
+  "stats.ua_intel_header": "РАЗВЕДДАННЫЕ · УКРАИНА",
+
+  // ---- StatDetailModal ----
+  "stats.detail_title": "{label} · ДЕТАЛИ",
+  "stats.level_high": "ВЫСОКИЙ УРОВЕНЬ",
+  "stats.level_medium": "СРЕДНИЙ УРОВЕНЬ",
+  "stats.level_low": "НИЗКИЙ УРОВЕНЬ — ТРЕБУЕТ ВНИМАНИЯ",
+  "stats.dynamics_header": "ДИНАМИКА ПО ХОДАМ",
+  "stats.turn_n": "Ход {n}",
+  "stats.now": "Сейчас",
+  "stats.mechanic_header": "МЕХАНИКА · КАК ЭТО РАБОТАЕТ",
+  "stats.recent_events_header": "ПОСЛЕДНИЕ СОБЫТИЯ",
+  "stats.loading": "Загрузка…",
+  "stats.no_related_events": "Нет связанных событий.",
+
+  // ---- PoliciesTab ----
+  "policies.empty": "Активных политик пока нет.",
+  "policies.success_boost": "при успехе: {boosts}",
+  "policies.while_active": "пока действует: ",
+  "policies.treasury_plus": "казна +{n} (≈₽{rub} {trillion})/мес",
+  "policies.treasury_minus": "казна −{n} (≈₽{rub} {trillion})/мес",
+  "policies.approval_rate": "одобрение {sign}{n}/мес",
+  "policies.turn_range": "Ход {from} → {to}",
+  "policies.finishing": "завершается",
+  "policies.turns_left": "ост. {n} х.",
+  "policies.turn_indefinite": "Ход {n} · бессрочно",
+  "policies.more_items": "…ещё {n}",
+  "policies.other_section": "ПРОЧЕЕ · {n}",
+  "policies.cancelled_count": "+ {n} отменённых",
+
+  // ---- PolicyDetailModal ----
+  "policies.status_cancelled": "ОТМЕНЁН",
+  "policies.status_completed": "ВЫПОЛНЕН",
+  "policies.status_active": "АКТИВНО",
+  "policies.detail_title": "{cat} · ДЕТАЛИ",
+  "policies.default_category": "ПОЛИТИКА",
+  "policies.progress_header": "ПРОГРЕСС ИСПОЛНЕНИЯ",
+  "policies.indefinite_full": "БЕССРОЧНО — действует, пока не отменена",
+  "policies.introduced_turn": "Введён: Ход {n}",
+  "policies.finishing_upper": "ЗАВЕРШАЕТСЯ",
+  "policies.turns_left_full": "Осталось: {n} ход. (Ход {target})",
+  "policies.while_active_header": "ПОКА ДЕЙСТВУЕТ (каждый месяц)",
+  "policies.treasury_income_plain": "Казна +{n} (≈₽{rub} {trillion})",
+  "policies.treasury_upkeep_plain": "Казна −{n} (≈₽{rub} {trillion})",
+  "policies.approval_plain": "Одобрение {sign}{n}",
+  "policies.success_effects_header": "ПРИ УСПЕХЕ ВЫРАСТУТ",
+  "policies.completion_condition_header": "УСЛОВИЕ ВЫПОЛНЕНИЯ",
+  "policies.cancel_consequences_header": "ПОСЛЕДСТВИЯ ОТМЕНЫ",
+  "policies.content_header": "СОДЕРЖАНИЕ",
+  "policies.news_header": "НОВОСТИ ПО УКАЗУ",
+  "policies.loading": "Загрузка…",
+  "policies.no_news_yet": "Новостей пока нет.",
+  "policies.turn_source": "ХОД {n} · {source}",
+  "policies.cancel_btn": "Отменить политику",
+  "policies.cancel_consequences_intro": "Последствия отмены: ",
+  "policies.continue_q": " Продолжить?",
+  "policies.cancel_penalty_generic": "Отмена даст штраф: {bits}.{budgetBits} Продолжить?",
+  "policies.stability_penalty": "стабильность −2",
+  "policies.approval_penalty_label": "рейтинг {n}",
+  "policies.economy_penalty_label": "экономика {n}",
+  "policies.budget_loses_income": "казна теряет {n}/мес. дохода",
+  "policies.budget_saves_upkeep": "казна экономит {n}/мес. на содержании",
+  "policies.cancelling": "Отмена…",
+  "policies.confirm_yes": "Да, отменить",
+  "policies.confirm_no": "Нет",
+
+  // ---- KremlinTab ----
+  "kremlin.init_short": "ИНИЦ.",
+  "kremlin.advisor_rec_header": "📐 СОВЕТНИК · РЕКОМЕНДАЦИЯ АППАРАТА",
+  "kremlin.open_btn": "Открыть →",
+  "kremlin.recommended_tooltip": "Рекомендация советника — математически рассчитанный оптимальный ход",
+  "kremlin.recommended_badge": "📐 СОВЕТ",
+  "kremlin.choose_wording": "ВЫБЕРИТЕ ФОРМУЛИРОВКУ",
+  "kremlin.refresh_tooltip": "Показать другие формулировки",
+  "kremlin.refresh_btn": "🔄 Обновить",
+  "kremlin.or_own_text": "ИЛИ НАПИШИТЕ СВОЙ ВАРИАНТ",
+  "kremlin.custom_text_placeholder": "Свой текст указа/операции…",
+  "kremlin.choose_wording_btn": "Выбрать эту формулировку",
+  "kremlin.footer_hint": "Раскройте карточку, выберите готовую формулировку или напишите свою. Текст подставится в форму подписи внизу экрана — она видна на любой вкладке. Прокрутите вниз: там же появится предпросмотр с точными изменениями статов и кнопка подписи.",
+  "kremlin.variant_label": "Вариант",
+  "kremlin.variant_standard": "Стандартно",
+  "kremlin.variant_decisive": "Решительно",
+  "kremlin.variant_cautious": "Осторожно",
+
+  // ---- MapTab / GeoMap ----
+  "map.rel_ally": "Союзник",
+  "map.rel_partner": "Партнёр",
+  "map.rel_neutral": "Нейтрал",
+  "map.rel_tension": "Напряжённость",
+  "map.rel_hostility": "Враждебность",
+  "map.header": "КАРТА МИРА · ХОД {n}",
+  "map.nuclear_banner": "☢ ЯДЕРНЫЙ УДАР НАНЕСЁН{target} · РАДИАЦИОННОЕ ЗАРАЖЕНИЕ",
+  "map.nuclear_target": " · ЦЕЛЬ: {city}",
+  "map.click_hint": "клик по стране или маркеру",
+  "map.current_relations": "ТЕКУЩИЕ ОТНОШЕНИЯ",
+  "map.no_data": "Нет данных",
+  "map.close": "✕ закрыть",
+  "map.hotspot_header": "ОЧАГ",
+  "map.conflicts_header": "КОНФЛИКТЫ",
 };
 
 const EN = {
@@ -478,6 +811,339 @@ const EN = {
   "delta.show_more": "SHOW {n} MORE STATS",
   "delta.hide_details": "HIDE DETAILS",
   "delta.other": "Other",
+
+  // ---- i18n Phase 3 — RelationsTab/CountryWidget ----
+  "relations.stance.cooperative": "FRIENDLY",
+  "relations.stance.neutral": "NEUTRAL",
+  "relations.stance.hostile": "HOSTILE",
+  "relations.more": "MORE ▾",
+  "relations.more_arrow": "MORE →",
+  "relations.collapse": "COLLAPSE ▴",
+  "relations.events_header": "EVENTS AFFECTING RELATIONS",
+  "relations.no_events": "None recorded yet.",
+  "relations.turn_short": "TURN",
+  "relations.empty": "Relations will appear once the game starts.",
+  "relations.title_suffix": "RELATIONS",
+
+  // ---- WorldTab ----
+  "world.stance.cooperative": "ALLY",
+  "world.stance.neutral": "NEUTRAL",
+  "world.stance.hostile": "ADVERSARY",
+  "world.empty": "Other countries' moves will appear after your first turn.",
+  "world.turn_short": "TURN",
+  "world.turn_header": "TURN {turn} — MOVES BY OTHER STATES",
+  "world.analysts": "ANALYST ASSESSMENT",
+
+  // ---- NEWSFEED_TYPE / WORLD_MOVE_STANCE_STYLE ----
+  "newsfeed.type.decree": "DECREE",
+  "newsfeed.type.news": "NEWS",
+  "newsfeed.type.reaction": "REACTION",
+  "newsfeed.type.nuclear_reaction": "NUCLEAR CRISIS",
+  "newsfeed.stance.cooperative": "ALLY ACTION",
+  "newsfeed.stance.neutral": "STATE ACTION",
+  "newsfeed.stance.hostile": "ADVERSARY ACTION",
+
+  // ---- NewsfeedTab / MarketTicker ----
+  "newsfeed.fx_floating": "⚙ free-floating exchange rate",
+  "newsfeed.empty": "The feed is empty.",
+  "newsfeed.comments": "COMMENTS",
+  "newsfeed.analyst_note": "ANALYST ASSESSMENT",
+
+  // ---- AdvisorsTab ----
+  "advisors.scale_label": "DECISION SCALE:",
+  "advisors.mode_advice_label": "ADVICE FOR THIS MODE:",
+  "advisors.optimal_tooltip": "This advice matches the mathematically calculated optimal move (a deterministic calculation from the game's formulas, not an AI opinion)",
+  "advisors.optimal_badge": "📐 CALCULATED: OPTIMAL MOVE",
+  "advisors.thinking": "thinking it over…",
+  "advisors.error_prefix": "Error: ",
+  "advisors.proposed_decree": "PROPOSED DECREE",
+  "advisors.question_placeholder": "Ask about something specific…",
+  "advisors.empty_hint": "or leave the field empty for a general recommendation on the situation",
+  "advisors.btn_thinking": "Thinking…",
+  "advisors.btn_get_advice": "Get advice",
+  "advisors.accept_tooltip": "Will insert the decree: \"{decree}\"",
+  "advisors.btn_accept": "Accept advice →",
+
+  // ---- WidgetCard (Treasury/Relations) ----
+  "widget.drag_tooltip": "Drag this area to reorder the widget",
+  "widget.resize_tooltip": "Drag to resize (up to the content's full height)",
+
+  // ---- TreasuryTab ----
+  "treasury.trillion": "T",
+  "treasury.w.treasury_title": "TREASURY — CURRENT STATE",
+  "treasury.points": "{n} points",
+  "treasury.points_deficit": "{n} points (DEFICIT)",
+  "treasury.per_month": "/ mo.",
+  "treasury.forecast": "forecast: ₽{n}T",
+  "treasury.deficit_warning": "⚠ BUDGET DEFICIT — inflation and the economy are under pressure",
+  "treasury.w.economy_title": "ECONOMY — WHAT DRIVES IT",
+  "treasury.nominal_gdp": "Nominal GDP",
+  "treasury.gdp_growth_yoy": "y/y",
+  "treasury.last_gdp_contribution": "LATEST CONTRIBUTION TO GDP GROWTH",
+  "treasury.gdp_growth_note": "This is the \"GDP Growth\" sub-stat, not the Economy stat itself — decrees only move it directly. It feeds into the Economy gradually, at month's end, and only if the deviation from the baseline level has built up and persisted (see below).",
+  "treasury.turn_short": "Turn",
+  "treasury.w.balance_title": "MONTHLY BALANCE (FORECAST)",
+  "treasury.tax_income": "+ Tax income (economy {eco})",
+  "treasury.tax_policies": "+ Tax policies",
+  "treasury.program_upkeep": "− Program upkeep ({n} active)",
+  "treasury.oil_fx_row": "Oil and exchange rate (${oil} / ₽{fx})",
+  "treasury.ofz_service": "− OFZ servicing ({n} issues)",
+  "treasury.corruption_loss": "− Corruption losses (internal score {score}, CPI {cpi})",
+  "treasury.territory_upkeep": "− Upkeep of reconquered territory",
+  "treasury.total": "TOTAL",
+  "treasury.points_per_month": "points/mo.",
+  "treasury.w.ofz_title": "OFZ — GOVERNMENT DEBT",
+  "treasury.ofz_bond": "OFZ-{n}",
+  "treasury.ofz_active_summary": "Active issues: {count}/{max} · Servicing: −{debt} points/mo. (≈₽{rub}T) · Inflation pressure +{pressure}/mo.",
+  "treasury.ofz_none": "No active issues. Debt burden: zero.",
+  "treasury.ofz_issuing": "Issuing…",
+  "treasury.ofz_used": "⚠ An issue was already made this month",
+  "treasury.ofz_limit": "✕ Debt limit reached",
+  "treasury.ofz_issue_btn": "📄 Issue OFZ bonds (+20 treasury; then +0.3 inflation/mo. while the issue is active)",
+  "treasury.ofz_repaying": "Repaying…",
+  "treasury.ofz_repay_btn": "💸 Redeem an issue (−22 treasury, early-buyback premium; then −0.3 inflation/mo.)",
+
+  "treasury.cb_dove": "\"dove\" (soft policy)",
+  "treasury.cb_hawk": "\"hawk\" (hard policy)",
+  "treasury.cb_neutral": "neutral",
+  "treasury.pressure_minus": "−1 pressure/mo.",
+  "treasury.economy_minus": "−1 economy/mo.",
+  "treasury.pressure_plus": "+1 pressure/mo.",
+  "treasury.economy_plus": "+1 economy/mo.",
+  "treasury.neutral_lower": "neutral",
+  "treasury.trend_rising": "▲ rising",
+  "treasury.trend_falling": "▼ falling",
+  "treasury.trend_stable": "→ stable",
+  "treasury.w.keyrate_title": "CENTRAL BANK KEY RATE",
+  "treasury.cb_target": "CB target ~{target}%",
+  "treasury.cb_head_label": "CB GOVERNOR · {head}",
+  "treasury.inflation_short": "Infl.: {v}",
+  "treasury.economy_short": "Econ.: {v}",
+  "treasury.rate_scale_stimulus": "5% (stimulus)",
+  "treasury.rate_scale_hard": "25% (hard)",
+  "treasury.cb_pressure_label": "LEAN ON THE CENTRAL BANK · ⚡25 · 30% chance of a press leak",
+  "treasury.keyrate_raise_btn": "▲ Raise the rate (+2%)",
+  "treasury.keyrate_lower_btn": "▼ Lower the rate (−2%)",
+  "treasury.cb_pressure_used_note": "Pressure was already applied this month. Available again after the month ends.",
+  "treasury.cb_replace_label": "REPLACE THE CB GOVERNOR · ⚡40 · {status}",
+  "treasury.already_used": "ALREADY USED",
+  "treasury.once_per_game": "once per game",
+  "treasury.hawk_btn": "🦅 \"Hawk\"\nHigh rate, anti-inflation",
+  "treasury.dove_btn": "🕊 \"Dove\"\nLow rate, growth stimulus",
+  "treasury.cb_current_head": "Current governor: {head}. Cannot be replaced again.",
+
+  "treasury.w.corruption_title": "CORRUPTION",
+  "treasury.cpi_desc": "Corruption Perceptions Index methodology (Transparency International) · higher = better (less corruption) · {risk}",
+  "treasury.corruption_high_risk": "high risk of scandals",
+  "treasury.corruption_leak": "noticeable budget leak",
+  "treasury.corruption_controlled": "under control",
+  "treasury.corruption_internal": "internal severity score: {score}/100 (higher = worse — inverse of CPI; this is what fills the bar below)",
+  "treasury.monthly_leak": "MONTHLY TREASURY LEAK",
+  "treasury.corruption_drain_amount": "−₽{n}T/mo.",
+  "treasury.corruption_drain_none": "none (level ≤ 50)",
+  "treasury.anticorruption_label": "ANTI-CORRUPTION CAMPAIGN · ⚡35, −8 treasury · risk: sabotage / show arrests",
+  "treasury.campaign_running": "Campaign running…",
+  "treasury.campaign_used": "⚠ A campaign was already launched this month",
+  "treasury.campaign_btn": "🔍 Launch an anti-corruption campaign",
+  "treasury.campaign_used_note": "Available again after the month ends. Possible outcomes: successful arrests (corruption −6…−10, elites unhappy), a show trial (same effect + approval boost), or a sabotaged investigation (minimal effect, hit to stability).",
+
+  "treasury.w.reserves_title": "RESERVES (NATIONAL WEALTH FUND)",
+  "treasury.reserves_none": "the CB has nothing left to defend the ruble with",
+  "treasury.reserves_thin": "the buffer is thin",
+  "treasury.reserves_solid": "a solid damper",
+  "treasury.reserves_headroom": "Available to convert: ₽{headroom}T (can't go below ₽{floor}T — this is the CB's reserve for defending the ruble)",
+  "treasury.convert_label": "CONVERT TO TREASURY · ⚡20, +₽{amount}T treasury, −₽{amount}T reserves · inflation +0.3",
+  "treasury.convert_running": "Converting…",
+  "treasury.convert_used": "⚠ Reserves were already converted this month",
+  "treasury.convert_btn": "💰 Draw ₽{amount}T from the Fund into the treasury",
+  "treasury.reserves_floor_note": "Reserves can't go below ₽{floor}T — below that level the CB has nothing left to defend the ruble from shocks with.",
+  "treasury.reserves_confirm_title": "CONFIRM: DRAW ON THE FUND",
+  "treasury.reserves_confirm_body": "You are about to draw ₽{amount}T from the National Wealth Fund and move it into the treasury.",
+  "treasury.consequences": "CONSEQUENCES",
+  "treasury.reserves_consequence_1": "− ⚡20 initiative points this turn",
+  "treasury.reserves_consequence_2": "+ ₽{amount}T to the treasury",
+  "treasury.reserves_consequence_3": "− ₽{amount}T from reserves (₽{left}T will remain)",
+  "treasury.reserves_consequence_4": "+ 0.3 inflation",
+  "treasury.reserves_consequence_5": "One-time action for this month — can't draw again until next turn.",
+  "treasury.btn_cancel": "Cancel",
+  "treasury.btn_convert_confirm": "Draw funds",
+
+  "treasury.w.fxregime_title": "EXCHANGE RATE POLICY",
+  "treasury.fx_floating_label": "Floating rate",
+  "treasury.fx_managed_label": "Managed rate",
+  "treasury.fx_floating_desc": "Reserves do NOT absorb exchange-rate shocks — stronger treasury FX income when the ruble weakens, but noticeably higher inflation",
+  "treasury.fx_managed_desc": "The CB absorbs exchange-rate shocks with reserves — the rate is more stable, inflation is lower, but FX income from a weak ruble is more modest",
+  "treasury.fx_switching": "Switching…",
+  "treasury.fx_to_managed_btn": "⚙ Return to a managed rate (⚡15)",
+  "treasury.fx_to_floating_btn": "⚙ Let the rate float freely (⚡15)",
+  "treasury.fx_not_enough": "Not enough initiative (need ⚡15).",
+  "treasury.fx_confirm_title": "CONFIRM: EXCHANGE RATE POLICY",
+  "treasury.fx_confirm_to_managed": "You are about to return to a managed rate — the CB will again spend reserves to smooth out currency shocks.",
+  "treasury.fx_confirm_to_floating": "You are about to let the ruble float freely — the CB will stop using reserves to smooth out shocks.",
+  "treasury.fx_consequence_intro": "− ⚡15 initiative points",
+  "treasury.fx_consequence_managed_1": "+ Reserves protect the rate from sharp shocks again",
+  "treasury.fx_consequence_managed_2": "− Treasury FX income from a weak ruble becomes more modest",
+  "treasury.fx_consequence_managed_3": "+ Inflation from rate swings will be lower",
+  "treasury.fx_consequence_floating_1": "− Reserves are no longer spent defending the rate — shocks pass through in full",
+  "treasury.fx_consequence_floating_2": "+ Stronger treasury FX income when the ruble weakens",
+  "treasury.fx_consequence_floating_3": "− Inflation from rate swings will be noticeably higher",
+  "treasury.fx_consequence_footer": "You can switch back at any time for the same cost.",
+  "treasury.fx_confirm_btn_managed": "Return to a managed rate",
+  "treasury.fx_confirm_btn_float": "Let the rate float",
+
+  "treasury.w.inflation_title": "INFLATION PRESSURE",
+  "treasury.inflation_label": "Inflation",
+  "treasury.inflation_yoy_pressure": "y/y · pressure {n}/100",
+  "treasury.inflation_storm": "ACTIVE INFLATION STORM (above {pct}% y/y)",
+  "treasury.economy_penalty": "Economy −{n}/mo.",
+  "treasury.approval_penalty": "Approval −{n}/mo.",
+  "treasury.inflation_advice": "Redeem OFZ bonds or run an austerity policy to ease the pressure.",
+  "treasury.inflation_ok": "Inflation is within normal range. No penalties — the threshold activates above {pct}% y/y.",
+  "treasury.ofz_inflation_contribution": "OFZ contribution: +{n} pressure/mo.",
+
+  "treasury.w.oilfx_title": "OIL REVENUE AND CURRENCY",
+  "treasury.oil_brent": "Brent oil",
+  "treasury.oil_per_barrel": "/barrel",
+  "treasury.oil_cutoff": "budget cutoff price: ${cutoff} · {v}",
+  "treasury.oil_surplus": "+{n} (income above budget)",
+  "treasury.oil_shortfall": "{n} (shortfall vs. budget)",
+  "treasury.fx_rate_label": "₽/$ rate",
+  "treasury.fx_base": "baseline: ₽{base} · {v}",
+  "treasury.weak_ruble_note": "weak ruble → +income, +inflation",
+  "treasury.strong_ruble_note": "strong ruble → −export income",
+  "treasury.oil_income_calc_title": "OIL INCOME CALCULATION / MO.",
+  "treasury.oil_income_formula": "Oil income (Brent−baseline)×0.7",
+  "treasury.fx_income_formula": "FX effect (rate−baseline)×0.4",
+  "treasury.sanction_discount": "⚠ Sanctions discount (isolation {n})",
+  "treasury.ally_mitigation": "🤝 Ally mitigation (trust {n})",
+  "treasury.pp_suffix": "pp",
+  "treasury.oil_fx_total": "TOTAL oil+FX",
+  "treasury.how_to_increase_oil": "HOW TO INCREASE OIL REVENUE",
+  "treasury.lever.isolation.title": "🤝 Reduce isolation (diplomacy)",
+  "treasury.lever.isolation.desc": "Isolation {isolation} → sanctions discount {discount}%. Every −10 isolation ≈ +1% to oil income. Tools: OPEC+ deals, trade agreements with neutral countries, diplomatic contacts.",
+  "treasury.lever.isolation.consequence": "Easing sanctions takes several turns. Requires concessions elsewhere.",
+  "treasury.lever.shadow_fleet.title": "📦 Shadow fleet and parallel exports",
+  "treasury.lever.shadow_fleet.desc": "A shadow-fleet development policy reduces sanctions-related losses — raises the effective sale price of oil. Effect: oil income ×1.1–1.2.",
+  "treasury.lever.shadow_fleet.consequence": "Risk of tighter sanctions (isolation +3–5) if discovered. Requires investment.",
+  "treasury.lever.weak_ruble.title": "⚡ Support a weak ruble",
+  "treasury.lever.weak_ruble.desc": "Ruble at {rate}₽/$. Every +10₽ on the rate gives +4 to the treasury/mo. Tools: lowering the key rate, CB currency purchases, mandatory export-revenue conversion requirements.",
+  "treasury.lever.weak_ruble.consequence": "A weak ruble accelerates inflation (+1 inflation pressure above ₽90). Hits imports and household income.",
+  "treasury.lever.ally_trust.title": "🤝 Strengthen ally trust",
+  "treasury.lever.ally_trust.desc": "Ally trust {trust} → discount mitigation of {mitigation}pp (max 15 at 100). Above 50, every +10 trust gives +1pp of mitigation — parallel trade and settlements through China, Belarus, Iran offset part of the sanctions.",
+  "treasury.lever.ally_trust.consequence": "Requires diplomatic tools (treaties, coalitions) — doesn't grow on its own from military action.",
+  "treasury.lever.opec.title": "🛢 Influence the oil price via OPEC+",
+  "treasury.lever.opec.desc": "Coordinating with Saudi Arabia and OPEC+ on output cuts raises the world price. Every +$10 on the price ≈ +7 to the treasury/mo. (before the sanctions discount).",
+  "treasury.lever.opec.consequence": "Cutting output reduces income in the short term. An unreliable tool — Riyadh pursues its own interests.",
+
+  // ---- StatsTab ----
+  "stats.events_count": "{n} events",
+  "stats.auto_negative": "{n}/mo. auto",
+  "stats.auto_positive": "+{n}/mo. auto",
+  "stats.detailed_metrics": "DETAILED METRICS",
+  "stats.events_header": "EVENTS",
+  "stats.turn_short": "t.{n}",
+  "stats.auto_effects_header": "AUTO-EFFECTS · EVERY MONTH",
+  "stats.auto_total": "TOTAL / MO. (excluding your own moves)",
+  "stats.detail_analysis_btn": "Detailed analysis →",
+  "stats.ua_intel_header": "INTELLIGENCE · UKRAINE",
+
+  // ---- StatDetailModal ----
+  "stats.detail_title": "{label} · DETAILS",
+  "stats.level_high": "HIGH LEVEL",
+  "stats.level_medium": "MEDIUM LEVEL",
+  "stats.level_low": "LOW LEVEL — NEEDS ATTENTION",
+  "stats.dynamics_header": "TURN-BY-TURN DYNAMICS",
+  "stats.turn_n": "Turn {n}",
+  "stats.now": "Now",
+  "stats.mechanic_header": "MECHANICS · HOW IT WORKS",
+  "stats.recent_events_header": "RECENT EVENTS",
+  "stats.loading": "Loading…",
+  "stats.no_related_events": "No related events.",
+
+  // ---- PoliciesTab ----
+  "policies.empty": "No active policies yet.",
+  "policies.success_boost": "on success: {boosts}",
+  "policies.while_active": "while active: ",
+  "policies.treasury_plus": "treasury +{n} (≈₽{rub}{trillion})/mo.",
+  "policies.treasury_minus": "treasury −{n} (≈₽{rub}{trillion})/mo.",
+  "policies.approval_rate": "approval {sign}{n}/mo.",
+  "policies.turn_range": "Turn {from} → {to}",
+  "policies.finishing": "finishing",
+  "policies.turns_left": "{n} turn(s) left",
+  "policies.turn_indefinite": "Turn {n} · indefinite",
+  "policies.more_items": "…{n} more",
+  "policies.other_section": "OTHER · {n}",
+  "policies.cancelled_count": "+ {n} cancelled",
+
+  // ---- PolicyDetailModal ----
+  "policies.status_cancelled": "CANCELLED",
+  "policies.status_completed": "COMPLETED",
+  "policies.status_active": "ACTIVE",
+  "policies.detail_title": "{cat} · DETAILS",
+  "policies.default_category": "POLICY",
+  "policies.progress_header": "COMPLETION PROGRESS",
+  "policies.indefinite_full": "INDEFINITE — active until cancelled",
+  "policies.introduced_turn": "Introduced: Turn {n}",
+  "policies.finishing_upper": "FINISHING",
+  "policies.turns_left_full": "{n} turn(s) left (Turn {target})",
+  "policies.while_active_header": "WHILE ACTIVE (every month)",
+  "policies.treasury_income_plain": "Treasury +{n} (≈₽{rub}{trillion})",
+  "policies.treasury_upkeep_plain": "Treasury −{n} (≈₽{rub}{trillion})",
+  "policies.approval_plain": "Approval {sign}{n}",
+  "policies.success_effects_header": "ON SUCCESS WILL RISE",
+  "policies.completion_condition_header": "COMPLETION CONDITION",
+  "policies.cancel_consequences_header": "CANCELLATION CONSEQUENCES",
+  "policies.content_header": "CONTENTS",
+  "policies.news_header": "NEWS ON THIS DECREE",
+  "policies.loading": "Loading…",
+  "policies.no_news_yet": "No news yet.",
+  "policies.turn_source": "TURN {n} · {source}",
+  "policies.cancel_btn": "Cancel policy",
+  "policies.cancel_consequences_intro": "Cancellation consequences: ",
+  "policies.continue_q": " Continue?",
+  "policies.cancel_penalty_generic": "Cancelling will cost you: {bits}.{budgetBits} Continue?",
+  "policies.stability_penalty": "stability −2",
+  "policies.approval_penalty_label": "approval {n}",
+  "policies.economy_penalty_label": "economy {n}",
+  "policies.budget_loses_income": "the treasury loses {n}/mo. of income",
+  "policies.budget_saves_upkeep": "the treasury saves {n}/mo. on upkeep",
+  "policies.cancelling": "Cancelling…",
+  "policies.confirm_yes": "Yes, cancel",
+  "policies.confirm_no": "No",
+
+  // ---- KremlinTab ----
+  "kremlin.init_short": "INIT.",
+  "kremlin.advisor_rec_header": "📐 ADVISOR · STAFF RECOMMENDATION",
+  "kremlin.open_btn": "Open →",
+  "kremlin.recommended_tooltip": "Advisor's recommendation — mathematically calculated optimal move",
+  "kremlin.recommended_badge": "📐 ADVICE",
+  "kremlin.choose_wording": "CHOOSE A PHRASING",
+  "kremlin.refresh_tooltip": "Show other phrasings",
+  "kremlin.refresh_btn": "🔄 Refresh",
+  "kremlin.or_own_text": "OR WRITE YOUR OWN",
+  "kremlin.custom_text_placeholder": "Your own decree/operation text…",
+  "kremlin.choose_wording_btn": "Choose this phrasing",
+  "kremlin.footer_hint": "Open a card, pick a ready phrasing, or write your own. The text will be inserted into the signing form at the bottom of the screen — visible from any tab. Scroll down: a preview with the exact stat changes and the sign button will appear there.",
+  "kremlin.variant_label": "Option",
+  "kremlin.variant_standard": "Standard",
+  "kremlin.variant_decisive": "Decisive",
+  "kremlin.variant_cautious": "Cautious",
+
+  // ---- MapTab / GeoMap ----
+  "map.rel_ally": "Ally",
+  "map.rel_partner": "Partner",
+  "map.rel_neutral": "Neutral",
+  "map.rel_tension": "Tension",
+  "map.rel_hostility": "Hostility",
+  "map.header": "WORLD MAP · TURN {n}",
+  "map.nuclear_banner": "☢ NUCLEAR STRIKE LAUNCHED{target} · RADIOACTIVE CONTAMINATION",
+  "map.nuclear_target": " · TARGET: {city}",
+  "map.click_hint": "click a country or marker",
+  "map.current_relations": "CURRENT RELATIONS",
+  "map.no_data": "No data",
+  "map.close": "✕ close",
+  "map.hotspot_header": "HOTSPOT",
+  "map.conflicts_header": "CONFLICTS",
 };
 
 const DICTS = { ru: RU, en: EN };
@@ -592,4 +1258,207 @@ const STAT_NAME_EN = {
 export function statLabel(key, ruLabel) {
   if (getLang() !== "en") return ruLabel;
   return STAT_NAME_EN[key] || ruLabel;
+}
+
+// i18n Фаза 3 (2026-07-08, "переведем всё и вся") — тот же приём, что и statLabel(), для
+// остальных ключ→лейбл словарей уровня модуля (AdvisorsTab/LogTab): ADVISOR_TONE_LABEL,
+// DIRECTION_LABEL, ACTION_MODE_BADGE.label, ADVISOR_INFO.role.
+const ADVISOR_TONE_EN = {
+  supportive: "supportive", cautious: "cautious", critical: "critical", alarmed: "alarmed",
+};
+export function advisorToneLabel(key, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return ADVISOR_TONE_EN[key] || ruLabel;
+}
+
+const DIRECTION_EN = {
+  military_offensive: "offensive", military_defensive: "defense", diplomacy_outreach: "diplomacy",
+  diplomacy_confrontation: "confrontation", economic_stimulus: "economic stimulus", economic_austerity: "austerity",
+  domestic_repression: "crackdown", domestic_liberalization: "liberalization", info_narrative: "information campaign",
+  intelligence_covert: "covert op", peace_initiative: "peace initiative", null_action: "inaction",
+};
+export function directionLabel(key, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return DIRECTION_EN[key] || ruLabel;
+}
+
+const ACTION_MODE_BADGE_EN = {
+  decree_fast: "📜 Fast decree", decree_reform: "📋 Reform", decree_program: "🏛 Major program",
+  intel: "🕵️ Espionage", military: "⚔️ Military operation", diplomacy_op: "🤝 Diplomatic talks", crisis: "⚡ Crisis response",
+};
+export function actionModeLabel(key, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return ACTION_MODE_BADGE_EN[key] || ruLabel;
+}
+
+const ACTION_SCALE_EN = {
+  decree_fast: "FAST DECREE", decree_reform: "REFORM", decree_program: "PROGRAM", intel: "INTEL", military: "MILITARY OP.",
+};
+export function actionScaleLabel(key, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return ACTION_SCALE_EN[key] || ruLabel;
+}
+
+const ADVISOR_ROLE_EN = {
+  defense: "Minister of Defense", foreign: "Minister of Foreign Affairs", finance: "Minister of Finance",
+  security: "Secretary of the Security Council", press: "Presidential Press Secretary",
+};
+export function advisorRoleLabel(id, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return ADVISOR_ROLE_EN[id] || ruLabel;
+}
+
+// Описания субметрик (SUBSTAT_META/UA_STAT_META .desc в App.jsx) — та же схема: EN-карта по
+// ключу, подставляется в месте отображения вместо переписывания module-level констант.
+const SUBSTAT_DESC_EN = {
+  gdp_growth: "0.6–1% y/y — the overheating peak has passed, growth has slowed. The CB's 18.5% rate is squeezing lending.",
+  inflation: "The CB is holding a high rate to contain price growth. Hits real incomes.",
+  employment: "The labor market is overheated: mobilization and the defense industry have pulled in workers, unemployment is at a record low.",
+  reserves: "The National Wealth Fund is being spent to cover the deficit. Separate from it — the CB's FX reserves (~$300B) are frozen by the West. See the liquid part of the Fund in real money on the Treasury tab.",
+  army_morale: "Fourth year of the war — fatigue is building, but mobilization-driven patriotism holds.",
+  equipment: "The defense industry is at full capacity: 1,500 armored vehicles/year, 12 million shells. Losses are being offset.",
+  readiness: "The army is in constant combat contact — high tactical readiness, but wear is showing.",
+  veterans: "Two years of active fighting have given enormous combat experience — the largest in Europe since WWII.",
+  ally_trust: "The CSTO nominally, but really China, North Korea, Belarus. A limited but stable bloc.",
+  isolation: "The EU's 21st sanctions package is in the works. Cut off from SWIFT, Western technology, and markets.",
+  social_tension: "Fatigue from restrictions is growing, but there's no open unrest. VCIOM poll: 65% support for the war.",
+  media_control: "Most independent media are shut down or operating abroad. Television is fully controlled.",
+  elite_satisfaction: "Security services and state corporations are benefiting from the defense industry. Business is suffering from the CB rate and sanctions.",
+  corruption: "Military contracts and parallel imports have opened new schemes. Transparency International: rank 137.",
+  middle_class: "18%+ mortgages, inflation, brain drain. The middle class is losing ground and leaving.",
+  lower_class_mood: "Rising prices outpace bonuses for war participants. Rural areas are holding on, cities are tense.",
+  ua_army: "Ukraine's combat power — grows from Western supplies, falls from strikes",
+  ua_west_support: "The West's willingness to supply weapons and money to Kyiv",
+  ua_morale: "Morale — depends on the military balance at the front",
+  ua_economy: "The resilience of Ukraine's economy under sanctions pressure and war",
+  ua_diplomacy: "Kyiv's international support and diplomatic weight",
+  ua_stability: "The government's internal resilience — war fatigue, elite unity",
+};
+export function substatDesc(key, ruDesc) {
+  if (getLang() !== "en") return ruDesc;
+  return SUBSTAT_DESC_EN[key] || ruDesc;
+}
+
+// Категории действий (ACTION_TYPE_LABEL в App.jsx, лог/статистика/история хода) — те же id, что
+// и у карточек указов в KREMLIN_CATEGORIES, переиспользуется actionTypeLabel() и там же.
+const ACTION_TYPE_EN = {
+  mil_recon: "Military recon", mil_tactical: "Tactical strike", mil_operational_offensive: "Offensive",
+  mil_operational_defensive: "Defense", mil_strategic_offensive: "Strategic offensive", mil_strategic_defensive: "Strategic defense",
+  mil_hybrid: "Hybrid warfare", covert_destabilize: "Destabilization", covert_sabotage: "Sabotage",
+  covert_disinfo: "Disinformation", covert_elimination: "Elimination", diplo_negotiate: "Negotiations",
+  diplo_treaty: "Treaty", diplo_pressure: "Pressure", diplo_multilateral: "Coalition",
+  diplo_soft_power: "Soft power", diplo_peace: "Peace initiative", econ_stimulus: "Economic stimulus",
+  econ_austerity: "Austerity", econ_sanctions_counter: "Counter-sanctions", econ_infrastructure: "Infrastructure",
+  econ_tech: "Technology", mil_admin_budget: "Defense budget", mil_admin_mobilization: "Mobilization",
+  mil_admin_doctrine: "Military doctrine", pol_repression: "Crackdown", pol_liberalization: "Liberalization",
+  pol_elite_consolidation: "Elite consolidation", pol_social: "Social program", pol_propaganda: "Propaganda",
+  military_regroup: "Regroup", null_action: "Inaction", nuclear_strike: "Nuclear strike",
+  military_offensive: "Offensive", military_defensive: "Defense", diplomacy_outreach: "Diplomacy",
+  diplomacy_confrontation: "Confrontation", economic_stimulus: "Economic stimulus", economic_austerity: "Austerity",
+  domestic_repression: "Crackdown", domestic_liberalization: "Liberalization", info_narrative: "Narrative",
+  intelligence_covert: "Intelligence", peace_initiative: "Peace initiative", intel_success: "Intelligence (success)",
+  intel_critical_success: "Intelligence (brilliant success)", intel_failure: "Intelligence (failure)",
+  intel_critical_failure: "Intelligence (critical failure)",
+};
+export function actionTypeLabel(key, ruLabel) {
+  const fallback = ruLabel ?? key;
+  if (getLang() !== "en") return fallback;
+  return ACTION_TYPE_EN[key] || fallback;
+}
+
+// POLICY_CATEGORY (App.jsx, PoliciesTab) — badge/section labels по категории политики.
+const POLICY_CATEGORY_EN = {
+  program: { label: "PROGRAM", section: "PROGRAMS" },
+  reform: { label: "REFORM", section: "REFORMS" },
+  decree: { label: "DECREE", section: "DECREES" },
+};
+export function policyCategoryLabel(key, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return POLICY_CATEGORY_EN[key]?.label || ruLabel;
+}
+export function policyCategorySection(key, ruSection) {
+  if (getLang() !== "en") return ruSection;
+  return POLICY_CATEGORY_EN[key]?.section || ruSection;
+}
+
+// KREMLIN_DOMAINS / KREMLIN_TIER_LABEL (App.jsx, KremlinTab) — вкладки доменов и тиров указов.
+const KREMLIN_DOMAIN_EN = {
+  military: "⚔️ Military", espionage: "🕵️ Espionage", diplomacy: "🤝 Diplomacy", decrees: "📜 Decrees",
+};
+export function kremlinDomainLabel(id, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return KREMLIN_DOMAIN_EN[id] || ruLabel;
+}
+const KREMLIN_TIER_EN = {
+  decree_fast: "📜 Fast decree (1–2 mo.)", decree_reform: "📋 Reform (3–6 mo.)", decree_program: "🏛 Program (7–12 mo.)",
+};
+export function kremlinTierLabel(id, ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return KREMLIN_TIER_EN[id] || ruLabel;
+}
+// Заголовки под-доменов группы "Указы" (card.domain в KREMLIN_CATEGORIES.decrees)
+const KREMLIN_SUBDOMAIN_EN = {
+  "Экономика": "Economy", "Военно-административные": "Military-Administrative", "Политика": "Politics", "Информационные": "Information",
+};
+export function kremlinSubdomainLabel(ruLabel) {
+  if (getLang() !== "en") return ruLabel;
+  return KREMLIN_SUBDOMAIN_EN[ruLabel] || ruLabel;
+}
+// Заголовки/описания карточек указов — переиспользует ACTION_TYPE_EN (id категории совпадает
+// с ключом ACTION_TYPE_LABEL), это уже готовый перевод названий 30 категорий.
+export function kremlinCategoryTitle(id, ruTitle) {
+  return actionTypeLabel(id, ruTitle);
+}
+const KREMLIN_DESC_EN = {
+  mil_recon: "Satellites, SIGINT, reconnaissance-in-force before an operation. Gives a bonus to the next combat operation.",
+  mil_tactical: "A pinpoint strike, local counterattack, storming a position.",
+  mil_operational_offensive: "An offensive operation on a section of the front, breaking through the defense.",
+  mil_operational_defensive: "A defensive operation, holding the lines, a withdrawal to straighten the front.",
+  mil_strategic_offensive: "An offensive along the whole front, large-scale mobilization of resources.",
+  mil_strategic_defensive: "Deep echeloned defense, a deterrence doctrine (not nuclear use).",
+  mil_hybrid: "PMCs, guerrilla operations, support for proxy forces.",
+  covert_disinfo: "A disinformation campaign abroad — affects sentiment and narrative.",
+  covert_destabilize: "Funding the opposition, provocations against the enemy government.",
+  covert_sabotage: "Sabotage against enemy infrastructure. High risk of exposure.",
+  covert_elimination: "Elimination of a key figure. Only for serious decisions — maximum risk.",
+  diplo_negotiate: "Regular negotiations, visits, diplomatic notes.",
+  diplo_treaty: "A trade, military, or humanitarian treaty — a major long-term effect.",
+  diplo_pressure: "An ultimatum, sanctions, asset freezes, expelling diplomats.",
+  diplo_multilateral: "An initiative at the UN/BRICS/SCO, forming a coalition, mediation.",
+  diplo_soft_power: "Cultural diplomacy, humanitarian aid, educational programs.",
+  diplo_peace: "Negotiations to resolve the conflict. The main driver of the peace track — the cheapest diplomatic operation.",
+  econ_stimulus: "Subsidies, investment, tax breaks, a rate cut.",
+  econ_austerity: "Spending cuts, taxes up — the treasury strengthens, but the public is unhappy.",
+  econ_sanctions_counter: "Parallel imports, evading restrictions, trade partnerships that bypass the West.",
+  econ_infrastructure: "Major infrastructure projects — roads, energy, industry.",
+  econ_tech: "R&D, space, AI sovereignty — small costs now, economic growth over time.",
+  mil_admin_budget: "A contract with the defense industry, increased defense spending. NOT a combat operation.",
+  mil_admin_mobilization: "A partial mobilization decree — grows the army at the cost of approval. NOT a combat operation.",
+  mil_admin_doctrine: "An update to military doctrine — the Armed Forces' strategy and priorities.",
+  pol_repression: "Suppressing protests, censorship, arresting the opposition.",
+  pol_liberalization: "Reforms, lifting restrictions, amnesty, freedoms.",
+  pol_elite_consolidation: "Personnel reshuffles, strengthening the vertical of power.",
+  pol_social: "Maternity capital, pensions, healthcare, demographics — moves public approval.",
+  pol_propaganda: "A domestic information campaign, a narrative for the population.",
+};
+export function kremlinCategoryDesc(id, ruDesc) {
+  if (getLang() !== "en") return ruDesc;
+  return KREMLIN_DESC_EN[id] || ruDesc;
+}
+
+// Приветствия советников (ADVISOR_GREETINGS в App.jsx) — статичный флейвор-текст, не ИИ. Индекс
+// внутри пула сохраняется от pickGreeting() (детерминированный хеш), меняется только сам текст.
+const ADVISOR_GREETINGS_EN = {
+  defense: ["Listening, Mr. President. Report.", "Awaiting your order. Time is short.", "The front is under control. What's the call?"],
+  foreign: ["Mr. President... I'm listening.", "Our partners are waiting on our move. Your thoughts?", "Like back in '73 — history repeats. Your take?"],
+  finance: ["The treasury's in order, Mr. President. What are we discussing?", "The numbers are in front of you. Ready to report.", "Money likes to be counted. I'm listening."],
+  security: ["Mr. President. The situation is under observation.", "Reporting as ready.", "Listening. Quietly, but closely."],
+  press: ["Ready to discuss how to frame this, Mr. President.", "The press is waiting. What do we say?", "Listening — we need to think through the messaging."],
+};
+export function advisorGreeting(id, ruText, ruPool) {
+  if (getLang() !== "en") return ruText;
+  const enPool = ADVISOR_GREETINGS_EN[id];
+  if (!enPool) return ruText;
+  const idx = ruPool.indexOf(ruText);
+  return enPool[idx] ?? ruText;
 }
