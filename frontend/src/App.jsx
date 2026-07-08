@@ -4746,10 +4746,10 @@ function MapTab({ state }) {
                   </div>
                   {(countryModal.info.gdp || countryModal.info.population || countryModal.info.alliance || countryModal.info.language) && (
                     <div className="mono-font" style={{ fontSize: 9.5, color: "#8a9aaa", lineHeight: 1.7, marginBottom: 8 }}>
-                      {countryModal.info.gdp && <div>💰 ВВП: <span style={{ color: "#c8c0b0" }}>{countryModal.info.gdp}</span></div>}
-                      {countryModal.info.population && <div>👥 Население: <span style={{ color: "#c8c0b0" }}>{countryModal.info.population}</span></div>}
-                      {countryModal.info.alliance && <div>🤝 Союз: <span style={{ color: "#c8c0b0" }}>{countryModal.info.alliance}</span></div>}
-                      {countryModal.info.language && <div>🗣 Язык: <span style={{ color: "#c8c0b0" }}>{countryModal.info.language}</span></div>}
+                      {countryModal.info.gdp && <div>💰 {t("relations.factsheet_gdp")}: <span style={{ color: "#c8c0b0" }}>{countryModal.info.gdp}</span></div>}
+                      {countryModal.info.population && <div>👥 {t("relations.factsheet_population")}: <span style={{ color: "#c8c0b0" }}>{countryModal.info.population}</span></div>}
+                      {countryModal.info.alliance && <div>🤝 {t("relations.factsheet_alliance")}: <span style={{ color: "#c8c0b0" }}>{countryModal.info.alliance}</span></div>}
+                      {countryModal.info.language && <div>🗣 {t("relations.factsheet_language")}: <span style={{ color: "#c8c0b0" }}>{countryModal.info.language}</span></div>}
                     </div>
                   )}
                 </>
@@ -7219,8 +7219,8 @@ function CountryTile({ r, onOpenDetails, onDragPointerDown, isDragging, dragOffs
 function CountryFactsheet({ info }) {
   if (!info || !(info.gdp || info.population || info.alliance || info.language)) return null;
   const rows = [
-    ["ВВП", info.gdp], ["НАСЕЛЕНИЕ", info.population],
-    ["СОЮЗ", info.alliance], ["ЯЗЫК", info.language],
+    [t("relations.factsheet_gdp"), info.gdp], [t("relations.factsheet_population"), info.population],
+    [t("relations.factsheet_alliance"), info.alliance], [t("relations.factsheet_language"), info.language],
   ].filter(([, v]) => v);
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 14px", marginBottom: 14, padding: "10px 12px", background: "#ece7d8", borderRadius: 4 }}>

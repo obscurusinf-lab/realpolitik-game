@@ -265,6 +265,10 @@ const RU = {
   "relations.turn_short": "ХОД",
   "relations.empty": "Отношения появятся после начала партии.",
   "relations.title_suffix": "ОТНОШЕНИЯ",
+  "relations.factsheet_gdp": "ВВП",
+  "relations.factsheet_population": "НАСЕЛЕНИЕ",
+  "relations.factsheet_alliance": "СОЮЗ",
+  "relations.factsheet_language": "ЯЗЫК",
 
   // ---- WorldTab ----
   "world.stance.cooperative": "СОЮЗНИК",
@@ -824,6 +828,10 @@ const EN = {
   "relations.turn_short": "TURN",
   "relations.empty": "Relations will appear once the game starts.",
   "relations.title_suffix": "RELATIONS",
+  "relations.factsheet_gdp": "GDP",
+  "relations.factsheet_population": "POPULATION",
+  "relations.factsheet_alliance": "ALLIANCE",
+  "relations.factsheet_language": "LANGUAGE",
 
   // ---- WorldTab ----
   "world.stance.cooperative": "ALLY",
