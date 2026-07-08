@@ -3044,7 +3044,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         })}
       </div>
 
-      <div style={{ background: (tab === "kremlin" || tab === "treasury") ? "#161b26" : NK.contentBg, color: (tab === "kremlin" || tab === "treasury") ? "#ece7d8" : NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
+      <div style={{ background: tab !== "overview" ? "#161b26" : NK.contentBg, color: tab !== "overview" ? "#ece7d8" : NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} />}
         {tab === "kremlin" && (
           <KremlinTab
@@ -3532,13 +3532,13 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
         {ADVISOR_INFO.map((info) => {
           const st = advisorState[info.id] || { status: "idle" };
           const adv = st.data;
-          const toneColor = adv ? (ADVISOR_TONE_COLOR[adv.tone] || "#8a8472") : "#3a4156";
+          const toneColor = adv ? (ADVISOR_TONE_COLOR[adv.tone] || "#a8a294") : "#3a4156";
           return (
             <div
               key={info.id}
               style={{
-                background: "#f5f1e6",
-                border: `1px solid #d8d2bf`,
+                background: "#161b26",
+                border: `1px solid #2a3040`,
                 borderLeft: `4px solid ${toneColor}`,
                 borderRadius: 4,
                 padding: "13px 14px",
@@ -3549,8 +3549,8 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 8 }}>
                     <div>
-                      <div className="doc-font" style={{ fontSize: 15, fontWeight: 700 }}>{info.name}</div>
-                      <div className="mono-font" style={{ fontSize: 10, color: "#8a8472", letterSpacing: "0.06em" }}>{info.role.toUpperCase()}</div>
+                      <div className="doc-font" style={{ fontSize: 15, fontWeight: 700, color: "#ece7d8" }}>{info.name}</div>
+                      <div className="mono-font" style={{ fontSize: 10, color: "#a8a294", letterSpacing: "0.06em" }}>{info.role.toUpperCase()}</div>
                     </div>
                     {adv && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
@@ -3564,7 +3564,7 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                           {(ADVISOR_TONE_LABEL[adv.tone] || adv.tone)?.toUpperCase()}
                         </span>
                         {adv.suggested_direction && adv.suggested_direction !== "null_action" && (
-                          <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>
+                          <span className="mono-font" style={{ fontSize: 9, color: "#a8a294" }}>
                             → {DIRECTION_LABEL[adv.suggested_direction] || adv.suggested_direction}
                           </span>
                         )}
@@ -3578,30 +3578,30 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                   </div>
 
                   {st.status === "idle" && (
-                    <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#5c5648", fontStyle: "italic", marginBottom: 10 }}>
+                    <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#a8a294", fontStyle: "italic", marginBottom: 10 }}>
                       «{pickGreeting(info.id, info.id + actionMode)}»
                     </div>
                   )}
                   {st.status === "loading" && (
-                    <div className="mono-font" style={{ fontSize: 12, color: "#9c8347", marginBottom: 10, animation: "pulse 1.2s infinite" }}>
+                    <div className="mono-font" style={{ fontSize: 12, color: "#c8a96a", marginBottom: 10, animation: "pulse 1.2s infinite" }}>
                       обдумывает ответ…
                     </div>
                   )}
                   {st.status === "error" && (
-                    <div className="doc-font" style={{ fontSize: 12.5, color: "#a8313a", marginBottom: 10 }}>
+                    <div className="doc-font" style={{ fontSize: 12.5, color: "#e09090", marginBottom: 10 }}>
                       Ошибка: {st.error}
                     </div>
                   )}
                   {st.status === "loaded" && adv && (
-                    <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.55, color: "#3a362e", marginBottom: 10 }}>
+                    <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.55, color: "#cdd3e0", marginBottom: 10 }}>
                       {adv.recommendation}
                     </div>
                   )}
 
                   {st.status === "loaded" && adv?.proposed_decree && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
-                    <div style={{ background: "#ece3cf", borderLeft: "3px solid #9c8347", borderRadius: 3, padding: "6px 9px", marginBottom: 10 }}>
-                      <div className="mono-font" style={{ fontSize: 8, color: "#9c8347", letterSpacing: "0.08em", marginBottom: 2 }}>ПРЕДЛАГАЕМЫЙ УКАЗ</div>
-                      <div className="doc-font" style={{ fontSize: 12.5, color: "#3a362e", fontStyle: "italic", lineHeight: 1.45 }}>«{adv.proposed_decree}»</div>
+                    <div style={{ background: "#1f1a10", borderLeft: "3px solid #9c8347", borderRadius: 3, padding: "6px 9px", marginBottom: 10 }}>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#c8a96a", letterSpacing: "0.08em", marginBottom: 2 }}>ПРЕДЛАГАЕМЫЙ УКАЗ</div>
+                      <div className="doc-font" style={{ fontSize: 12.5, color: "#e0c878", fontStyle: "italic", lineHeight: 1.45 }}>«{adv.proposed_decree}»</div>
                     </div>
                   )}
 
@@ -3613,8 +3613,8 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                     disabled={st.status === "loading"}
                     style={{
                       width: "100%", resize: "vertical", marginBottom: 6, padding: "6px 8px",
-                      background: "#fbf8f0", border: "1px solid #d8d2bf", borderRadius: 3,
-                      fontFamily: "'PT Serif',serif", fontSize: 12.5, color: "#3a362e", boxSizing: "border-box",
+                      background: "#0f131c", border: "1px solid #2a3040", borderRadius: 3,
+                      fontFamily: "'PT Serif',serif", fontSize: 12.5, color: "#ece7d8", boxSizing: "border-box",
                     }}
                   />
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
@@ -3630,7 +3630,7 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                       {st.status === "loading" ? "Думает…" : "Получить совет"}
                     </button>
                     {!questionDrafts[info.id]?.trim() && st.status !== "loading" && (
-                      <span className="doc-font" style={{ fontSize: 11, color: "#8a8472", fontStyle: "italic" }}>
+                      <span className="doc-font" style={{ fontSize: 11, color: "#a8a294", fontStyle: "italic" }}>
                         без текста — общая рекомендация по обстановке
                       </span>
                     )}
@@ -5807,7 +5807,7 @@ function StatsTab({ state, gameId }) {
           const passiveTotal = passiveEffects.reduce((s, e) => s + e.sign * e.value, 0);
 
           return (
-            <div key={key} style={{ borderRadius: 6, background: "#f5f1e6", border: `1px solid ${expanded ? meta.color : "#d8d2bf"}`, transition: "border-color 0.15s", overflow: "hidden" }}>
+            <div key={key} style={{ borderRadius: 6, background: "#161b26", border: `1px solid ${expanded ? meta.color : "#2a3040"}`, transition: "border-color 0.15s", overflow: "hidden" }}>
               {/* Header — click to expand substats */}
               <div
                 onClick={() => setExpandedKey(expanded ? null : key)}
@@ -5815,19 +5815,19 @@ function StatsTab({ state, gameId }) {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                   <Icon size={15} color={meta.color} />
-                  <span className="doc-font" style={{ fontSize: 14, fontWeight: 700 }}>{statLabel(key, meta.label)}</span>
+                  <span className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: "#ece7d8" }}>{statLabel(key, meta.label)}</span>
                   {events.length > 0 && (
-                    <span style={{ fontSize: 9, background: "#eee6d0", color: "#8a8472", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>
+                    <span style={{ fontSize: 9, background: "#2a3040", color: "#a8a294", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>
                       {events.length} событий
                     </span>
                   )}
                   {passiveTotal < 0 && (
-                    <span style={{ fontSize: 9, background: "#fde8e8", color: "#a8313a", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", fontWeight: 700 }}>
+                    <span style={{ fontSize: 9, background: "#2a0808", color: "#e09090", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", fontWeight: 700 }}>
                       ⚠ {passiveTotal}/мес авто
                     </span>
                   )}
                   {passiveTotal > 0 && (
-                    <span style={{ fontSize: 9, background: "#e8f5e8", color: "#4a6b5c", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", fontWeight: 700 }}>
+                    <span style={{ fontSize: 9, background: "#0a1a0d", color: "#7fae93", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", fontWeight: 700 }}>
                       +{passiveTotal}/мес авто
                     </span>
                   )}
@@ -5843,25 +5843,25 @@ function StatsTab({ state, gameId }) {
 
               {/* Expanded: substats + events */}
               {expanded && (
-                <div style={{ borderTop: "1px solid #e8e2d0", padding: "12px 12px 14px" }}>
+                <div style={{ borderTop: "1px solid #2a3040", padding: "12px 12px 14px" }}>
                   {/* Substats */}
                   {substats.length > 0 && (
                     <>
-                      <div className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 8 }}>ДЕТАЛЬНЫЕ ПОКАЗАТЕЛИ</div>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#a8a294", letterSpacing: "0.08em", marginBottom: 8 }}>ДЕТАЛЬНЫЕ ПОКАЗАТЕЛИ</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 14px", marginBottom: events.length > 0 ? 14 : 0 }}>
                         {substats.map(s => {
                           const displayVal = s.inverted ? 100 - s.value : s.value;
-                          const clr = displayVal >= 60 ? "#4a6b5c" : displayVal >= 40 ? "#9c8347" : "#a8313a";
+                          const clr = displayVal >= 60 ? "#7fae93" : displayVal >= 40 ? "#9c8347" : "#e09090";
                           return (
                             <div key={s.key}>
                               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                                <span className="doc-font" style={{ fontSize: 11, color: "#5c5648" }}>{s.label}</span>
+                                <span className="doc-font" style={{ fontSize: 11, color: "#cdd3e0" }}>{s.label}</span>
                                 <span className="mono-font" style={{ fontSize: 11, color: clr, fontWeight: 700 }}>{formatSubstatValue(s.key, s.value)}</span>
                               </div>
-                              <div style={{ height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden" }}>
+                              <div style={{ height: 4, background: "#2a3040", borderRadius: 2, overflow: "hidden" }}>
                                 <div style={{ width: `${displayVal}%`, height: "100%", background: clr }} />
                               </div>
-                              {s.desc && <div className="mono-font" style={{ fontSize: 8.5, color: "#a8a294", marginTop: 2, lineHeight: 1.3 }}>{s.desc}</div>}
+                              {s.desc && <div className="mono-font" style={{ fontSize: 8.5, color: "#8a9aaa", marginTop: 2, lineHeight: 1.3 }}>{s.desc}</div>}
                             </div>
                           );
                         })}
@@ -5872,19 +5872,19 @@ function StatsTab({ state, gameId }) {
                   {/* Events affecting this stat */}
                   {events.length > 0 && (
                     <>
-                      <div className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 6 }}>СОБЫТИЯ</div>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#a8a294", letterSpacing: "0.08em", marginBottom: 6 }}>СОБЫТИЯ</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                         {events.map((ev, i) => {
                           const positive = ev.delta > 0;
                           return (
-                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: positive ? "#f0f5f0" : "#f5f0f0", borderRadius: 3, borderLeft: `3px solid ${positive ? "#4a6b5c" : "#a8313a"}` }}>
-                              <span className="mono-font" style={{ fontSize: 10, fontWeight: 700, color: positive ? "#4a6b5c" : "#a8313a", minWidth: 28 }}>
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: positive ? "#0a1a0d" : "#2a0808", borderRadius: 3, borderLeft: `3px solid ${positive ? "#4a6b5c" : "#a8313a"}` }}>
+                              <span className="mono-font" style={{ fontSize: 10, fontWeight: 700, color: positive ? "#7fae93" : "#e09090", minWidth: 28 }}>
                                 {positive ? "+" : ""}{ev.delta}
                               </span>
-                              <span className="doc-font" style={{ fontSize: 11, color: "#5c5648", flex: 1 }}>
+                              <span className="doc-font" style={{ fontSize: 11, color: "#cdd3e0", flex: 1 }}>
                                 {ACTION_TYPE_LABEL[ev.actionType] || ev.actionType}
                               </span>
-                              <span className="mono-font" style={{ fontSize: 9, color: "#a8a294" }}>х.{ev.turn}</span>
+                              <span className="mono-font" style={{ fontSize: 9, color: "#8a9aaa" }}>х.{ev.turn}</span>
                             </div>
                           );
                         })}
@@ -5893,22 +5893,22 @@ function StatsTab({ state, gameId }) {
                   )}
 
                   {passiveEffects.length > 0 && (
-                    <div style={{ marginTop: events.length > 0 ? 12 : 0, borderTop: events.length > 0 ? "1px solid #e8e2d0" : "none", paddingTop: events.length > 0 ? 10 : 0 }}>
-                      <div className="mono-font" style={{ fontSize: 8, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 6 }}>АВТО-ЭФФЕКТЫ · КАЖДЫЙ МЕСЯЦ</div>
+                    <div style={{ marginTop: events.length > 0 ? 12 : 0, borderTop: events.length > 0 ? "1px solid #2a3040" : "none", paddingTop: events.length > 0 ? 10 : 0 }}>
+                      <div className="mono-font" style={{ fontSize: 8, color: "#a8a294", letterSpacing: "0.08em", marginBottom: 6 }}>АВТО-ЭФФЕКТЫ · КАЖДЫЙ МЕСЯЦ</div>
                       {passiveEffects.map((eff, i) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: eff.sign < 0 ? "#f9f0f0" : "#f0f6f0", borderRadius: 3, borderLeft: `3px solid ${eff.sign < 0 ? "#a8313a" : "#4a6b5c"}`, marginBottom: 4 }}>
-                          <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: eff.sign < 0 ? "#a8313a" : "#4a6b5c", minWidth: 30 }}>
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: eff.sign < 0 ? "#2a0808" : "#0a1a0d", borderRadius: 3, borderLeft: `3px solid ${eff.sign < 0 ? "#a8313a" : "#4a6b5c"}`, marginBottom: 4 }}>
+                          <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: eff.sign < 0 ? "#e09090" : "#7fae93", minWidth: 30 }}>
                             {eff.sign < 0 ? "−" : "+"}{eff.value}
                           </span>
-                          <span className="doc-font" style={{ fontSize: 11, color: "#5c5648", flex: 1 }}>{eff.text}</span>
+                          <span className="doc-font" style={{ fontSize: 11, color: "#cdd3e0", flex: 1 }}>{eff.text}</span>
                         </div>
                       ))}
                       {passiveEffects.length > 1 && (
                         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", marginTop: 2 }}>
-                          <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: passiveTotal < 0 ? "#a8313a" : "#4a6b5c", minWidth: 30 }}>
+                          <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: passiveTotal < 0 ? "#e09090" : "#7fae93", minWidth: 30 }}>
                             {passiveTotal < 0 ? "−" : "+"}{Math.abs(passiveTotal)}
                           </span>
-                          <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ИТОГО / МЕС (без учёта твоих ходов)</span>
+                          <span className="mono-font" style={{ fontSize: 9, color: "#a8a294" }}>ИТОГО / МЕС (без учёта твоих ходов)</span>
                         </div>
                       )}
                     </div>
@@ -5929,8 +5929,8 @@ function StatsTab({ state, gameId }) {
 
       {/* Разведданные по противнику — Украина */}
       {Object.keys(UA_STAT_META).some(k => state.stats[k] != null) && (
-        <div style={{ marginTop: 16, borderRadius: 6, background: "#f5f1e6", border: "1px solid #d8d2bf", padding: "12px 12px 14px" }}>
-          <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", letterSpacing: "0.08em", marginBottom: 10 }}>
+        <div style={{ marginTop: 16, borderRadius: 6, background: "#161b26", border: "1px solid #2a3040", padding: "12px 12px 14px" }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#a8a294", letterSpacing: "0.08em", marginBottom: 10 }}>
             🇺🇦 {getLang() === "en" ? "INTELLIGENCE · UKRAINE" : "РАЗВЕДДАННЫЕ · УКРАИНА"}
           </div>
           <div style={{ display: "grid", gap: 10 }}>
@@ -5942,12 +5942,12 @@ function StatsTab({ state, gameId }) {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Icon size={13} color={meta.color} />
-                      <span className="doc-font" style={{ fontSize: 12.5, color: "#5c5648" }}>{statLabel(key, meta.label)}</span>
+                      <span className="doc-font" style={{ fontSize: 12.5, color: "#cdd3e0" }}>{statLabel(key, meta.label)}</span>
                     </div>
                     <span className="mono-font" style={{ fontSize: 12.5, fontWeight: 700, color: meta.color }}>{value}</span>
                   </div>
                   <Bar value={value} color={meta.color} />
-                  <div className="mono-font" style={{ fontSize: 8.5, color: "#a8a294", marginTop: 2, lineHeight: 1.3 }}>{meta.desc}</div>
+                  <div className="mono-font" style={{ fontSize: 8.5, color: "#8a9aaa", marginTop: 2, lineHeight: 1.3 }}>{meta.desc}</div>
                 </div>
               );
             })}
@@ -6997,7 +6997,7 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
   const [openPolicy, setOpenPolicy] = useState(null);
 
   if (!state.policies?.length) {
-    return <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>Активных политик пока нет.</div>;
+    return <div className="doc-font" style={{ fontSize: 13, color: "#a8a294", fontStyle: "italic" }}>Активных политик пока нет.</div>;
   }
 
   const active = state.policies.filter(p => p.status !== "cancelled");
@@ -7011,48 +7011,48 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
     const cat = POLICY_CATEGORY[policy.category];
     const boosts = boostStrings(policy.effect_stats);
     return (
-      <div key={i} onClick={() => setOpenPolicy(policy)} style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "13px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
+      <div key={i} onClick={() => setOpenPolicy(policy)} style={{ background: "#161b26", border: "1px solid #2a3040", borderRadius: 4, padding: "13px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
         onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
-        onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}>
+        onMouseLeave={e => e.currentTarget.style.borderColor = "#2a3040"}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-          <span className="doc-font" style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{policy.title}</span>
+          <span className="doc-font" style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.3, color: "#ece7d8" }}>{policy.title}</span>
           {cat && <span className="mono-font" style={{ fontSize: 8, letterSpacing: "0.06em", padding: "3px 7px", borderRadius: 3, background: cat.color + "22", color: cat.color, flexShrink: 0, marginLeft: 8, whiteSpace: "nowrap" }}>{cat.label}</span>}
         </div>
         {boosts.length > 0 && (
-          <div className="doc-font" style={{ fontSize: 11.5, color: "#2f6f5f", marginBottom: 7 }}>при успехе: {boosts.join(" · ")}</div>
+          <div className="doc-font" style={{ fontSize: 11.5, color: "#7fae93", marginBottom: 7 }}>при успехе: {boosts.join(" · ")}</div>
         )}
         {(Number(policy.budget_income) || Number(policy.budget_upkeep) || Number(policy.approval_upkeep)) ? (
-          <div className="doc-font" style={{ fontSize: 11.5, marginBottom: 7 }}>
+          <div className="doc-font" style={{ fontSize: 11.5, marginBottom: 7, color: "#cdd3e0" }}>
             пока действует:{" "}
-            {Number(policy.budget_income) > 0 && <span style={{ color: "#2f6f5f", fontWeight: 700 }}>казна +{policy.budget_income} (≈₽{(Number(policy.budget_income) * TREASURY_PER_TRILLION).toFixed(1)} трлн)/мес</span>}
-            {Number(policy.budget_upkeep) > 0 && <span style={{ color: "#a8313a", fontWeight: 700 }}> · казна −{policy.budget_upkeep} (≈₽{(Number(policy.budget_upkeep) * TREASURY_PER_TRILLION).toFixed(1)} трлн)/мес</span>}
+            {Number(policy.budget_income) > 0 && <span style={{ color: "#7fae93", fontWeight: 700 }}>казна +{policy.budget_income} (≈₽{(Number(policy.budget_income) * TREASURY_PER_TRILLION).toFixed(1)} трлн)/мес</span>}
+            {Number(policy.budget_upkeep) > 0 && <span style={{ color: "#e09090", fontWeight: 700 }}> · казна −{policy.budget_upkeep} (≈₽{(Number(policy.budget_upkeep) * TREASURY_PER_TRILLION).toFixed(1)} трлн)/мес</span>}
             {Number(policy.approval_upkeep) !== 0 && (
-              <span style={{ color: Number(policy.approval_upkeep) < 0 ? "#a8313a" : "#2f6f5f", fontWeight: 700 }}> · одобрение {Number(policy.approval_upkeep) > 0 ? "+" : ""}{policy.approval_upkeep}/мес</span>
+              <span style={{ color: Number(policy.approval_upkeep) < 0 ? "#e09090" : "#7fae93", fontWeight: 700 }}> · одобрение {Number(policy.approval_upkeep) > 0 ? "+" : ""}{policy.approval_upkeep}/мес</span>
             )}
           </div>
         ) : null}
         <div style={{ marginBottom: 8 }}>
           {policy.target_turn != null ? (
             <>
-              <div style={{ height: 5, background: "#d8d2bf", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
-                <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#4a6b5c" : "#9c8347", transition: "width 0.4s" }} />
+              <div style={{ height: 5, background: "#2a3040", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
+                <div style={{ width: `${progress}%`, height: "100%", background: progress >= 100 ? "#7fae93" : "#9c8347", transition: "width 0.4s" }} />
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {policy.turn} → {policy.target_turn}</span>
-                <span className="mono-font" style={{ fontSize: 8, color: turnsLeft !== null && turnsLeft <= 1 ? "#a8313a" : "#8a8472" }}>
+                <span className="mono-font" style={{ fontSize: 8, color: "#a8a294" }}>Ход {policy.turn} → {policy.target_turn}</span>
+                <span className="mono-font" style={{ fontSize: 8, color: turnsLeft !== null && turnsLeft <= 1 ? "#e09090" : "#a8a294" }}>
                   {turnsLeft === 0 ? "завершается" : `ост. ${turnsLeft} х.`}
                 </span>
               </div>
             </>
           ) : (
-            <span className="mono-font" style={{ fontSize: 8, color: "#8a8472" }}>Ход {policy.turn} · бессрочно</span>
+            <span className="mono-font" style={{ fontSize: 8, color: "#a8a294" }}>Ход {policy.turn} · бессрочно</span>
           )}
         </div>
         <ul style={{ margin: 0, paddingLeft: 16 }}>
           {(policy.items || []).slice(0, 2).map((item, j) => (
-            <li key={j} className="doc-font" style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 3, color: "#5c5648" }}>{item}</li>
+            <li key={j} className="doc-font" style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 3, color: "#cdd3e0" }}>{item}</li>
           ))}
-          {(policy.items || []).length > 2 && <li className="mono-font" style={{ fontSize: 9, color: "#8a8472", listStyle: "none" }}>…ещё {policy.items.length - 2}</li>}
+          {(policy.items || []).length > 2 && <li className="mono-font" style={{ fontSize: 9, color: "#a8a294", listStyle: "none" }}>…ещё {policy.items.length - 2}</li>}
         </ul>
       </div>
     );
@@ -7075,12 +7075,12 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
         ))}
         {uncategorized.length > 0 && (
           <div>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#8a8472", marginBottom: 8 }}>ПРОЧЕЕ · {uncategorized.length}</div>
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#a8a294", marginBottom: 8 }}>ПРОЧЕЕ · {uncategorized.length}</div>
             <div style={{ display: "grid", gap: 12 }}>{uncategorized.map((p, i) => renderCard(p, `u-${i}`))}</div>
           </div>
         )}
         {cancelled.length > 0 && (
-          <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginTop: 4 }}>+ {cancelled.length} отменённых</div>
+          <div className="mono-font" style={{ fontSize: 9, color: "#a8a294", marginTop: 4 }}>+ {cancelled.length} отменённых</div>
         )}
       </div>
       {openPolicy && (
@@ -7100,16 +7100,16 @@ function RelationsTab({ state }) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
       {state.relations.map((r) => (
-        <div key={r.name} style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "11px 13px" }}>
+        <div key={r.name} style={{ background: "#161b26", border: "1px solid #2a3040", borderRadius: 4, padding: "11px 13px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-            <span className="doc-font" style={{ fontSize: 15, fontWeight: 700 }}>{r.name}</span>
+            <span className="doc-font" style={{ fontSize: 15, fontWeight: 700, color: "#ece7d8" }}>{r.name}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <TrendIcon trend={r.trend} />
-              <span className="mono-font" style={{ fontSize: 13, fontWeight: 700 }}>{r.value}</span>
+              <span className="mono-font" style={{ fontSize: 13, fontWeight: 700, color: "#ece7d8" }}>{r.value}</span>
             </div>
           </div>
-          <Bar value={r.value} color={r.value > 60 ? "#4a6b5c" : r.value > 30 ? "#9c8347" : "#a8313a"} />
-          <div className="doc-font" style={{ fontSize: 12.5, color: "#5c5648", marginTop: 6, lineHeight: 1.4 }}>{r.note}</div>
+          <Bar value={r.value} color={r.value > 60 ? "#7fae93" : r.value > 30 ? "#9c8347" : "#e09090"} />
+          <div className="doc-font" style={{ fontSize: 12.5, color: "#a8a294", marginTop: 6, lineHeight: 1.4 }}>{r.note}</div>
         </div>
       ))}
     </div>
@@ -7136,14 +7136,20 @@ function WorldTab({ state }) {
     return "neutral";
   }
 
-  const STANCE_COLOR  = { cooperative: "#4a6b5c", neutral: "#7a6a3a", hostile: "#a8313a" };
-  const STANCE_BG     = { cooperative: "#f0f5f0", neutral: "#f5f1e6", hostile: "#f5f0ee" };
+  // Карточки хода (STANCE_*) рендерятся на тёмной вкладке — цвета под тёмный фон. А вот
+  // <Modal> (открывается по клику на карточку) — общий на всё приложение компонент, у него
+  // ВСЕГДА светлое кремовое тело (#f5f1e6) независимо от вкладки — для содержимого модалки
+  // нужны отдельные, светлые по контексту цвета (MODAL_STANCE_COLOR/MODAL_STANCE_BG).
+  const STANCE_COLOR  = { cooperative: "#7fae93", neutral: "#c8a96a", hostile: "#e09090" };
+  const STANCE_BG     = { cooperative: "#12201a", neutral: "#161b26", hostile: "#20141a" };
   const STANCE_BORDER = { cooperative: "#4a6b5c", neutral: "#9c8347", hostile: "#a8313a" };
   const STANCE_BADGE  = { cooperative: "СОЮЗНИК", neutral: "НЕЙТРАЛЬНО", hostile: "ПРОТИВНИК" };
+  const MODAL_STANCE_COLOR = { cooperative: "#4a6b5c", neutral: "#7a6a3a", hostile: "#a8313a" };
+  const MODAL_STANCE_BG    = { cooperative: "#f0f5f0", neutral: "#f5f1e6", hostile: "#f5f0ee" };
 
   if (!worldMoves.length) {
     return (
-      <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>
+      <div className="doc-font" style={{ fontSize: 13, color: "#a8a294", fontStyle: "italic" }}>
         Ходы других стран появятся после вашего первого хода.
       </div>
     );
@@ -7159,12 +7165,12 @@ function WorldTab({ state }) {
     <div>
       {modal && (() => {
         const stance = getStance(modal.source);
-        const col = STANCE_COLOR[stance];
+        const col = MODAL_STANCE_COLOR[stance];
         const relVal = relMap[modal.source];
         return (
           <Modal title={modal.source.toUpperCase() + " · ХОД " + modal.turn} onClose={() => setModal(null)}>
             {relVal !== undefined && (
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "7px 10px", background: STANCE_BG[stance], borderRadius: 4, border: `1px solid ${col}33` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "7px 10px", background: MODAL_STANCE_BG[stance], borderRadius: 4, border: `1px solid ${col}33` }}>
                 <span className="mono-font" style={{ fontSize: 9, color: col, letterSpacing: "0.08em" }}>{STANCE_BADGE[stance]}</span>
                 <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: col }}>{relVal}/100</span>
                 <div style={{ flex: 1, height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden" }}>
@@ -7190,7 +7196,7 @@ function WorldTab({ state }) {
       <div style={{ display: "grid", gap: 20 }}>
         {Object.entries(byTurn).map(([turn, moves]) => (
           <div key={turn}>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#8a8472", marginBottom: 8, borderBottom: "1px solid #d8d2bf", paddingBottom: 4 }}>
+            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8a294", marginBottom: 8, borderBottom: "1px solid #2a3040", paddingBottom: 4 }}>
               ХОД {turn} — ДЕЙСТВИЯ ДРУГИХ ГОСУДАРСТВ
             </div>
             <div style={{ display: "grid", gap: 8 }}>
@@ -7221,7 +7227,7 @@ function WorldTab({ state }) {
                             <span className="mono-font" style={{ fontSize: 9, color: "#a8a294" }}>{relVal}</span>
                           )}
                         </div>
-                        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.4, color: "#3a362e" }}>
+                        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.4, color: "#cdd3e0" }}>
                           {move.text.length > 110 ? move.text.slice(0, 110) + "…" : move.text}
                         </div>
                       </div>
