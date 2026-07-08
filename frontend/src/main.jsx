@@ -589,7 +589,12 @@ function LeaderboardPage({ onBack }) {
                   <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: i === 0 ? "#9c8347" : "#ece7d8" }}>
                     {i === 0 ? "🥇 " : i === 1 ? "🥈 " : i === 2 ? "🥉 " : `${i + 1}. `}{e.player_name}
                   </div>
-                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>{e.country_name} · {t("board.turn_short")} {e.turn_n}</div>
+                  <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
+                    {e.country_name} · {t("board.turn_short")} {e.turn_n}
+                    {breakdown.outcome && (
+                      <span style={{ marginLeft: 6, color: "#9c8347" }}>· {OUTCOME_LABELS[breakdown.outcome] || breakdown.outcome}</span>
+                    )}
+                  </div>
                 </div>
                 <div className="mono-font" style={{ fontSize: 18, color: "#9c8347", fontWeight: 700 }}>{e.score}</div>
               </div>
@@ -1233,7 +1238,7 @@ function AdminTabStats({ pwd }) {
 // turn_submitted → game_completed, разбивка по исходам партий, регистрации по дням.
 // Воронка начинается с "registered", а не "зашёл на сайт" — отслеживание анонимных визитов
 // (до регистрации) не реализовано, требует cookie-сессий, отдельная задача.
-const ADMIN_OUTCOME_LABELS = {
+const OUTCOME_LABELS = {
   victory: "Победа — мир достигнут", victory_military: "Военная победа", victory_combined: "Принуждение к миру",
   partial_peace: "Договор подписан", partial: "Достойное правление", partial_military: "Военное доминирование",
   defeat_time: "Срок истёк", defeat_coup: "Госпереворот", defeat_collapse: "Экономический коллапс",
@@ -1301,7 +1306,7 @@ function AdminTabFunnel({ pwd }) {
             return (
               <div key={o.outcome || "unknown"} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span className="doc-font" style={{ fontSize: 12, width: 190, flexShrink: 0, color: isVictory ? "#7fae93" : "#e09090" }}>
-                  {ADMIN_OUTCOME_LABELS[o.outcome] || o.outcome || "неизвестно"}
+                  {OUTCOME_LABELS[o.outcome] || o.outcome || "неизвестно"}
                 </span>
                 <div style={{ flex: 1, background: "#1a2030", borderRadius: 3, height: 14, overflow: "hidden" }}>
                   <div style={{ width: `${pct}%`, height: "100%", background: isVictory ? "#7fae93" : "#e08080" }} />

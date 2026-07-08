@@ -127,6 +127,68 @@ function detectGameOutcome(stats, turnNumber, maxTurns) {
 
   return null;
 }
+
+// Очки лидерборда.
+//
+// Базовые очки зависят от типа исхода (чем сложнее достичь — тем выше база),
+// плюс бонус за качество статов на момент завершения (казна и дипломатия весят больше),
+// плюс отдельный бонус за военно-дипломатическую победу (сверх базы), считающий
+// насколько сильно игрок перевыполнил минимальные условия victory_combined.
+//
+// Специально НЕ форсируем строгий порядок между тирами (напр. очень сильный
+// partial_military иногда может обогнать слабую victory) — это осознанно ок.
+const SCORE_TIER_BASE = {
+  victory_combined: 800,
+  victory_military: 500,
+  victory: 500,
+  partial_peace: 400,
+  partial: 400,
+  partial_military: 350,
+  defeat_time: 200,
+};
+const SCORE_TIER_BASE_DEFAULT = 100; // настоящие поражения: coup/collapse/unrest/isolation/war/military_collapse/donbass_lost
+
+function computeGameScore(stats, outcome) {
+  const s = (k, d = 50) => (typeof stats[k] === "number" ? stats[k] : d);
+  const economy = s("economy"), stability = s("stability"), approval = s("approval"),
+    military = s("military"), diplomacy = s("diplomacy"), treasury = s("treasury");
+
+  const tierBase = (outcome && SCORE_TIER_BASE[outcome] != null) ? SCORE_TIER_BASE[outcome] : SCORE_TIER_BASE_DEFAULT;
+
+  const qualityBonus = Math.round(
+    (economy - 50) * 1.5 +
+    (stability - 50) * 1.5 +
+    (approval - 50) * 1.5 +
+    (military - 50) * 1.0 +
+    (diplomacy - 50) * 2.5 +   // дипломатия весит больше, по просьбе
+    (treasury - 50) * 1.0      // казна тоже даёт очки, по просьбе
+  );
+
+  let combinedBonus = 0;
+  if (outcome === "victory_combined") {
+    const zap = s("zaporizhzhia_control", 0), kher = s("kherson_control", 0), khar = s("kharkiv_control", 0);
+    const armyMorale = s("army_morale"), readiness = s("readiness"), peace = s("peace_progress", 0);
+    combinedBonus = Math.round(
+      Math.max(0, zap - 85) +
+      Math.max(0, kher - 65) +
+      Math.max(0, khar - 50) +
+      Math.max(0, peace - 40) * 2 +
+      Math.max(0, armyMorale - 70) +
+      Math.max(0, readiness - 70)
+    );
+  }
+
+  const score = Math.max(1, tierBase + qualityBonus + combinedBonus);
+  return {
+    score,
+    breakdown: {
+      stability, economy, military, diplomacy, approval, treasury,
+      outcome: outcome || null,
+      tierBase, qualityBonus, combinedBonus,
+    },
+  };
+}
+
 const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP, UKRAINE_FULL_SYMMETRY, rollExposure } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
@@ -1458,18 +1520,6 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         [JSON.stringify(newStats), gameId]
       );
 
-      // Записываем снапшот для лидерборда (score = среднее ключевых показателей)
-      const scoreKeys = ["stability", "economy", "military", "diplomacy", "approval"];
-      const scoreVals = scoreKeys.map(k => newStats[k] ?? 50);
-      const score = Math.round(scoreVals.reduce((a, b) => a + b, 0) / scoreVals.length);
-      const scoreBreakdown = Object.fromEntries(scoreKeys.map(k => [k, newStats[k] ?? 50]));
-      await client.query(
-        `INSERT INTO leaderboard_snap (game_id, turn_n, score, score_breakdown)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT DO NOTHING`,
-        [gameId, turnNumber, score, JSON.stringify(scoreBreakdown)]
-      );
-
       await client.query("COMMIT");
       await pendingTurnStore.clear(gameId);
 
@@ -1615,6 +1665,18 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         recordEvent(db, { playerId: payload.userId, eventType: "game_completed", payload: { gameId, outcome: gameOutcome, turnNumber } });
       }
       recordEvent(db, { playerId: payload.userId, eventType: "turn_submitted", payload: { gameId, turnNumber, actionMode: pendingActionMode, actionType: gmClassification.action_type } });
+
+      // Снимок для лидерборда — считаем ПОСЛЕ определения исхода, чтобы очки знали тип победы
+      // (см. computeGameScore выше).
+      {
+        const { score, breakdown } = computeGameScore(newStats, gameOutcome);
+        await client.query(
+          `INSERT INTO leaderboard_snap (game_id, turn_n, score, score_breakdown)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT DO NOTHING`,
+          [gameId, turnNumber, score, JSON.stringify(breakdown)]
+        );
+      }
 
       // --- CHANGELOG: разбивка изменений по источникам ---
       const statChangelog = {};
@@ -2468,12 +2530,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
       recordEvent(db, { playerId: payload.userId, eventType: "turn_submitted", payload: { gameId, turnNumber: completedMonth, actionMode: "end_month" } });
       // Снимок для лидерборда — раз в месяц
-      const scoreKeys = ["stability", "economy", "military", "diplomacy", "approval"];
-      const score = Math.round(scoreKeys.map(k => newStats[k] ?? 50).reduce((a, b) => a + b, 0) / scoreKeys.length);
-      await client.query(
-        `INSERT INTO leaderboard_snap (game_id, turn_n, score, score_breakdown) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-        [gameId, completedMonth, score, JSON.stringify(Object.fromEntries(scoreKeys.map(k => [k, newStats[k] ?? 50])))]
-      );
+      {
+        const { score, breakdown } = computeGameScore(newStats, gameOutcome);
+        await client.query(
+          `INSERT INTO leaderboard_snap (game_id, turn_n, score, score_breakdown) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+          [gameId, completedMonth, score, JSON.stringify(breakdown)]
+        );
+      }
       // Бюджетная сводка в ленту
       const { TREASURY_PER_TRILLION: T } = require("../rules/rules-engine"); // ₽ трлн за пункт казны
       const flowSign = monthlyNet >= 0 ? "+" : "";
