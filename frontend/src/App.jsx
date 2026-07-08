@@ -7096,22 +7096,174 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
   );
 }
 
-function RelationsTab({ state }) {
+// Виджеты Отношений — тот же паттерн, что уже обкатан в Казне (WidgetCard + масонри-раскладка +
+// drag ⋮⋮ + растягивание ⤢), применённый к странам (Петя, 2026-07-08: "предлагаю сделать такие
+// же виджеты, как в казне, но со странами — флаг, бар с текущим состоянием и статус, можно
+// увеличить, кнопка дополнительно — события и что вообще произошло между нами"). WidgetCard и
+// computeMasonryPositions — общие функции, объявлены ниже в файле, но доступны здесь благодаря
+// hoisting обычных function-деклараций.
+const RELATION_COUNTRY_ALIAS = { "КНДР": "Северная Корея" }; // seed игрока использует другое имя, чем COUNTRY_INFO
+const RELATION_BLOC_FLAG = { "ЕС": "🇪🇺", "НАТО": "🛡" }; // блоки стран — не отдельная страна в COUNTRY_INFO
+function countryFlag(name) {
+  return COUNTRY_INFO[RELATION_COUNTRY_ALIAS[name] || name]?.flag || RELATION_BLOC_FLAG[name] || "🌐";
+}
+function relationStance(value) {
+  if (value >= 60) return "cooperative";
+  if (value <= 30) return "hostile";
+  return "neutral";
+}
+const RELATION_STANCE_LABEL = { cooperative: "ДРУЖЕСТВЕННО", neutral: "НЕЙТРАЛЬНО", hostile: "ВРАЖДЕБНО" };
+const RELATION_STANCE_COLOR = { cooperative: "#7fae93", neutral: "#c8a96a", hostile: "#e09090" };
+
+// Мини-состояние виджета (92px, как в Казне) — статус + бар + значение. Полное состояние
+// добавляет заметку (r.note) и историю конкретных событий с этой страной (world_move/reaction
+// из ленты, где source === название страны) — "что вообще произошло между нами".
+function CountryWidget({ r, events, size, onExpandToggle }) {
+  const stance = relationStance(r.value);
+  const color = RELATION_STANCE_COLOR[stance];
+  const isMini = size !== "full";
   return (
-    <div style={{ display: "grid", gap: 10 }}>
-      {state.relations.map((r) => (
-        <div key={r.name} style={{ background: "#161b26", border: "1px solid #2a3040", borderRadius: 4, padding: "11px 13px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-            <span className="doc-font" style={{ fontSize: 15, fontWeight: 700, color: "#ece7d8" }}>{r.name}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <TrendIcon trend={r.trend} />
-              <span className="mono-font" style={{ fontSize: 13, fontWeight: 700, color: "#ece7d8" }}>{r.value}</span>
-            </div>
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+        <span className="mono-font" style={{ fontSize: 8, color, letterSpacing: "0.06em", background: `${color}18`, padding: "2px 6px", borderRadius: 2 }}>
+          {RELATION_STANCE_LABEL[stance]}
+        </span>
+        <TrendIcon trend={r.trend} />
+        <span className="mono-font" style={{ fontSize: 15, fontWeight: 700, color, marginLeft: "auto" }}>{r.value}</span>
+      </div>
+      <Bar value={r.value} color={color} />
+      {isMini ? (
+        <button
+          onClick={() => onExpandToggle("full")}
+          className="mono-font"
+          style={{ marginTop: 10, background: "none", border: "none", color: "#8a9aaa", fontSize: 9, letterSpacing: "0.06em", cursor: "pointer", padding: 0 }}
+        >
+          ПОДРОБНЕЕ ▾
+        </button>
+      ) : (
+        <>
+          <div className="doc-font" style={{ fontSize: 12.5, color: "#a8a294", marginTop: 8, lineHeight: 1.45 }}>{r.note}</div>
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
+            <div className="mono-font" style={{ fontSize: 8, color: "#8a9aaa", marginBottom: 6, letterSpacing: "0.06em" }}>СОБЫТИЯ, ВЛИЯЮЩИЕ НА ОТНОШЕНИЯ</div>
+            {events.length === 0 ? (
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#5a6070", fontStyle: "italic" }}>Пока не зафиксировано.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {events.slice(0, 6).map((ev, i) => (
+                  <div key={i}>
+                    <span className="mono-font" style={{ fontSize: 8, color: "#8a9aaa" }}>ХОД {ev.turn}</span>
+                    <div className="doc-font" style={{ fontSize: 12, color: "#cdd3e0", lineHeight: 1.4 }}>{ev.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <Bar value={r.value} color={r.value > 60 ? "#7fae93" : r.value > 30 ? "#9c8347" : "#e09090"} />
-          <div className="doc-font" style={{ fontSize: 12.5, color: "#a8a294", marginTop: 6, lineHeight: 1.4 }}>{r.note}</div>
-        </div>
-      ))}
+          <button
+            onClick={() => onExpandToggle("mini")}
+            className="mono-font"
+            style={{ marginTop: 10, background: "none", border: "none", color: "#8a9aaa", fontSize: 9, letterSpacing: "0.06em", cursor: "pointer", padding: 0 }}
+          >
+            СВЕРНУТЬ ▴
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RelationsTab({ state }) {
+  const relations = state.relations || [];
+  const relationIds = relations.map(r => r.name);
+
+  const [widgetOrder, setWidgetOrder] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("rp_relations_order") || "null");
+      if (Array.isArray(saved)) {
+        const known = saved.filter(id => relationIds.includes(id));
+        const missing = relationIds.filter(id => !known.includes(id));
+        return [...known, ...missing];
+      }
+    } catch {}
+    return relationIds;
+  });
+  const [widgetSizes, setWidgetSizes] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("rp_relations_size") || "null");
+      return saved && typeof saved === "object" ? saved : {};
+    } catch { return {}; }
+  });
+  const [draggedWidgetId, setDraggedWidgetId] = useState(null);
+  const [cardHeights, setCardHeights] = useState({});
+  const gridRef = useRef(null);
+  const [gridWidth, setGridWidth] = useState(1200);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect?.width;
+      if (w) setGridWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  function handleCardHeight(id, h) {
+    setCardHeights(prev => {
+      const rounded = Math.round(h);
+      if (prev[id] === rounded) return prev;
+      return { ...prev, [id]: rounded };
+    });
+  }
+  const MASONRY_COL_WIDTH = 300, MASONRY_GAP = 14;
+  const { positions: widgetPositions, height: masonryHeight } = useMemo(
+    () => computeMasonryPositions(widgetOrder, cardHeights, gridWidth, MASONRY_COL_WIDTH, MASONRY_GAP),
+    [widgetOrder, cardHeights, gridWidth]
+  );
+  function handleWidgetDrop(fromId, overId) {
+    if (!fromId || !overId || fromId === overId) { setDraggedWidgetId(null); return; }
+    const ids = [...widgetOrder];
+    const fromIdx = ids.indexOf(fromId);
+    const toIdx = ids.indexOf(overId);
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, fromId);
+    setWidgetOrder(ids);
+    localStorage.setItem("rp_relations_order", JSON.stringify(ids));
+    setDraggedWidgetId(null);
+  }
+  function setWidgetSize(id, sz) {
+    setWidgetSizes(prev => {
+      const next = { ...prev, [id]: sz };
+      localStorage.setItem("rp_relations_size", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  if (!relations.length) {
+    return <div className="doc-font" style={{ fontSize: 13, color: "#a8a294", fontStyle: "italic" }}>Отношения появятся после начала партии.</div>;
+  }
+
+  const relByName = {};
+  for (const r of relations) relByName[r.name] = r;
+
+  return (
+    <div ref={gridRef} style={{ position: "relative", height: masonryHeight || undefined, minHeight: 200 }}>
+      {widgetOrder.map(id => {
+        const r = relByName[id];
+        if (!r) return null;
+        const size = widgetSizes[id] || "mini";
+        const events = (state.newsfeed || [])
+          .filter(n => (n.type === "world_move" || n.type === "reaction") && n.source === id)
+          .slice().reverse();
+        return (
+          <WidgetCard
+            key={id} id={id} label={`${countryFlag(id)} ${id.toUpperCase()}`}
+            pos={widgetPositions[id]} onHeightChange={handleCardHeight}
+            size={size} onSizeChange={setWidgetSize}
+            draggedId={draggedWidgetId} onDragStart={setDraggedWidgetId} onDrop={handleWidgetDrop}
+          >
+            <CountryWidget r={r} events={events} size={size} onExpandToggle={(sz) => setWidgetSize(id, sz)} />
+          </WidgetCard>
+        );
+      })}
     </div>
   );
 }
