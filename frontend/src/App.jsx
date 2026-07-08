@@ -2942,6 +2942,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=PT+Serif:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        @import url('https://cdnjs.cloudflare.com/ajax/libs/flag-icons/7.2.3/css/flag-icons.min.css');
         * { box-sizing: border-box; }
         body { margin: 0; background: ${NK.pageBg}; }
         .doc-font { font-family: 'PT Serif', Georgia, serif; }
@@ -7096,15 +7097,29 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
   );
 }
 
-// Виджеты Отношений — тот же паттерн, что уже обкатан в Казне (WidgetCard + масонри-раскладка +
-// drag ⋮⋮ + растягивание ⤢), применённый к странам (Петя, 2026-07-08: "предлагаю сделать такие
-// же виджеты, как в казне, но со странами — флаг, бар с текущим состоянием и статус, можно
-// увеличить, кнопка дополнительно — события и что вообще произошло между нами"). WidgetCard и
-// computeMasonryPositions — общие функции, объявлены ниже в файле, но доступны здесь благодаря
-// hoisting обычных function-деклараций.
+// Плитки Отношений (Петя, 2026-07-08: "виджеты без флагов... нужно чтоб уменьшались до маленького
+// квадратика... при нажатии не 'развернуть', а 'подробнее' — в отдельном окне, а то виджет
+// растягивается до бесконечности"). Отказался от WidgetCard/масонри-раскладки, которая была
+// заточена под РАЗНОРАЗМЕРНЫЕ виджеты Казны — тут все плитки одного размера, масонри и
+// resize-ручка были лишними и давали то самое "растягивание". Простая CSS grid (auto-flow сам
+// расставляет по местам при смене порядка, без ручной абсолютной позиции/ResizeObserver) + одна
+// общая модалка на "подробнее" вместо инлайн-разворота.
+//
+// Эмодзи-флаги (🇺🇸 и т.п.) на Windows/Chrome рендерятся как голые буквы "US" — известное
+// ограничение шрифтов ОС (см. HANDOFF), а не баг кода. Вместо того чтобы полагаться на эмодзи-шрифт
+// ОС, используем flag-icons (CSS-спрайт, cdnjs-импорт в общем <style> App) — рисует флаг как
+// картинку, одинаково на любой ОС/браузере.
+const RELATION_ISO = {
+  "США": "us", "Украина": "ua", "Китай": "cn", "ЕС": "eu", "Турция": "tr", "Индия": "in",
+  "Германия": "de", "Франция": "fr", "Израиль": "il", "Иран": "ir", "Саудовская Аравия": "sa",
+  "Беларусь": "by", "Польша": "pl", "Великобритания": "gb", "Япония": "jp", "КНДР": "kp",
+  "Венгрия": "hu", "ОАЭ": "ae", "НАТО": null,
+};
 const RELATION_COUNTRY_ALIAS = { "КНДР": "Северная Корея" }; // seed игрока использует другое имя, чем COUNTRY_INFO
 const RELATION_BLOC_FLAG = { "ЕС": "🇪🇺", "НАТО": "🛡" }; // блоки стран — не отдельная страна в COUNTRY_INFO
-function countryFlag(name) {
+// Фоллбэк на эмодзи, если страны нет в RELATION_ISO (флаг может не отрисоваться на Windows,
+// но 🌐-заглушка — обычный пиктограф, не флаговая последовательность, рисуется везде).
+function countryFlagEmoji(name) {
   return COUNTRY_INFO[RELATION_COUNTRY_ALIAS[name] || name]?.flag || RELATION_BLOC_FLAG[name] || "🌐";
 }
 function relationStance(value) {
@@ -7114,60 +7129,98 @@ function relationStance(value) {
 }
 const RELATION_STANCE_LABEL = { cooperative: "ДРУЖЕСТВЕННО", neutral: "НЕЙТРАЛЬНО", hostile: "ВРАЖДЕБНО" };
 const RELATION_STANCE_COLOR = { cooperative: "#7fae93", neutral: "#c8a96a", hostile: "#e09090" };
+// <Modal> — общий компонент, ВСЕГДА светлое кремовое тело независимо от вкладки — свои,
+// светлые по контексту цвета (тот же принцип, что MODAL_STANCE_COLOR/BG в WorldTab).
+const MODAL_RELATION_COLOR = { cooperative: "#4a6b5c", neutral: "#7a6a3a", hostile: "#a8313a" };
+const MODAL_RELATION_BG    = { cooperative: "#f0f5f0", neutral: "#f5f1e6", hostile: "#f5f0ee" };
 
-// Мини-состояние виджета (92px, как в Казне) — статус + бар + значение. Полное состояние
-// добавляет заметку (r.note) и историю конкретных событий с этой страной (world_move/reaction
-// из ленты, где source === название страны) — "что вообще произошло между нами".
-function CountryWidget({ r, events, size, onExpandToggle }) {
+function CountryFlag({ name, size = 18 }) {
+  const iso = RELATION_ISO[name];
+  if (iso) {
+    return <span className={`fi fi-${iso}`} style={{ width: size, borderRadius: 2, flexShrink: 0, boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }} />;
+  }
+  return <span style={{ fontSize: size - 2, flexShrink: 0 }}>{countryFlagEmoji(name)}</span>;
+}
+
+// Маленькая квадратная плитка — минимум информации: флаг, название, число+тренд, бар.
+// "Подробнее" открывает модалку (CountryDetailsModal) вместо инлайн-разворота — раньше разворот
+// внутри плитки растягивал её на весь текст заметки+историю событий без ограничения высоты.
+function CountryTile({ r, onOpenDetails, onDragPointerDown, isDragging, dragOffset }) {
   const stance = relationStance(r.value);
   const color = RELATION_STANCE_COLOR[stance];
-  const isMini = size !== "full";
   return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-        <span className="mono-font" style={{ fontSize: 8, color, letterSpacing: "0.06em", background: `${color}18`, padding: "2px 6px", borderRadius: 2 }}>
-          {RELATION_STANCE_LABEL[stance]}
-        </span>
+    <div
+      data-relation-id={r.name}
+      style={{
+        position: "relative",
+        background: "linear-gradient(180deg,#242b3d 0%,#1e2433 100%)",
+        borderRadius: 12, padding: "10px 12px 8px",
+        display: "flex", flexDirection: "column", gap: 6,
+        boxShadow: isDragging ? "0 12px 30px rgba(0,0,0,0.55)" : "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)",
+        transform: isDragging && dragOffset ? `translate(${dragOffset.dx}px, ${dragOffset.dy}px) scale(1.05)` : "none",
+        zIndex: isDragging ? 50 : 1,
+        pointerEvents: isDragging ? "none" : "auto",
+        transition: isDragging ? "none" : "box-shadow 0.15s, transform 0.15s",
+      }}
+    >
+      <span
+        onPointerDown={onDragPointerDown}
+        title="Потяните за точки, чтобы переставить"
+        style={{ position: "absolute", top: 6, right: 8, color: "#5a6070", fontSize: 11, letterSpacing: 2, cursor: "grab", touchAction: "none", userSelect: "none" }}
+      >⋮⋮</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 18 }}>
+        <CountryFlag name={r.name} />
+        <span className="doc-font" style={{ fontSize: 12, fontWeight: 700, color: "#ece7d8", lineHeight: 1.25 }}>{r.name}</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <TrendIcon trend={r.trend} />
-        <span className="mono-font" style={{ fontSize: 15, fontWeight: 700, color, marginLeft: "auto" }}>{r.value}</span>
+        <span className="mono-font" style={{ fontSize: 17, fontWeight: 700, color }}>{r.value}</span>
       </div>
       <Bar value={r.value} color={color} />
-      {isMini ? (
-        <button
-          onClick={() => onExpandToggle("full")}
-          className="mono-font"
-          style={{ marginTop: 10, background: "none", border: "none", color: "#8a9aaa", fontSize: 9, letterSpacing: "0.06em", cursor: "pointer", padding: 0 }}
-        >
-          ПОДРОБНЕЕ ▾
-        </button>
-      ) : (
-        <>
-          <div className="doc-font" style={{ fontSize: 12.5, color: "#a8a294", marginTop: 8, lineHeight: 1.45 }}>{r.note}</div>
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
-            <div className="mono-font" style={{ fontSize: 8, color: "#8a9aaa", marginBottom: 6, letterSpacing: "0.06em" }}>СОБЫТИЯ, ВЛИЯЮЩИЕ НА ОТНОШЕНИЯ</div>
-            {events.length === 0 ? (
-              <div className="doc-font" style={{ fontSize: 11.5, color: "#5a6070", fontStyle: "italic" }}>Пока не зафиксировано.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 8 }}>
-                {events.slice(0, 6).map((ev, i) => (
-                  <div key={i}>
-                    <span className="mono-font" style={{ fontSize: 8, color: "#8a9aaa" }}>ХОД {ev.turn}</span>
-                    <div className="doc-font" style={{ fontSize: 12, color: "#cdd3e0", lineHeight: 1.4 }}>{ev.text}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => onExpandToggle("mini")}
-            className="mono-font"
-            style={{ marginTop: 10, background: "none", border: "none", color: "#8a9aaa", fontSize: 9, letterSpacing: "0.06em", cursor: "pointer", padding: 0 }}
-          >
-            СВЕРНУТЬ ▴
-          </button>
-        </>
-      )}
+      <button
+        onClick={onOpenDetails}
+        className="mono-font"
+        style={{ marginTop: 2, background: "none", border: "none", color: "#8a9aaa", fontSize: 8.5, letterSpacing: "0.05em", cursor: "pointer", padding: 0, textAlign: "left" }}
+      >
+        ПОДРОБНЕЕ →
+      </button>
     </div>
+  );
+}
+
+// Модалка "подробнее" — заметка об отношениях + история конкретных событий с этой страной
+// (world_move/reaction из ленты, где source === название страны). Раньше это разворачивалось
+// ВНУТРИ плитки, растягивая её на неограниченную высоту — теперь отдельное окно, плитка всегда
+// компактна.
+function CountryDetailsModal({ r, events, onClose }) {
+  const stance = relationStance(r.value);
+  const col = MODAL_RELATION_COLOR[stance];
+  return (
+    <Modal title={r.name.toUpperCase() + " · ОТНОШЕНИЯ"} onClose={onClose}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "7px 10px", background: MODAL_RELATION_BG[stance], borderRadius: 4, border: `1px solid ${col}33` }}>
+        <span className="mono-font" style={{ fontSize: 9, color: col, letterSpacing: "0.08em" }}>{RELATION_STANCE_LABEL[stance]}</span>
+        <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: col }}>{r.value}/100</span>
+        <div style={{ flex: 1, height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden" }}>
+          <div style={{ width: `${r.value}%`, height: "100%", background: col }} />
+        </div>
+      </div>
+      <div className="doc-font" style={{ fontSize: 14, lineHeight: 1.6, color: "#3a362e", marginBottom: 14 }}>{r.note}</div>
+      <div style={{ borderTop: "1px solid #d8d2bf", paddingTop: 12 }}>
+        <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8, letterSpacing: "0.06em" }}>СОБЫТИЯ, ВЛИЯЮЩИЕ НА ОТНОШЕНИЯ</div>
+        {events.length === 0 ? (
+          <div className="doc-font" style={{ fontSize: 12.5, color: "#8a8472", fontStyle: "italic" }}>Пока не зафиксировано.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {events.slice(0, 8).map((ev, i) => (
+              <div key={i}>
+                <span className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ХОД {ev.turn}</span>
+                <div className="doc-font" style={{ fontSize: 13, color: "#3a362e", lineHeight: 1.45 }}>{ev.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -7175,7 +7228,7 @@ function RelationsTab({ state }) {
   const relations = state.relations || [];
   const relationIds = relations.map(r => r.name);
 
-  const [widgetOrder, setWidgetOrder] = useState(() => {
+  const [order, setOrder] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("rp_relations_order") || "null");
       if (Array.isArray(saved)) {
@@ -7186,55 +7239,45 @@ function RelationsTab({ state }) {
     } catch {}
     return relationIds;
   });
-  const [widgetSizes, setWidgetSizes] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("rp_relations_size") || "null");
-      return saved && typeof saved === "object" ? saved : {};
-    } catch { return {}; }
-  });
-  const [draggedWidgetId, setDraggedWidgetId] = useState(null);
-  const [cardHeights, setCardHeights] = useState({});
-  const gridRef = useRef(null);
-  const [gridWidth, setGridWidth] = useState(1200);
-  useEffect(() => {
-    const el = gridRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(entries => {
-      const w = entries[0]?.contentRect?.width;
-      if (w) setGridWidth(w);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  function handleCardHeight(id, h) {
-    setCardHeights(prev => {
-      const rounded = Math.round(h);
-      if (prev[id] === rounded) return prev;
-      return { ...prev, [id]: rounded };
-    });
+  const [detailsFor, setDetailsFor] = useState(null);
+  const [draggedId, setDraggedId] = useState(null);
+  const [dragOffset, setDragOffset] = useState(null);
+
+  function handleDrop(fromId, overId) {
+    if (fromId && overId && fromId !== overId) {
+      setOrder(prev => {
+        const ids = [...prev];
+        const fromIdx = ids.indexOf(fromId);
+        const toIdx = ids.indexOf(overId);
+        ids.splice(fromIdx, 1);
+        ids.splice(toIdx, 0, fromId);
+        localStorage.setItem("rp_relations_order", JSON.stringify(ids));
+        return ids;
+      });
+    }
+    setDraggedId(null);
+    setDragOffset(null);
   }
-  const MASONRY_COL_WIDTH = 300, MASONRY_GAP = 14;
-  const { positions: widgetPositions, height: masonryHeight } = useMemo(
-    () => computeMasonryPositions(widgetOrder, cardHeights, gridWidth, MASONRY_COL_WIDTH, MASONRY_GAP),
-    [widgetOrder, cardHeights, gridWidth]
-  );
-  function handleWidgetDrop(fromId, overId) {
-    if (!fromId || !overId || fromId === overId) { setDraggedWidgetId(null); return; }
-    const ids = [...widgetOrder];
-    const fromIdx = ids.indexOf(fromId);
-    const toIdx = ids.indexOf(overId);
-    ids.splice(fromIdx, 1);
-    ids.splice(toIdx, 0, fromId);
-    setWidgetOrder(ids);
-    localStorage.setItem("rp_relations_order", JSON.stringify(ids));
-    setDraggedWidgetId(null);
-  }
-  function setWidgetSize(id, sz) {
-    setWidgetSizes(prev => {
-      const next = { ...prev, [id]: sz };
-      localStorage.setItem("rp_relations_size", JSON.stringify(next));
-      return next;
-    });
+
+  // Тот же паттерн pointer-драга, что WidgetCard (Казна) — визуально следует за курсором,
+  // цель определяется в момент отпускания через elementsFromPoint.
+  function makeDragHandler(id) {
+    return function handlePointerDown(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const startX = e.clientX, startY = e.clientY;
+      setDraggedId(id);
+      function onMove(ev) { setDragOffset({ dx: ev.clientX - startX, dy: ev.clientY - startY }); }
+      function onUp(ev) {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        const hit = document.elementsFromPoint(ev.clientX, ev.clientY)
+          .find(el => el.dataset && el.dataset.relationId && el.dataset.relationId !== id);
+        handleDrop(id, hit ? hit.dataset.relationId : null);
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    };
   }
 
   if (!relations.length) {
@@ -7244,26 +7287,29 @@ function RelationsTab({ state }) {
   const relByName = {};
   for (const r of relations) relByName[r.name] = r;
 
+  const detailsR = detailsFor ? relByName[detailsFor] : null;
+  const detailsEvents = detailsFor
+    ? (state.newsfeed || []).filter(n => (n.type === "world_move" || n.type === "reaction") && n.source === detailsFor).slice().reverse()
+    : [];
+
   return (
-    <div ref={gridRef} style={{ position: "relative", height: masonryHeight || undefined, minHeight: 200 }}>
-      {widgetOrder.map(id => {
-        const r = relByName[id];
-        if (!r) return null;
-        const size = widgetSizes[id] || "mini";
-        const events = (state.newsfeed || [])
-          .filter(n => (n.type === "world_move" || n.type === "reaction") && n.source === id)
-          .slice().reverse();
-        return (
-          <WidgetCard
-            key={id} id={id} label={`${countryFlag(id)} ${id.toUpperCase()}`}
-            pos={widgetPositions[id]} onHeightChange={handleCardHeight}
-            size={size} onSizeChange={setWidgetSize}
-            draggedId={draggedWidgetId} onDragStart={setDraggedWidgetId} onDrop={handleWidgetDrop}
-          >
-            <CountryWidget r={r} events={events} size={size} onExpandToggle={(sz) => setWidgetSize(id, sz)} />
-          </WidgetCard>
-        );
-      })}
+    <div>
+      {detailsR && <CountryDetailsModal r={detailsR} events={detailsEvents} onClose={() => setDetailsFor(null)} />}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+        {order.map(id => {
+          const r = relByName[id];
+          if (!r) return null;
+          return (
+            <CountryTile
+              key={id} r={r}
+              onOpenDetails={() => setDetailsFor(id)}
+              onDragPointerDown={makeDragHandler(id)}
+              isDragging={draggedId === id}
+              dragOffset={draggedId === id ? dragOffset : null}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
