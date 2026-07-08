@@ -2924,7 +2924,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     try {
       await client.query("BEGIN");
       const gsRes = await client.query(
-        `SELECT gs.stats, gs.relations, g.current_turn FROM game_state gs JOIN games g ON g.id = gs.game_id WHERE gs.game_id = $1 FOR UPDATE`,
+        `SELECT gs.stats, gs.relations, g.current_turn, g.language FROM game_state gs JOIN games g ON g.id = gs.game_id WHERE gs.game_id = $1 FOR UPDATE`,
         [gameId]
       );
       if (!gsRes.rowCount) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
@@ -2946,7 +2946,38 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const { resolveUkraineResponse } = require("../rules/rules-engine");
       const clamp = (v) => Math.max(0, Math.min(100, v));
       const uaSeed = `${gameId}:${turnN}:${responseType}`;
-      const { delta, outcome, outcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType, uaSeed);
+      const { delta, outcome, outcomeText: fallbackOutcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType, uaSeed);
+
+      // БАЛАНС (2026-07-08): fallbackOutcomeText — 1 из 3 захардкоженных строк на весь responseType,
+      // одинаковая для любого триггернувшего события ("отписка", по фидбеку игрока). Дельты остаются
+      // детерминированными (баланс), но сам ТЕКСТ итога теперь пишет ИИ по конкретике сработавшего
+      // действия Украины — при сбое ИИ используется тот же fallbackOutcomeText, как и раньше.
+      let outcomeText = fallbackOutcomeText;
+      try {
+        const actionRes = await client.query(
+          `SELECT source, text, reactions FROM newsfeed_items WHERE game_id = $1 AND turn_n = $2 AND item_type = 'ukraine_action' ORDER BY id DESC LIMIT 1`,
+          [gameId, turnN]
+        );
+        if (actionRes.rowCount) {
+          const { generateUkraineResponseOutcome } = require("../ai/ukraine-response-outcome");
+          const actionRow = actionRes.rows[0];
+          const category = actionRow.reactions?.type;
+          const aiText = await generateUkraineResponseOutcome({
+            params: {
+              actionTitle: (actionRow.source || "").replace(/^Украина\s*·\s*/, ""),
+              actionText: actionRow.text,
+              categoryLabel: UA_CATEGORY_LABELS[category] || null,
+              responseType, outcome, statDelta: delta,
+              language: gsRes.rows[0].language,
+            },
+            callClaudeApi,
+            meta: { gameId, playerId: payload.userId, purpose: "ukraine_response_outcome" },
+          });
+          if (aiText) outcomeText = aiText;
+        }
+      } catch (e) {
+        fastify.log.error({ err: e }, "ukraine response outcome AI generation failed, using fallback text");
+      }
       for (const [k, v] of Object.entries(delta)) {
         if (k === "peace_progress") {
           newStats.peace_progress = Math.max(0, Math.min(100, (newStats.peace_progress ?? 0) + v));

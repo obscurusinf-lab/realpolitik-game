@@ -450,18 +450,36 @@ ${historyLines || "(история пуста)"}
 
   // ---------- POST /games/:gameId/world-response ----------
   // Применяет небольшой стат-эффект от выбранной дипломатической реакции игрока
+  // БАЛАНС (2026-07-08): раньше roll был Math.random() (единственное такое место в проекте —
+  // нарушало собственный принцип детерминизма, см. комментарий у resolveUkraineResponse в
+  // rules-engine.js) и не возвращал НИКАКОГО текста итога — только generic-лейбл ("Дипломатический
+  // успех"/"Осложнение отношений"). По фидбеку игрока ("ответы выглядят как отписка") — тот же
+  // рецепт, что уже применён к ответам на действия Украины: seededFraction вместо Math.random(),
+  // + контекстный ИИ-нарратив итога (см. ai/world-response-outcome.js), + идемпотентность по
+  // (turnN, source), которой раньше не было вовсе.
   fastify.post("/games/:gameId/world-response", async (request, reply) => {
     const { gameId } = request.params;
     const payload = verifyToken(request, reply);
     if (!payload) return;
-    const { responseType, source } = request.body || {};
+    const { responseType, source, turnN, reactionText } = request.body || {};
     // responseType: "cooperate" | "deescalate" | "confront" | "ignore"
 
-    const gsRes = await db.query(`SELECT stats FROM game_state WHERE game_id = $1`, [gameId]);
+    const gsRes = await db.query(
+      `SELECT gs.stats, g.language FROM game_state gs JOIN games g ON g.id = gs.game_id WHERE gs.game_id = $1`,
+      [gameId]
+    );
     if (gsRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
 
     const stats = { ...gsRes.rows[0].stats };
-    const roll = Math.random();
+    const responded = stats.world_responses || {};
+    const respondedKey = turnN != null && source ? `${turnN}:${source}` : null;
+    if (respondedKey && responded[respondedKey]) {
+      return reply.code(409).send({ error: "На эту реакцию уже был дан ответ" });
+    }
+
+    const { seededFraction } = require("../rules/rules-engine");
+    const seed = `${gameId}:${respondedKey || `${source}:${Object.keys(responded).length}`}:${responseType}`;
+    const roll = seededFraction(`${seed}:worldResponse`);
     let delta = {};
     let outcome = "neutral";
 
@@ -496,9 +514,36 @@ ${historyLines || "(история пуста)"}
       }
     }
 
+    if (respondedKey) {
+      stats.world_responses = { ...responded, [respondedKey]: responseType };
+    }
+
+    let outcomeText = null;
+    if (source && reactionText) {
+      try {
+        const { generateWorldResponseOutcome } = require("../ai/world-response-outcome");
+        outcomeText = await generateWorldResponseOutcome({
+          params: { source, reactionText, responseType, outcome, statDelta: delta, language: gsRes.rows[0].language },
+          callClaudeApi,
+          meta: { gameId, playerId: payload.userId, purpose: "world_response_outcome" },
+        });
+      } catch (e) {
+        fastify.log.error({ err: e }, "world response outcome AI generation failed");
+      }
+    }
+
     await db.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
 
-    return reply.send({ ok: true, delta, outcome });
+    if (outcomeText) {
+      const currentTurnRes = await db.query(`SELECT current_turn FROM games WHERE id = $1`, [gameId]);
+      const currentTurn = currentTurnRes.rows[0]?.current_turn ?? turnN ?? 0;
+      await db.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        [gameId, currentTurn, "МИД", `Ответ на позицию ${source} (ход ${turnN ?? currentTurn}): ${outcomeText}`]
+      );
+    }
+
+    return reply.send({ ok: true, delta, outcome, outcomeText });
   });
 
   // ---------- POST /games/:gameId/ukraine-response ----------
@@ -522,7 +567,7 @@ ${historyLines || "(история пуста)"}
     try {
       await client.query("BEGIN");
       const gsRes = await client.query(
-        `SELECT gs.stats, g.current_turn FROM game_state gs JOIN games g ON g.id = gs.game_id WHERE gs.game_id = $1 FOR UPDATE`,
+        `SELECT gs.stats, g.current_turn, g.language FROM game_state gs JOIN games g ON g.id = gs.game_id WHERE gs.game_id = $1 FOR UPDATE`,
         [gameId]
       );
       if (gsRes.rowCount === 0) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
@@ -537,7 +582,39 @@ ${historyLines || "(история пуста)"}
       // turnN может отсутствовать у старых фронтендов — подстраховываемся числом уже
       // записанных ответов, чтобы сид всё равно был уникален для этой партии/попытки.
       const uaSeed = `${gameId}:${turnN ?? Object.keys(responded).length}:${responseType}`;
-      const { delta, outcome, outcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType, uaSeed);
+      const { delta, outcome, outcomeText: fallbackOutcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType, uaSeed);
+
+      // БАЛАНС (2026-07-08): тот же контекстный ИИ-нарратив итога, что и в дублирующем пути
+      // backend/src/routes/turns.js (POST /turns/ukraine/respond) — см. комментарий там же.
+      let outcomeText = fallbackOutcomeText;
+      if (turnN != null) {
+        try {
+          const actionRes = await client.query(
+            `SELECT source, text, reactions FROM newsfeed_items WHERE game_id = $1 AND turn_n = $2 AND item_type = 'ukraine_action' ORDER BY id DESC LIMIT 1`,
+            [gameId, turnN]
+          );
+          if (actionRes.rowCount) {
+            const { generateUkraineResponseOutcome } = require("../ai/ukraine-response-outcome");
+            const { UA_CATEGORY_LABELS } = require("../rules/ukraine-rules-engine");
+            const actionRow = actionRes.rows[0];
+            const category = actionRow.reactions?.type;
+            const aiText = await generateUkraineResponseOutcome({
+              params: {
+                actionTitle: (actionRow.source || "").replace(/^Украина\s*·\s*/, ""),
+                actionText: actionRow.text,
+                categoryLabel: UA_CATEGORY_LABELS[category] || null,
+                responseType, outcome, statDelta: delta,
+                language: gsRes.rows[0].language,
+              },
+              callClaudeApi,
+              meta: { gameId, playerId: payload.userId, purpose: "ukraine_response_outcome" },
+            });
+            if (aiText) outcomeText = aiText;
+          }
+        } catch (e) {
+          fastify.log.error({ err: e }, "ukraine response outcome AI generation failed, using fallback text");
+        }
+      }
 
       for (const [k, v] of Object.entries(delta)) {
         if (k === "peace_progress") {

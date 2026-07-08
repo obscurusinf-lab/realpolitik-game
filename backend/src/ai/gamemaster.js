@@ -73,13 +73,13 @@ function stripMarkdownFences(text) {
   return text.replace(/```json\s*|\s*```/g, "").trim();
 }
 
-// БАЛАНС СТОИМОСТИ (2026-07-06, Петя — расход Anthropic API): classifyTurn раньше ВСЕГДА шёл
-// через Sonnet, самую дорогую модель в проекте, на каждый ход без исключений — единственное
-// такое место (советники/действия Украины/generateWorldUpdate уже на Haiku, кроме редкого
-// ядерного удара). Выбрано гибридное решение: decree_fast (частые повседневные указы, самый
-// дешёвый и "неответственный" тир) — на Haiku; всё остальное (decree_reform/program, military,
-// diplomacy_op, intel, crisis — редкие и важные решения) — по-прежнему на Sonnet.
-const HAIKU_ACTION_MODES = new Set(["decree_fast"]);
+// БАЛАНС СТОИМОСТИ (2026-07-08, Петя — расход Anthropic API растёт, дашборд показывает Sonnet
+// как основной источник токенов): предыдущий шаг (2026-07-06) перевёл на Haiku только decree_fast,
+// оставив 6 из 7 режимов на Sonnet — этого оказалось мало, classifyTurn всё ещё доминирует по
+// расходу, так как срабатывает на КАЖДЫЙ ход игрока. Переводим на Haiku всё, кроме двух режимов
+// с реально высокой ставкой на нарратив (military — исход боевых действий/территория, crisis —
+// редкие переломные события) — они остаются на Sonnet ради качества именно в этих двух случаях.
+const HAIKU_ACTION_MODES = new Set(["decree_fast", "decree_reform", "decree_program", "intel", "diplomacy_op"]);
 function selectModel(actionMode) {
   return HAIKU_ACTION_MODES.has(actionMode) ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
 }

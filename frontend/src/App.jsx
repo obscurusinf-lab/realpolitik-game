@@ -676,10 +676,10 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId, gameSt
     if (choosing) return;
     setChoosing(true);
     try {
-      const result = await sendWorldResponse(gameId, responseType, reaction?.source);
-      setEffectResult({ delta: result.delta || {}, outcome: result.outcome || "neutral", responseType });
+      const result = await sendWorldResponse(gameId, responseType, reaction?.source, reaction?.turn, reaction?.text);
+      setEffectResult({ delta: result.delta || {}, outcome: result.outcome || "neutral", outcomeText: result.outcomeText || "", responseType });
     } catch {
-      setEffectResult({ delta: {}, outcome: "neutral", responseType });
+      setEffectResult({ delta: {}, outcome: "neutral", outcomeText: "", responseType });
     }
   }
 
@@ -725,6 +725,9 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId, gameSt
           return (
             <div style={{ background: "#1a2010", border: `1px solid ${out.color}`, borderRadius: 6, padding: "14px 16px", marginBottom: 16 }}>
               <div className="mono-font" style={{ fontSize: 9, color: out.color, marginBottom: 8, letterSpacing: "0.1em" }}>{out.text}</div>
+              {effectResult.outcomeText && (
+                <div className="doc-font" style={{ fontSize: 13, color: "#c0d0b0", lineHeight: 1.55, marginBottom: 8 }}>{effectResult.outcomeText}</div>
+              )}
               {deltas.length > 0 ? (
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {deltas.map(([k, v]) => (

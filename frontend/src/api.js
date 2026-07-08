@@ -262,13 +262,13 @@ export async function sendUkraineResponse(gameId, responseType, actionType, turn
   return res.json();
 }
 
-export async function sendWorldResponse(gameId, responseType, source) {
+export async function sendWorldResponse(gameId, responseType, source, turnN, reactionText) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/world-response`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-    body: JSON.stringify({ responseType, source }),
+    body: JSON.stringify({ responseType, source, turnN, reactionText }),
   }, 8000);
-  if (!res.ok) return { ok: false, delta: {}, outcome: "neutral" };
+  if (!res.ok) return { ok: false, delta: {}, outcome: "neutral", outcomeText: "" };
   return res.json();
 }
 
