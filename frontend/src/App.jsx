@@ -2743,6 +2743,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     }
   }
 
+  // useIsMobile/useRawIsMobile ДОЛЖНЫ вызываться до любых early return — иначе на первом
+  // рендере (loaded=false, ранний возврат) хуков вызывается меньше, чем на следующем
+  // (loaded=true, доходит досюда), что нарушает Rules of Hooks ("Rendered more hooks than
+  // during the previous render") и роняет всё приложение в белый экран без ErrorBoundary.
+  const isMobile = useIsMobile();
+  const rawMobile = useRawIsMobile();
+
   if (!loaded) return <CenteredMessage text="Загрузка партии…" />;
   if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
 
@@ -2881,8 +2888,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }
 
   const isNuclearWorld = (state.newsfeed || []).some(n => n.type === "nuclear_reaction");
-  const isMobile = useIsMobile();
-  const rawMobile = useRawIsMobile();
   const NK = isNuclearWorld ? {
     pageBg: "#0d0505",
     headerBg: "linear-gradient(180deg,#120303 0%,#1a0505 100%)",
