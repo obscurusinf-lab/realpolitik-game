@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { createGame, deleteGame, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
-import { t, getLang, LangToggle, useLang } from "./i18n";
+import { t, getLang, LangToggle, useLang, useForceDesktop, DesktopViewToggle } from "./i18n";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://realpolitik-game-production.up.railway.app";
 
@@ -162,6 +162,13 @@ const GAME_SLOT_LIMIT = 5;
 
 function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onAdminOpen, onLogout, onLeaderboard }) {
   useLang(); // ре-рендер экрана при переключении RU/EN (сам t() — не хук, читает currentLang напрямую)
+  const forceDesktop = useForceDesktop(); // "Обычная версия" — форсирует показ .news-panel ниже 900px
+  const [rawMobile, setRawMobile] = useState(() => window.innerWidth < 600);
+  useEffect(() => {
+    const fn = () => setRawMobile(window.innerWidth < 600);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
   const [showFeedback, setShowFeedback] = useState(false);
   // auth form state
   const [authMode, setAuthMode] = useState("login"); // "login" | "register"
@@ -265,10 +272,14 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
         .c-card.selected { border-color: #9c8347 !important; background: #1a2a1a !important; }
         .news-panel { display: none !important; }
         @media(min-width: 900px) { .news-panel { display: block !important; } }
+        ${forceDesktop ? ".news-panel { display: block !important; }" : ""}
       `}</style>
 
       <div style={{ background: "linear-gradient(180deg,#0f1318 0%,#1a1f2c 100%)", borderBottom: "2px solid #9c8347", padding: "32px 20px 24px", textAlign: "center", position: "relative" }}>
-        <LangToggle style={{ position: "absolute", top: 16, right: 16 }} />
+        <div style={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 8 }}>
+          {rawMobile && <DesktopViewToggle />}
+          <LangToggle />
+        </div>
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 10 }}>{t("brand.classified")}</div>
         <h1 className="doc-font" style={{ margin: "0 0 6px", fontSize: 36, fontWeight: 700, letterSpacing: "0.04em" }}>REALPOLITIK</h1>
         <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", letterSpacing: "0.08em" }}>{t("brand.tagline")}</div>

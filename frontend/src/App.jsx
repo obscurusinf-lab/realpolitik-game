@@ -3,7 +3,7 @@ import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp,
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame, updateGameLanguage } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
-import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc } from "./i18n";
+import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
 // БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
 // буквально Парфенон), потом Castle (обычная западная крепость) — Петя прислал фото Спасской
@@ -2882,6 +2882,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const isNuclearWorld = (state.newsfeed || []).some(n => n.type === "nuclear_reaction");
   const isMobile = useIsMobile();
+  const rawMobile = useRawIsMobile();
   const NK = isNuclearWorld ? {
     pageBg: "#0d0505",
     headerBg: "linear-gradient(180deg,#120303 0%,#1a0505 100%)",
@@ -3000,6 +3001,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 {t("app.new_game_button")}
               </button>
             )}
+            {rawMobile && <DesktopViewToggle />}
           </div>
         </div>
       </div>
@@ -3730,7 +3732,7 @@ function WelcomeModal({ state, playerName, assistMode, onClose, onOpenWiki }) {
               {playerName || t("welcome.default_title")}
             </div>
             <div className="doc-font" style={{ fontSize: 13.5, color: "#a8a294", lineHeight: 1.6 }}>
-              {t("welcome.dossier_text", { country: countryDisplay })}
+              {t("welcome.dossier_text", { country: getLang() === "en" ? countryDisplay : countryAcc })}
             </div>
           </div>
 
@@ -4638,7 +4640,9 @@ function detectNuclearStrike(state) {
   return { coords: null, city: null };
 }
 
-function useIsMobile() {
+// Реальная ширина экрана, без учёта ручного переключателя "Обычная версия" ниже — нужна
+// отдельно, чтобы решить, показывать ли саму кнопку переключения (на десктопе она бессмысленна).
+function useRawIsMobile() {
   const [mobile, setMobile] = useState(() => window.innerWidth < 600);
   useEffect(() => {
     const fn = () => setMobile(window.innerWidth < 600);
@@ -4646,6 +4650,14 @@ function useIsMobile() {
     return () => window.removeEventListener("resize", fn);
   }, []);
   return mobile;
+}
+
+// isMobile для раскладки — учитывает ручной форс "Обычная версия" (Петя, 2026-07-09: "нужна
+// кнопка чтоб переключиться на обычную в мобильной") поверх реальной ширины экрана.
+function useIsMobile() {
+  const raw = useRawIsMobile();
+  const forced = useForceDesktop();
+  return forced ? false : raw;
 }
 
 function MapTab({ state }) {

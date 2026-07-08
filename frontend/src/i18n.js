@@ -114,6 +114,8 @@ const RU = {
   "app.bug_button": "🐞 БАГ",
   "app.new_game_button": "НОВАЯ ПАРТИЯ",
   "app.new_game_confirm": "Начать новую партию? Текущий прогресс останется в базе.",
+  "app.desktop_view_button": "🖥 ОБЫЧНАЯ ВЕРСИЯ",
+  "app.mobile_view_button": "📱 МОБИЛЬНАЯ ВЕРСИЯ",
   "tab.overview": "Обстановка",
   "tab.kremlin": "Башни Кремля",
   "tab.treasury": "💰 Казна",
@@ -679,6 +681,8 @@ const EN = {
   "app.bug_button": "🐞 BUG",
   "app.new_game_button": "NEW GAME",
   "app.new_game_confirm": "Start a new game? Your current progress will stay saved.",
+  "app.desktop_view_button": "🖥 DESKTOP VIEW",
+  "app.mobile_view_button": "📱 MOBILE VIEW",
   "tab.overview": "Overview",
   "tab.kremlin": "Kremlin Towers",
   "tab.treasury": "💰 Treasury",
@@ -1235,6 +1239,63 @@ export function LangToggle({ style } = {}) {
         l.toUpperCase()
       )
     )
+  );
+}
+
+// Ручное переключение мобильный/обычный вид (Петя, 2026-07-09: "нужна кнопка чтоб переключиться
+// на обычную [версию] в мобильной"). Тот же пилюля-паттерн pub-sub, что и currentLang выше —
+// модульная переменная + localStorage, не React state, чтобы читаться и из useIsMobile() (App.jsx),
+// и из разметки старта (main.jsx, класс "force-desktop" для CSS, скрывающего .news-panel до
+// 900px). saved=true — форсируем "обычный" вид независимо от реальной ширины экрана.
+function readInitialForceDesktop() {
+  try {
+    return localStorage.getItem("rp_force_desktop") === "1";
+  } catch {
+    return false;
+  }
+}
+
+let forceDesktop = readInitialForceDesktop();
+const desktopSubscribers = new Set();
+
+export function getForceDesktop() {
+  return forceDesktop;
+}
+
+export function setForceDesktop(next) {
+  const val = !!next;
+  if (val === forceDesktop) return;
+  forceDesktop = val;
+  try { localStorage.setItem("rp_force_desktop", val ? "1" : "0"); } catch {}
+  desktopSubscribers.forEach((fn) => fn(val));
+}
+
+export function useForceDesktop() {
+  const [val, setVal] = useState(forceDesktop);
+  useEffect(() => {
+    const fn = (next) => setVal(next);
+    desktopSubscribers.add(fn);
+    return () => desktopSubscribers.delete(fn);
+  }, []);
+  return val;
+}
+
+// Кнопка "Обычная версия"/"Мобильная версия" — переключает forceDesktop. Показывается только
+// когда реальная ширина экрана и так узкая (иначе бессмысленна на десктопе), решает сам вызывающий
+// компонент (App.jsx шапка / main.jsx старт) — сюда просто передают текущее mobile-состояние.
+export function DesktopViewToggle({ style } = {}) {
+  const forced = useForceDesktop();
+  return React.createElement(
+    "button",
+    {
+      onClick: () => setForceDesktop(!forced),
+      style: {
+        background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070",
+        fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer",
+        ...style,
+      },
+    },
+    forced ? t("app.mobile_view_button") : t("app.desktop_view_button")
   );
 }
 
