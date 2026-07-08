@@ -4987,7 +4987,7 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
                     <div key={s.key}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                         <div>
-                          <span className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{s.label}</span>
+                          <span className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#3a362e" }}>{s.label}</span>
                           <span className="doc-font" style={{ fontSize: 11, color: "#8a8472", marginLeft: 6 }}>{s.desc}</span>
                         </div>
                         <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color }}>
@@ -6037,7 +6037,7 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
               этой информации не было вообще, был только "effect_stats" (косметическое "при успехе
               вырастут", ничего не значащее численно) и cancel_penalty (что будет ПРИ ОТМЕНЕ). Игрок
               не мог увидеть, что политика ПРЯМО СЕЙЧАС даёт доход и/или тянет вниз одобрение. */}
-          {!isCancelled && (Number(policy.budget_income) || Number(policy.budget_upkeep) || Number(policy.approval_upkeep)) && (
+          {!isCancelled && Boolean(Number(policy.budget_income) || Number(policy.budget_upkeep) || Number(policy.approval_upkeep)) && (
             <div style={{ background: "#e8e4d4", border: "1px solid #9c8347", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
               <div className="mono-font" style={{ fontSize: 8, color: "#7a6a30", marginBottom: 5 }}>ПОКА ДЕЙСТВУЕТ (каждый месяц)</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 12px" }}>
@@ -7717,16 +7717,18 @@ function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, dragge
       transition: isDragging ? "none" : "left 0.25s ease, top 0.25s ease, width 0.25s ease, box-shadow 0.15s, transform 0.15s",
     }}>
       <div
-        onPointerDown={handleHeaderPointerDown}
-        title="Потяните за эту область, чтобы переставить виджет"
         className="mono-font"
         style={{
-          fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", cursor: "grab", userSelect: "none", touchAction: "none",
+          fontSize: 9, letterSpacing: "0.12em", color: "#8a8472", userSelect: "none",
           padding: "10px 16px 8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between",
         }}
       >
         <span>{label}</span>
-        <span style={{ color: "#5a6070", fontSize: 13, letterSpacing: 2 }}>⋮⋮</span>
+        <span
+          onPointerDown={handleHeaderPointerDown}
+          title="Потяните за точки, чтобы переставить виджет"
+          style={{ color: "#5a6070", fontSize: 13, letterSpacing: 2, cursor: "grab", touchAction: "none", padding: "2px 6px" }}
+        >⋮⋮</span>
       </div>
       <div style={{ padding: "0 16px 14px 16px" }}>
         <div ref={bodyRef} style={{ height: dragPreviewHeight != null ? dragPreviewHeight : (isMini ? MINI_HEIGHT : "auto"), overflow: "hidden" }}>
@@ -8871,6 +8873,17 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
         const meta = isWorldMove ? WORLD_MOVE_STANCE_STYLE[stance] : (NEWSFEED_TYPE[item.type] || NEWSFEED_TYPE.news);
         const analystNote = isWorldMove ? item.reactions?.[0] : null;
         const moveDelta = analystNote?.stat_delta || {};
+        // Обычные "news"-события (антикоррупция/ЦБ/ОФЗ и т.п.) тоже могут нести структурированный
+        // stat_delta (Петя, 2026-07-08: "по идее когда разворачиваешь — должна быть инфа о влиянии
+        // на статистику" — раньше числа были зашиты только в прозу, без чипов). Хранится как одна
+        // запись {stat_delta} внутри массива reactions — отфильтровываем её из списка КОММЕНТАРИЕВ,
+        // чтобы не рендерить как пустой комментарий без user/text.
+        const newsStatDelta = (!isWorldMove && Array.isArray(item.reactions))
+          ? item.reactions.find(r => r.stat_delta)?.stat_delta
+          : null;
+        const comments = (!isWorldMove && Array.isArray(item.reactions))
+          ? item.reactions.filter(r => !r.stat_delta)
+          : [];
         return (
           <div key={i} style={{
             background: isWorldMove ? meta.bg : "#f5f1e6",
@@ -8891,12 +8904,19 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
                 toggleColor={isWorldMove ? meta.toggle : "#8a8472"}
               />
               {isWorldMove && <StatDeltaBadges delta={moveDelta} />}
+              {!isWorldMove && newsStatDelta && Object.keys(newsStatDelta).length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+                  {Object.entries(newsStatDelta).filter(([, d]) => d !== 0).map(([stat, delta]) => (
+                    <LogDeltaChip key={stat} stat={stat} delta={delta} />
+                  ))}
+                </div>
+              )}
             </div>
-            {!isWorldMove && Array.isArray(item.reactions) && item.reactions.length > 0 && (
+            {!isWorldMove && comments.length > 0 && (
               <div style={{ background: "#ebe5d4", padding: "8px 13px 10px" }}>
                 <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 6, letterSpacing: "0.05em" }}>КОММЕНТАРИИ</div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  {item.reactions.map((r, j) => (
+                  {comments.map((r, j) => (
                     <div key={j} style={{ display: "flex", gap: 7, alignItems: "flex-start" }}>
                       <span style={{ width: 6, height: 6, borderRadius: "50%", marginTop: 5, flexShrink: 0, background: r.tone === "pos" ? "#4a6b5c" : r.tone === "neg" ? "#a8313a" : "#8c6b3a" }} />
                       <div>

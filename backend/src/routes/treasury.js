@@ -116,12 +116,13 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       const monthlyCost = ofzTotalMonthlyCost(newStats.ofz_count, newStats.key_rate);
 
       await client.query(
-        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,$5)`,
         [gameId, game.current_turn + 1, "Минфин",
          `Размещён выпуск ОФЗ на ₽${(gain * T).toFixed(1)} трлн — казна пополнена на ${gain} пунктов. ` +
          `Активных выпусков: ${newStats.ofz_count}/${OFZ_MAX_COUNT}. ` +
          `Обслуживание долга: −${monthlyCost} пунктов/мес. при текущей ставке ЦБ ${newStats.key_rate ?? 18.5}% (≈₽${(monthlyCost * T).toFixed(1)} трлн). ` +
-         `Инфляционное давление +0.5.`]
+         `Инфляционное давление +0.5.`,
+         JSON.stringify([{ stat_delta: { treasury: gain, inflation: 0.5 } }])]
       );
 
       await client.query("COMMIT");
@@ -180,11 +181,12 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       const { TREASURY_PER_TRILLION: T } = require("../rules/rules-engine");
       const newMonthlyCost = ofzTotalMonthlyCost(newStats.ofz_count, newStats.key_rate);
       await client.query(
-        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,$5)`,
         [gameId, game.current_turn + 1, "Минфин",
          `Погашен 1 выпуск ОФЗ — казна сократилась на ${OFZ_REPAY_COST} пунктов (≈₽${(OFZ_REPAY_COST * T).toFixed(1)} трлн, с премией за досрочный выкуп). ` +
          `Осталось активных выпусков: ${newStats.ofz_count}/${OFZ_MAX_COUNT}. ` +
-         `Ежемесячное обслуживание снижено до ${newMonthlyCost} пунктов/мес. Инфляционное давление −0.3.`]
+         `Ежемесячное обслуживание снижено до ${newMonthlyCost} пунктов/мес. Инфляционное давление −0.3.`,
+         JSON.stringify([{ stat_delta: { treasury: -OFZ_REPAY_COST, inflation: -0.3 } }])]
       );
 
       await client.query("COMMIT");
@@ -250,10 +252,11 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
 
       const { TREASURY_PER_TRILLION: T } = require("../rules/rules-engine");
       await client.query(
-        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,$5)`,
         [gameId, game.current_turn + 1, "Минфин",
          `ФНБ распечатан: ${RESERVES_CONVERT_AMOUNT} пунктов резервов конвертированы в казну (≈₽${(RESERVES_CONVERT_AMOUNT * T).toFixed(1)} трлн). ` +
-         `Остаток резервов: ${newStats.reserves}. Расширение денежной массы слегка подтолкнуло инфляцию (+0.3).`]
+         `Остаток резервов: ${newStats.reserves}. Расширение денежной массы слегка подтолкнуло инфляцию (+0.3).`,
+         JSON.stringify([{ stat_delta: { treasury: RESERVES_CONVERT_AMOUNT, reserves: -RESERVES_CONVERT_AMOUNT, inflation: 0.3 } }])]
       );
 
       await client.query("COMMIT");
@@ -348,10 +351,11 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       if (leaked) {
         newStats.isolation = Math.min(100, (newStats.isolation ?? 68) + 3);
         await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,$5)`,
           [gameId, game.current_turn + 1, "Reuters",
            `Источники в Кремле сообщают о прямом вмешательстве президента в решение ЦБ по ключевой ставке. ` +
-           `Западные партнёры расценивают это как подрыв независимости регулятора. Изоляция России усилилась.`]
+           `Западные партнёры расценивают это как подрыв независимости регулятора. Изоляция России усилилась.`,
+           JSON.stringify([{ stat_delta: { isolation: 3 } }])]
         );
       }
 
@@ -430,9 +434,12 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
         : `Новый глава известен жёсткой антиинфляционной позицией. Ставка повышена до ${newStats.key_rate}%. Эффект: сдерживание инфляции. Риск: замедление экономики.`;
 
       await client.query(
-        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,$5)`,
         [gameId, game.current_turn + 1, "Кремль",
-         `Указом президента назначен новый председатель Центрального банка — ${headName} (${typeLabel}). ${policyLabel}`]
+         `Указом президента назначен новый председатель Центрального банка — ${headName} (${typeLabel}). ${policyLabel}`,
+         JSON.stringify([{ stat_delta: type === "soft"
+           ? { approval: 3, elite_satisfaction: 2 }
+           : { inflation: -2 } }])]
       );
 
       await client.query("COMMIT");
@@ -508,9 +515,19 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
         ? `Громкие аресты в рамках антикоррупционной кампании попали на федеральные каналы — общество одобряет жёсткость. Коррупция: ${corrBefore}→${newStats.corruption}. Часть элит затаила обиду.`
         : `Антикоррупционная кампания: проведены проверки и аресты в нескольких ведомствах. Коррупция снижена с ${corrBefore} до ${newStats.corruption}. Часть элитных кругов недовольна вмешательством.`;
 
+      // БАЛАНС (2026-07-08): раньше stat_delta нигде не сохранялся для этой новости — игрок видел
+      // только числа, зашитые в прозу ("Коррупция: 57→47"), без структурированных чипов (как у
+      // ukraine_action/world_move). Дельты уже посчитаны выше — просто прикладываем их к записи.
+      const anticorrStatDelta = {};
+      const corrDeltaVal = newStats.corruption - corrBefore;
+      if (corrDeltaVal !== 0) anticorrStatDelta.corruption = corrDeltaVal;
+      if (eliteDelta) anticorrStatDelta.elite_satisfaction = eliteDelta;
+      if (approvalDelta) anticorrStatDelta.approval = approvalDelta;
+      if (stabilityDelta) anticorrStatDelta.stability = stabilityDelta;
+
       await client.query(
-        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
-        [gameId, game.current_turn + 1, "Генпрокуратура", newsText]
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,$5)`,
+        [gameId, game.current_turn + 1, "Генпрокуратура", newsText, JSON.stringify([{ stat_delta: anticorrStatDelta }])]
       );
 
       await client.query("COMMIT");
