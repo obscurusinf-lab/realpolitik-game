@@ -480,12 +480,26 @@ ${historyLines || "(история пуста)"}
   // рецепт, что уже применён к ответам на действия Украины: seededFraction вместо Math.random(),
   // + контекстный ИИ-нарратив итога (см. ai/world-response-outcome.js), + идемпотентность по
   // (turnN, source), которой раньше не было вовсе.
+  const WORLD_RESPONSE_TYPES = new Set(["cooperate", "deescalate", "confront", "ignore"]);
   fastify.post("/games/:gameId/world-response", async (request, reply) => {
     const { gameId } = request.params;
     const payload = verifyToken(request, reply);
     if (!payload) return;
     const { responseType, source, turnN, reactionText } = request.body || {};
     // responseType: "cooperate" | "deescalate" | "confront" | "ignore"
+    // БЕЗОПАСНОСТЬ (2026-07-08): turnN/source раньше были опциональны — без них respondedKey
+    // становился null, проверка "уже отвечено" и запись в stats.world_responses ПОЛНОСТЬЮ
+    // пропускались (см. код ниже, было `if (respondedKey) ...`). Игрок, знающий API, мог слать
+    // один и тот же запрос без turnN/source сколько угодно раз и бесплатно копить дипломатию/
+    // экономику/одобрение без ограничений — эксплойт, ломающий честность лидерборда. Теперь оба
+    // поля обязательны, а responseType валидируется явным списком (было — что угодно шло прямо
+    // в resolveUkraineResponse-подобную логику ниже, никакого allowlist).
+    if (turnN == null || !source) {
+      return reply.code(400).send({ error: "turnN and source are required" });
+    }
+    if (!WORLD_RESPONSE_TYPES.has(responseType)) {
+      return reply.code(400).send({ error: "Invalid responseType" });
+    }
 
     const gsRes = await db.query(
       `SELECT gs.stats, g.language FROM game_state gs JOIN games g ON g.id = gs.game_id WHERE gs.game_id = $1`,
@@ -495,13 +509,13 @@ ${historyLines || "(история пуста)"}
 
     const stats = { ...gsRes.rows[0].stats };
     const responded = stats.world_responses || {};
-    const respondedKey = turnN != null && source ? `${turnN}:${source}` : null;
-    if (respondedKey && responded[respondedKey]) {
+    const respondedKey = `${turnN}:${source}`;
+    if (responded[respondedKey]) {
       return reply.code(409).send({ error: "На эту реакцию уже был дан ответ" });
     }
 
     const { seededFraction } = require("../rules/rules-engine");
-    const seed = `${gameId}:${respondedKey || `${source}:${Object.keys(responded).length}`}:${responseType}`;
+    const seed = `${gameId}:${respondedKey}:${responseType}`;
     const roll = seededFraction(`${seed}:worldResponse`);
     let delta = {};
     let outcome = "neutral";
@@ -537,9 +551,7 @@ ${historyLines || "(история пуста)"}
       }
     }
 
-    if (respondedKey) {
-      stats.world_responses = { ...responded, [respondedKey]: responseType };
-    }
+    stats.world_responses = { ...responded, [respondedKey]: responseType };
 
     let outcomeText = null;
     if (source && reactionText) {
@@ -574,15 +586,24 @@ ${historyLines || "(история пуста)"}
   // БАЛАНС (2026-07-04): раньше эта таблица дублировала (с расхождениями) отдельную таблицу в
   // backend/src/routes/turns.js (POST /turns/ukraine/respond) — теперь оба пути используют
   // resolveUkraineResponse() из rules-engine.js, единственный источник истины. Заодно добавлены
-  // цена инициативы и риск war_escalation_counter при "retaliate" — раньше этот путь (полноэкранный
-  // UkraineResponseScreen) был безопаснее инлайн-карточки в Ленте для ОДНОГО и того же решения;
-  // и идемпотентность по turnN (turns.js её уже имел, этот путь — нет: без нового поля старые
-  // фронтенды без turnN просто теряют эту защиту, но не ломаются — см. запрос ниже).
+  // цена инициативы и риск war_escalation_counter при "retaliate".
+  // БЕЗОПАСНОСТЬ (2026-07-08): turnN раньше был опционален ("старые фронтенды без turnN просто
+  // теряют защиту, но не ломаются") — это был эксплойт: без turnN проверка "уже отвечено" и
+  // запись в stats.ukraine_responses полностью пропускались (см. `if (turnN != null)` ниже по
+  // коду), а initiativeCost floor'ится на 0 — то есть после траты инициативы в 0 ответ становится
+  // ещё и бесплатным. Игрок, знающий API, мог слать один и тот же запрос без turnN сколько угодно
+  // раз и копить статы бесплатно и бесконечно. Текущий фронтенд ВСЕГДА передаёт turnN (см.
+  // sendUkraineResponse в api.js) — старых фронтендов без него в проде не осталось, требуем поле.
+  const UKRAINE_RESPONSE_TYPES = new Set(["defend", "retaliate", "accept"]);
   fastify.post("/games/:gameId/ukraine-response", async (request, reply) => {
     const { gameId } = request.params;
     const payload = verifyToken(request, reply);
     if (!payload) return;
     const { responseType, turnN } = request.body || {};
+    if (turnN == null) return reply.code(400).send({ error: "turnN is required" });
+    if (!UKRAINE_RESPONSE_TYPES.has(responseType)) {
+      return reply.code(400).send({ error: "Invalid responseType" });
+    }
     const { resolveUkraineResponse } = require("../rules/rules-engine");
     const { detectGameOutcome } = require("./turns");
 
@@ -597,46 +618,42 @@ ${historyLines || "(история пуста)"}
 
       const stats = { ...gsRes.rows[0].stats };
       const responded = stats.ukraine_responses || {};
-      if (turnN != null && responded[turnN]) {
+      if (responded[turnN]) {
         await client.query("ROLLBACK");
         return reply.code(409).send({ error: "На это событие уже был дан ответ" });
       }
 
-      // turnN может отсутствовать у старых фронтендов — подстраховываемся числом уже
-      // записанных ответов, чтобы сид всё равно был уникален для этой партии/попытки.
-      const uaSeed = `${gameId}:${turnN ?? Object.keys(responded).length}:${responseType}`;
+      const uaSeed = `${gameId}:${turnN}:${responseType}`;
       const { delta, outcome, outcomeText: fallbackOutcomeText, initiativeCost, warEscalationDelta } = resolveUkraineResponse(responseType, uaSeed);
 
       // БАЛАНС (2026-07-08): тот же контекстный ИИ-нарратив итога, что и в дублирующем пути
       // backend/src/routes/turns.js (POST /turns/ukraine/respond) — см. комментарий там же.
       let outcomeText = fallbackOutcomeText;
-      if (turnN != null) {
-        try {
-          const actionRes = await client.query(
-            `SELECT source, text, reactions FROM newsfeed_items WHERE game_id = $1 AND turn_n = $2 AND item_type = 'ukraine_action' ORDER BY id DESC LIMIT 1`,
-            [gameId, turnN]
-          );
-          if (actionRes.rowCount) {
-            const { generateUkraineResponseOutcome } = require("../ai/ukraine-response-outcome");
-            const { UA_CATEGORY_LABELS } = require("../rules/ukraine-rules-engine");
-            const actionRow = actionRes.rows[0];
-            const category = actionRow.reactions?.type;
-            const aiText = await generateUkraineResponseOutcome({
-              params: {
-                actionTitle: (actionRow.source || "").replace(/^Украина\s*·\s*/, ""),
-                actionText: actionRow.text,
-                categoryLabel: UA_CATEGORY_LABELS[category] || null,
-                responseType, outcome, statDelta: delta,
-                language: gsRes.rows[0].language,
-              },
-              callClaudeApi,
-              meta: { gameId, playerId: payload.userId, purpose: "ukraine_response_outcome" },
-            });
-            if (aiText) outcomeText = aiText;
-          }
-        } catch (e) {
-          fastify.log.error({ err: e }, "ukraine response outcome AI generation failed, using fallback text");
+      try {
+        const actionRes = await client.query(
+          `SELECT source, text, reactions FROM newsfeed_items WHERE game_id = $1 AND turn_n = $2 AND item_type = 'ukraine_action' ORDER BY id DESC LIMIT 1`,
+          [gameId, turnN]
+        );
+        if (actionRes.rowCount) {
+          const { generateUkraineResponseOutcome } = require("../ai/ukraine-response-outcome");
+          const { UA_CATEGORY_LABELS } = require("../rules/ukraine-rules-engine");
+          const actionRow = actionRes.rows[0];
+          const category = actionRow.reactions?.type;
+          const aiText = await generateUkraineResponseOutcome({
+            params: {
+              actionTitle: (actionRow.source || "").replace(/^Украина\s*·\s*/, ""),
+              actionText: actionRow.text,
+              categoryLabel: UA_CATEGORY_LABELS[category] || null,
+              responseType, outcome, statDelta: delta,
+              language: gsRes.rows[0].language,
+            },
+            callClaudeApi,
+            meta: { gameId, playerId: payload.userId, purpose: "ukraine_response_outcome" },
+          });
+          if (aiText) outcomeText = aiText;
         }
+      } catch (e) {
+        fastify.log.error({ err: e }, "ukraine response outcome AI generation failed, using fallback text");
       }
 
       for (const [k, v] of Object.entries(delta)) {
@@ -652,15 +669,13 @@ ${historyLines || "(история пуста)"}
       if (warEscalationDelta) {
         stats.war_escalation_counter = Math.min(5, (stats.war_escalation_counter ?? 0) + warEscalationDelta);
       }
-      if (turnN != null) {
-        stats.ukraine_responses = { ...responded, [turnN]: responseType };
-      }
+      stats.ukraine_responses = { ...responded, [turnN]: responseType };
 
       await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
 
       // Ретейлиейт двигает war_escalation_counter немедленно (не только на confirm/end-month) —
       // без этой проверки поражение (defeat_war) обнаруживалось бы с опозданием на целый ход.
-      const currentTurn = gsRes.rows[0].current_turn ?? turnN ?? 0;
+      const currentTurn = gsRes.rows[0].current_turn ?? turnN;
       const gameOutcome = detectGameOutcome(stats, currentTurn, 24);
       if (gameOutcome) {
         await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
