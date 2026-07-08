@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Lock, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisors, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame, updateGameLanguage } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel } from "./i18n";
 
@@ -2348,7 +2348,17 @@ function FinanceMinisterWarningModal({ summary, onClose }) {
 }
 
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
-  useLang(); // ре-рендер шапки/таб-бара при переключении RU/EN
+  const lang = useLang(); // ре-рендер шапки/таб-бара при переключении RU/EN
+  // Баг (2026-07-08, Петя: "переключился на английский, но все новости на русском остались") —
+  // переключатель языка в шапке меняет только статичные UI-строки, не games.language (то, на
+  // каком языке ИИ пишет НОВЫЙ нарратив — см. languageInstruction в games.js). Синхронизируем
+  // при каждой смене языка внутри партии; пропускаем самый первый рендер (initial mount не
+  // должен слать запрос, только реальное переключение).
+  const langMountedRef = useRef(false);
+  useEffect(() => {
+    if (!langMountedRef.current) { langMountedRef.current = true; return; }
+    updateGameLanguage(gameId, lang);
+  }, [lang, gameId]);
   const [state, setState] = useState(null);
   const [assistMode, setAssistMode] = useState("advisor"); // закреплён на старте партии: "advisor" | "hardcore"
   const [tab, setTab] = useState("overview");
@@ -5986,10 +5996,10 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
               <div className="mono-font" style={{ fontSize: 8, color: "#7a6a30", marginBottom: 5 }}>ПОКА ДЕЙСТВУЕТ (каждый месяц)</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 12px" }}>
                 {Number(policy.budget_income) > 0 && (
-                  <span className="doc-font" style={{ fontSize: 13, color: "#2f6f5f", fontWeight: 700 }}>Казна +{policy.budget_income}</span>
+                  <span className="doc-font" style={{ fontSize: 13, color: "#2f6f5f", fontWeight: 700 }}>Казна +{policy.budget_income} (≈₽{(Number(policy.budget_income) * TREASURY_PER_TRILLION).toFixed(1)} трлн)</span>
                 )}
                 {Number(policy.budget_upkeep) > 0 && (
-                  <span className="doc-font" style={{ fontSize: 13, color: "#a8313a", fontWeight: 700 }}>Казна −{policy.budget_upkeep}</span>
+                  <span className="doc-font" style={{ fontSize: 13, color: "#a8313a", fontWeight: 700 }}>Казна −{policy.budget_upkeep} (≈₽{(Number(policy.budget_upkeep) * TREASURY_PER_TRILLION).toFixed(1)} трлн)</span>
                 )}
                 {Number(policy.approval_upkeep) !== 0 && (
                   <span className="doc-font" style={{ fontSize: 13, color: Number(policy.approval_upkeep) < 0 ? "#a8313a" : "#2f6f5f", fontWeight: 700 }}>
@@ -6968,8 +6978,8 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
         {(Number(policy.budget_income) || Number(policy.budget_upkeep) || Number(policy.approval_upkeep)) ? (
           <div className="doc-font" style={{ fontSize: 11.5, marginBottom: 7 }}>
             пока действует:{" "}
-            {Number(policy.budget_income) > 0 && <span style={{ color: "#2f6f5f", fontWeight: 700 }}>казна +{policy.budget_income}/мес</span>}
-            {Number(policy.budget_upkeep) > 0 && <span style={{ color: "#a8313a", fontWeight: 700 }}> · казна −{policy.budget_upkeep}/мес</span>}
+            {Number(policy.budget_income) > 0 && <span style={{ color: "#2f6f5f", fontWeight: 700 }}>казна +{policy.budget_income} (≈₽{(Number(policy.budget_income) * TREASURY_PER_TRILLION).toFixed(1)} трлн)/мес</span>}
+            {Number(policy.budget_upkeep) > 0 && <span style={{ color: "#a8313a", fontWeight: 700 }}> · казна −{policy.budget_upkeep} (≈₽{(Number(policy.budget_upkeep) * TREASURY_PER_TRILLION).toFixed(1)} трлн)/мес</span>}
             {Number(policy.approval_upkeep) !== 0 && (
               <span style={{ color: Number(policy.approval_upkeep) < 0 ? "#a8313a" : "#2f6f5f", fontWeight: 700 }}> · одобрение {Number(policy.approval_upkeep) > 0 ? "+" : ""}{policy.approval_upkeep}/мес</span>
             )}

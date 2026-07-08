@@ -174,6 +174,29 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     return reply.send({ ok: true });
   });
 
+  // ---------- PATCH /games/:gameId/language ----------
+  // Переключатель RU/EN в шапке игры (i18n.js, setLang) — чисто клиентский, меняет только
+  // статичные UI-строки и НЕ трогал games.language (баг, 2026-07-08, Петя: "переключился на
+  // английский, но все новости на русском остались"). games.language читается заново на каждый
+  // запрос генерации нарратива (turns.js/games.js, ~10 мест) — обновления здесь достаточно,
+  // чтобы НОВЫЙ ИИ-контент пошёл на новом языке. Уже сгенерированные новости/ходы остаются на
+  // языке, на котором были написаны — это исторический текст, задним числом не переводим.
+  fastify.patch("/games/:gameId/language", async (request, reply) => {
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { gameId } = request.params;
+    const { language } = request.body || {};
+    if (language !== "ru" && language !== "en") {
+      return reply.code(400).send({ error: "language must be 'ru' or 'en'" });
+    }
+    const res = await db.query(
+      `UPDATE games SET language = $1 WHERE id = $2 AND owner_user_id = $3 RETURNING id`,
+      [language, gameId, payload.userId]
+    );
+    if (res.rowCount === 0) return reply.code(404).send({ error: "Партия не найдена" });
+    return reply.send({ ok: true, language });
+  });
+
   // ---------- DELETE /games/:gameId ----------
   fastify.delete("/games/:gameId", async (request, reply) => {
     const payload = verifyToken(request, reply);

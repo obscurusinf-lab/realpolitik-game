@@ -86,6 +86,20 @@ export async function pingGame(gameId) {
   try { await fetchWithTimeout(`${API_BASE}/games/${gameId}/ping`, { method: "POST" }, 8000); } catch {}
 }
 
+// Переключатель RU/EN в шапке (i18n.js) меняет только статичные UI-строки — не трогает язык,
+// на котором ИИ пишет новый нарратив (games.language). Синхронизируем при смене языка внутри
+// активной партии, чтобы новые новости/ходы шли на выбранном языке (App.jsx). Fire-and-forget —
+// сбой синхронизации не должен мешать переключению UI.
+export async function updateGameLanguage(gameId, language) {
+  try {
+    await fetchWithTimeout(`${API_BASE}/games/${gameId}/language`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language }),
+    }, 8000);
+  } catch {}
+}
+
 export async function previewTurn(gameId, playerInput, actionMode = "decree") {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/preview`, {
     method: "POST",
