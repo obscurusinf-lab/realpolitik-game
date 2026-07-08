@@ -4953,7 +4953,7 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
           <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
             <div style={{ fontSize: 48, fontWeight: 700, color: meta?.color, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1 }}>{currentValue}</div>
             <div>
-              <div className="doc-font" style={{ fontSize: 15, fontWeight: 700 }}>{meta?.label}</div>
+              <div className="doc-font" style={{ fontSize: 15, fontWeight: 700, color: "#3a362e" }}>{meta?.label}</div>
               <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginTop: 2 }}>
                 {currentValue >= 70 ? "ВЫСОКИЙ УРОВЕНЬ" : currentValue >= 40 ? "СРЕДНИЙ УРОВЕНЬ" : "НИЗКИЙ УРОВЕНЬ — ТРЕБУЕТ ВНИМАНИЯ"}
               </div>
@@ -5028,7 +5028,7 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
             {news?.slice(0, 4).map((item, i) => (
               <div key={i} style={{ borderTop: "1px solid #d8d2bf", paddingTop: 8, marginBottom: 8 }}>
                 <div className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ХОД {item.turn_n} · {item.source}</div>
-                <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.4, marginTop: 2 }}>{item.text}</div>
+                <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.4, marginTop: 2, color: "#3a362e" }}>{item.text}</div>
               </div>
             ))}
           </div>
@@ -5999,7 +5999,7 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
         <div style={{ padding: "18px 20px" }}>
           {/* Заголовок */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-            <div className="doc-font" style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.3, flex: 1, marginRight: 12 }}>{policy.title}</div>
+            <div className="doc-font" style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.3, flex: 1, marginRight: 12, color: "#3a362e" }}>{policy.title}</div>
             <span className="mono-font" style={{ fontSize: 8, padding: "3px 8px", borderRadius: 3, background: isCancelled ? "#d8d2bf" : "#dce5dc", color: statusColor, flexShrink: 0, letterSpacing: "0.06em" }}>{statusLabel}</span>
           </div>
 
@@ -6072,7 +6072,7 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
           {policy.completion_conditions && (
             <div style={{ background: "#dce5dc", border: "1px solid #4a6b5c", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
               <div className="mono-font" style={{ fontSize: 8, color: "#4a6b5c", marginBottom: 3 }}>УСЛОВИЕ ВЫПОЛНЕНИЯ</div>
-              <div className="doc-font" style={{ fontSize: 13 }}>{policy.completion_conditions}</div>
+              <div className="doc-font" style={{ fontSize: 13, color: "#3a362e" }}>{policy.completion_conditions}</div>
             </div>
           )}
 
@@ -6095,7 +6095,7 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
             <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8 }}>СОДЕРЖАНИЕ</div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {(policy.items || []).map((item, i) => (
-                <li key={i} className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 5 }}>{item}</li>
+                <li key={i} className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 5, color: "#3a362e" }}>{item}</li>
               ))}
             </ul>
           </div>
@@ -6108,7 +6108,7 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
             {news?.slice(0, 5).map((item, i) => (
               <div key={i} style={{ borderTop: "1px solid #d8d2bf", paddingTop: 8, marginBottom: 8 }}>
                 <div className="mono-font" style={{ fontSize: 9, color: "#8a8472" }}>ХОД {item.turn_n} · {item.source}</div>
-                <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.4, marginTop: 2 }}>{item.text}</div>
+                <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.4, marginTop: 2, color: "#3a362e" }}>{item.text}</div>
               </div>
             ))}
           </div>
@@ -8815,11 +8815,11 @@ function LogTab({ state }) {
             </div>
             <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{entry.title}</div>
             {entry.decree && (
-              <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#6a6458", fontStyle: "italic", borderLeft: "2px solid #c8a857", paddingLeft: 8, marginBottom: 6 }}>
+              <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#a8a294", fontStyle: "italic", borderLeft: "2px solid #c8a857", paddingLeft: 8, marginBottom: 6 }}>
                 «{entry.decree}»
               </div>
             )}
-            <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#3a362e" }}>{entry.body}</div>
+            <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#cdd3e0" }}>{entry.body}</div>
             {deltaEntries.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
                 {deltaEntries.map(([stat, delta]) => <LogDeltaChip key={stat} stat={stat} delta={delta} />)}
