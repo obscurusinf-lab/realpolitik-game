@@ -175,7 +175,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
   const [selectedCountry, setSelectedCountry] = useState("RU");
   const [selectedMode, setSelectedMode] = useState("advisor"); // "advisor" | "hardcore"
   const [presidentName, setPresidentName] = useState("");
-  const [showInLeaderboard, setShowInLeaderboard] = useState(false);
+  const [showInLeaderboard, setShowInLeaderboard] = useState(true);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(null);
 
