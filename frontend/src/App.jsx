@@ -5274,7 +5274,7 @@ function EndMonthForecastPanel({ stats, policies }) {
 
   // 6. Коррупционная утечка казны
   {
-    const corr = stats.corruption ?? 55;
+    const corr = stats.corruption ?? 68;
     const drain = corr > 50 ? Math.round(Math.pow((corr - 50) / 50, 1.3) * 12) : 0;
     if (drain > 0) {
       mechanisms.push({
@@ -5429,7 +5429,7 @@ function EndMonthForecastPanel({ stats, policies }) {
   // напрямую, поэтому проскальзывала мимо hadEconomyHit — добавлена отдельная проверка: дивиденд
   // не начисляется, если коррупция выше 50 (там же, где начинается реальная утечка бюджета).
   {
-    const corrForDividend = stats.corruption ?? 55;
+    const corrForDividend = stats.corruption ?? 68;
     // БАЛАНС (2026-07-04): игрок запутался — порог "50" тут в сыром внутреннем балле (0-100,
     // выше = хуже), а на экране игрок видит в основном CPI (Transparency International, выше =
     // ЛУЧШЕ, обратное направление) — показываем оба числа с явной подписью, чтобы не нужно было
@@ -5632,7 +5632,7 @@ function getPassiveEffects(key, stats) {
   const dip = stats.diplomacy ?? 50;
   const appr = stats.approval ?? 50;
   const streak = stats.military_streak ?? 0;
-  const corr = stats.corruption ?? 55;
+  const corr = stats.corruption ?? 68;
   const mc = stats.middle_class ?? 44;
   const lc = stats.lower_class_mood ?? 41;
   const eliteSat = stats.elite_satisfaction ?? 62;
@@ -8005,7 +8005,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const sanctionDiscountT = Math.max(0, rawSanctionDiscountT - allyMitigationT);
   const oilIncomeT = Math.round((oilPriceT - OIL_BUDGET_CUTOFF_T) * 0.7 * (1 - sanctionDiscountT));
   const fxIncomeT = Math.round((usdRubT - FX_BASELINE_T) * 0.4);
-  const corrLevelT = stats.corruption ?? 55;
+  const corrLevelT = stats.corruption ?? 68;
   const corruptionDrainT = corrLevelT > 50 ? Math.round(Math.pow((corrLevelT - 50) / 50, 1.3) * 12) : 0;
   const anticorruptionUsed = !!stats.anticorruption_used;
   // Содержание отвоёванных территорий: та же формула, что в backend end-month — считается
@@ -8452,7 +8452,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
       {/* Коррупция */}
       {(() => {
-        const corrLevel = stats.corruption ?? 55;
+        const corrLevel = stats.corruption ?? 68;
         const corrColor = corrLevel > 75 ? "#c03030" : corrLevel > 50 ? "#9c8347" : "#4a7a5a";
         const initiative = stats.initiative ?? 100;
         const canAfford = !anticorruptionUsed && initiative >= 35 && treasury >= 8;

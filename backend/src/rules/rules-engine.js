@@ -42,7 +42,7 @@ const MAX_DELTA_PER_TURN = {
 const SUBSTAT_DEFAULTS = {
   // approval
   elite_satisfaction: 62,
-  corruption: 55,
+  corruption: 68,
   middle_class: 44,
   lower_class_mood: 41,
   // economy
@@ -574,7 +574,7 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   let corruptionLeakAmount = 0;
   if (budgetCost) {
     const currentTreasury = typeof newStats.treasury === "number" ? newStats.treasury : 52;
-    const corruptionLevel = (newStats.corruption ?? 55) / 100;
+    const corruptionLevel = (newStats.corruption ?? 68) / 100;
     // Утечка: от 0% (коррупция 0) до 30% (коррупция 100). Только для дорогих действий.
     if (budgetCost >= 5) {
       corruptionLeakAmount = Math.floor(budgetCost * corruptionLevel * 0.3);
@@ -620,7 +620,7 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   };
 
   // Коррупционный штраф на позитивные эффекты указов/реформ
-  const corruptionPenalty = (newStats.corruption ?? 55) / 100 * 0.12; // до 12% потерь при max коррупции
+  const corruptionPenalty = (newStats.corruption ?? 68) / 100 * 0.12; // до 12% потерь при max коррупции
 
   for (const stat of Object.keys(MAX_DELTA_PER_TURN)) {
     if (stat === "peace_progress") continue; // уже посчитано выше

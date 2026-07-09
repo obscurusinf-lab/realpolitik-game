@@ -489,7 +489,7 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       // отскок коррупции в конце месяца (см. проверку anti_corruption_this_month в turns.js).
       newStats.anti_corruption_this_month = true;
 
-      const corrBefore = newStats.corruption ?? 55;
+      const corrBefore = newStats.corruption ?? 68;
       const roll = Math.random();
       let outcome, corrDrop, eliteDelta, approvalDelta, stabilityDelta;
       if (roll < 0.15) {

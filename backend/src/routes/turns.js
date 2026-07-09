@@ -227,7 +227,7 @@ function generateAutonomousEvents(stats, month, gameId) {
   const rng = makeSeededRng(gameId || "default", month);
   const mil = stats.military ?? 50;
   const eco = stats.economy ?? 50;
-  const corr = stats.corruption ?? 55;
+  const corr = stats.corruption ?? 68;
   const streak = stats.military_streak ?? 0;
   const iso = stats.isolation ?? 68;
   const don = stats.donetsk_control ?? 78;
@@ -1966,7 +1966,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Коррупционная утечка: часть бюджета разворовывается каждый месяц, пропорционально уровню коррупции.
       // 0-50 коррупции — утечки нет; 50-100 — растёт нелинейно (схемы крупнее при высокой коррупции).
       // Подстата живёт в группе «Одобрение» (коррупция — про элиты), но эффект чисто экономический.
-      const corrLevel = newStats.corruption ?? 55;
+      const corrLevel = newStats.corruption ?? 68;
       const corruptionDrain = corrLevel > 50 ? Math.round(Math.pow((corrLevel - 50) / 50, 1.3) * 12) : 0;
       // СОДЕРЖАНИЕ ОТВОЁВАННЫХ ТЕРРИТОРИЙ: администрирование и восстановление занятых регионов
       // стоит денег каждый месяц — не бесплатный трофей. Считается только сверх стартового
@@ -2423,7 +2423,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         const coreStab = newStats.stability ?? 50;
         const coreDip = newStats.diplomacy ?? 50;
         const coreAppr = newStats.approval ?? 50;
-        const notCorrupt = (newStats.corruption ?? 55) <= 50;
+        const notCorrupt = (newStats.corruption ?? 68) <= 50;
         const allHealthy = coreEco >= 55 && coreStab >= 55 && coreDip >= 55 && coreAppr >= 55;
         const allStrong = coreEco >= 70 && coreStab >= 70 && coreDip >= 70 && coreAppr >= 70;
         if (noAutoCrisis && notCorrupt && allHealthy) {
@@ -2475,7 +2475,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         const hadAntiCorruption = !!newStats.anti_corruption_this_month;
         delete newStats.anti_corruption_this_month; // сбрасываем флаг для следующего месяца
         if (!hadAntiCorruption) {
-          const corr = newStats.corruption ?? 55;
+          const corr = newStats.corruption ?? 68;
           if (corr < 90) {
             const growth = corr < 40 ? 2 : 1; // быстрее растёт пока низкая
             newStats.corruption = Math.min(100, corr + growth);
