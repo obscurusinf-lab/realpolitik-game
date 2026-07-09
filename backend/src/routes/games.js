@@ -697,18 +697,22 @@ ${historyLines || "(история пуста)"}
   fastify.get("/leaderboard", async (request, reply) => {
     const { countryId, limit = 20 } = request.query;
     let queryText = `
-      SELECT ls.game_id, ls.turn_n, ls.score, ls.score_breakdown, ls.created_at,
-             c.name AS country_name, c.id AS country_id,
-             COALESCE(g.president_name, u.display_name) AS player_name
-      FROM leaderboard_snap ls
-      JOIN games g ON g.id = ls.game_id
-      JOIN countries c ON c.id = g.country_id
-      JOIN users u ON u.id = g.owner_user_id
-      WHERE g.show_in_leaderboard = true
+      SELECT * FROM (
+        SELECT DISTINCT ON (ls.game_id)
+               ls.game_id, ls.turn_n, ls.score, ls.score_breakdown, ls.created_at,
+               c.name AS country_name, c.id AS country_id,
+               COALESCE(g.president_name, u.display_name) AS player_name
+        FROM leaderboard_snap ls
+        JOIN games g ON g.id = ls.game_id
+        JOIN countries c ON c.id = g.country_id
+        JOIN users u ON u.id = g.owner_user_id
+        WHERE g.show_in_leaderboard = true
     `;
     const params = [];
     if (countryId) { queryText += ` AND c.id = $1`; params.push(countryId); }
-    queryText += ` ORDER BY ls.score DESC LIMIT ${parseInt(limit, 10) || 20}`;
+    queryText += ` ORDER BY ls.game_id, ls.score DESC
+      ) best_per_game
+      ORDER BY score DESC LIMIT ${parseInt(limit, 10) || 20}`;
     const res = await db.query(queryText, params);
     return reply.send({ entries: res.rows });
   });

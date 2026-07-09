@@ -411,7 +411,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                             </div>
                             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
                               {t("start.turn_short")} {g.current_turn} · {new Date(g.created_at).toLocaleDateString(getLang() === "en" ? "en-US" : "ru-RU", { day: "numeric", month: "long", year: "numeric" })}
-                              {g.status !== "active" && <span style={{ color: "#a8313a", marginLeft: 6 }}>{g.status}</span>}
+                              {g.status !== "active" && <span style={{ color: "#a8313a", marginLeft: 6 }}>{OUTCOME_LABELS[g.status] || g.status}</span>}
                             </div>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
