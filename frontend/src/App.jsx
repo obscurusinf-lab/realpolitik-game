@@ -2966,24 +2966,18 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       )}
 
       <div style={{ background: NK.headerBg, padding: "18px 20px 14px" }}>
-        <h1 className="doc-font" style={{ margin: "0 0 10px", fontSize: 22, fontWeight: 700, letterSpacing: "0.04em", color: isNuclearWorld ? "#e88080" : "#ece7d8" }}>REALPOLITIK</h1>
-
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          {!isMobile && (
-            <div className="mono-font" style={{ fontSize: 11, color: isNuclearWorld ? "#9a5050" : "#a8a294" }}>
+          <div>
+            <h1 className="doc-font" style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "0.04em", color: isNuclearWorld ? "#e88080" : "#ece7d8" }}>REALPOLITIK</h1>
+            <div className="mono-font" style={{ fontSize: 11, color: isNuclearWorld ? "#9a5050" : "#a8a294", marginTop: 2 }}>
               {state.date} · {t("app.turn_short")}{state.turn + 1}{playerName ? ` · ${playerName}` : ""}
             </div>
-          )}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, marginLeft: "auto" }}>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <LangToggle />
               <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>{t("app.alpha_badge")}</span>
             </div>
-            {isMobile && (
-              <div className="mono-font" style={{ fontSize: 10, color: isNuclearWorld ? "#9a5050" : "#a8a294", textAlign: "right" }}>
-                {state.date} · {t("app.turn_short")}{state.turn + 1}{playerName ? ` · ${playerName}` : ""}
-              </div>
-            )}
             {assistMode !== "hardcore" && (
               <button onClick={() => setShowWiki(true)}
                 style={{ background: "transparent", border: `1px solid ${NK.accent}`, borderRadius: 3, color: NK.accent, fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}
