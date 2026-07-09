@@ -2751,6 +2751,14 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         await client.query("ROLLBACK");
         return reply.code(409).send({ error: "В этом месяце была гражданская передышка — военные операции недоступны до следующего месяца." });
       }
+      // БАГ (найден плейтестом, 2026-07-09): армия "на отдыхе" после двойного удара в прошлом
+      // месяце (military_blocked_this_month) могла всё равно перегруппироваться — регроп не
+      // проверял этот флаг вообще, хотя сам является военным решением (см. коммент ниже) и даёт
+      // реальные бонусы (инициатива/мораль) + regroup_bonus_attack, полностью обходя отдых войск.
+      if (currentStats.military_blocked_this_month) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Войска на отдыхе после двойного наступления — перегруппировка недоступна до следующего месяца." });
+      }
 
       // Применяем military_regroup через rules-engine — мягкие позитивные эффекты для армии
       const { newStats, statDeltas } = applyTurn({
