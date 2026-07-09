@@ -2965,7 +2965,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         </div>
       )}
 
-      <div style={{ background: NK.headerBg, padding: "18px 20px 14px" }}>
+      <div style={{ background: NK.headerBg, borderBottom: `2px solid ${NK.headerBorder}`, padding: "18px 20px 14px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 className="doc-font" style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "0.04em", color: isNuclearWorld ? "#e88080" : "#ece7d8" }}>REALPOLITIK</h1>
