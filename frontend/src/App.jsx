@@ -1195,6 +1195,9 @@ const DELTA_GROUPS = [
   { key: "stability", label: "Стабильность", stats: ["stability"] },
   { key: "approval",  label: "Общество",   stats: ["approval", "elite_satisfaction", "corruption", "middle_class", "lower_class_mood"] },
   { key: "resources", label: "Ресурсы",    stats: ["initiative"] },
+  // Прямая цена для Украины от военных/тайных операций игрока (Петя, 2026-07-09: "должно быть
+  // понятно, как это повлияло на Украину") — см. UA_IMPACT_FROM_PLAYER в rules-engine.js.
+  { key: "ukraine",   label: "Украина",    stats: ["ua_army", "ua_morale", "ua_stability", "ua_west_support"] },
 ];
 
 // Раскладывает плоский список [stat, delta] по DELTA_GROUPS + "Прочее" — общая логика для
@@ -4893,6 +4896,12 @@ for (const k of ["donetsk_control", "luhansk_control", "zaporizhzhia_control", "
   EXTRA_BAR_META[k] = { label: ALL_STAT_LABELS[k], color: "#7a8fae", inverted: false };
 }
 EXTRA_BAR_META.peace_progress = { label: "Мирный трек", color: "#5b8c6b", inverted: false };
+// Прямая цена для Украины от указа игрока (UA_IMPACT_FROM_PLAYER, см. rules-engine.js) — те же
+// label/color, что уже используются в панели "Разведданные по Украине" (UA_STAT_META), просто
+// чтобы бар в превью/итогах хода выглядел так же, как и в StatsTab.
+for (const k of ["ua_army", "ua_morale", "ua_stability", "ua_west_support"]) {
+  EXTRA_BAR_META[k] = { label: UA_STAT_META[k].label, color: UA_STAT_META[k].color, inverted: false };
+}
 
 // Спарклайн-график из SVG без библиотек
 function Sparkline({ data, color, width = 120, height = 32 }) {
@@ -9302,7 +9311,8 @@ function WikiTab({ dark = false }) {
 
       <WikiSection id="ukraine">
         {P("wiki.ukraine.p1")}
-        {P("wiki.ukraine.p2", { marginBottom: 0 })}
+        {P("wiki.ukraine.p2")}
+        {P("wiki.ukraine.p3", { marginBottom: 0 })}
       </WikiSection>
 
       <WikiSection id="econ">

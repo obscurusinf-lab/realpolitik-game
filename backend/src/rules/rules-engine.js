@@ -221,6 +221,32 @@ const INITIATIVE_MAX = 100;
 const MAX_RELATION_DELTA_DIRECT = 8;
 const MAX_RELATION_DELTA_SPILLOVER = 3;
 
+// ПРЯМАЯ ЦЕНА ДЛЯ УКРАИНЫ ОТ КОНКРЕТНОГО УКАЗА ИГРОКА (Петя, 2026-07-09: "должно быть понятно,
+// как военные/шпионские операции против Украины и союзников на неё повлияли") — ОТДЕЛЬНО от
+// UA_RULES_TABLE в ukraine-rules-engine.js (та описывает СОБСТВЕННЫЙ ежемесячный ход Украины,
+// симметричный игроку, никак не завязанный на то, что именно сделал игрок в этом же ходу).
+// Этот блок даёт немедленную, видимую в statDeltas (превью/итоги хода) цену для ua_army/
+// ua_morale/ua_stability от военных и тайных операций, нацеленных на Украину — раньше единственной
+// связью было отложенное, недискриминирующее категорию пороговое изменение по абсолютному уровню
+// статов России (см. блок с westDelta/armyDelta в /turns/regroup и runUkraineTurn).
+const UA_IMPACT_MAX_DELTA_PER_TURN = { ua_army: 10, ua_morale: 8, ua_stability: 6, ua_west_support: 5 };
+const UA_IMPACT_FROM_PLAYER = {
+  mil_tactical:               { ua_army: [-4, -2], ua_morale: [-2, -1] },
+  mil_operational_offensive:  { ua_army: [-6, -3], ua_morale: [-4, -2] },
+  mil_strategic_offensive:    { ua_army: [-9, -5], ua_morale: [-6, -3] },
+  mil_hybrid:                 { ua_army: [-3, -1], ua_stability: [-2, -1] },
+  covert_disinfo:             { ua_morale: [-2, -1] },
+  covert_destabilize:         { ua_stability: [-4, -2] },
+  covert_sabotage:            { ua_army: [-4, -2] },
+  covert_elimination:         { ua_stability: [-5, -3], ua_morale: [-3, -1] },
+  nuclear_strike:             { ua_army: [-10, -8], ua_morale: [-8, -6], ua_stability: [-8, -5] },
+};
+// Страны-союзники Украины (Запад) — удар по отношениям с ними бьёт по её западной поддержке
+// (ua_west_support), даже когда указ сам по себе не военный (санкционный обход, давление и т.п.).
+// Реиспользует affected_relations — тот же сигнал, который классификатор УЖЕ выдаёт для дельт
+// отношений, новой ИИ-классификации не требуется.
+const UA_ALLY_COUNTRIES = new Set(["США", "ЕС", "Великобритания", "Германия", "Франция", "Польша"]);
+
 // Диапазоны [min, max] для каждой категории x показателя.
 // Субметрики: elite_satisfaction (0=элиты против, 100=за), corruption (0=чисто, 100=коррупция),
 //             middle_class (0=нет среднего класса, 100=большой и довольный),
@@ -703,6 +729,38 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
 
     // Спилловер: страны помечены как allies/rivals в countries.json (внешний справочник)
     // applySpillover(...) — вызывается отдельно, см. spillover.js
+  }
+
+  // ПРЯМАЯ ЦЕНА ДЛЯ УКРАИНЫ от этого конкретного указа (см. комментарий у UA_IMPACT_FROM_PLAYER
+  // выше) — военные/тайные операции против Украины напрямую бьют по ua_army/ua_morale/
+  // ua_stability, видимо сразу в statDeltas этого хода.
+  const uaImpactTable = UA_IMPACT_FROM_PLAYER[action_type];
+  if (uaImpactTable) {
+    for (const stat of Object.keys(uaImpactTable)) {
+      const delta = computeStatDeltaFromTable(
+        { [action_type]: uaImpactTable },
+        { category: action_type, stat, severity, seed: seed + ":ua" },
+        UA_IMPACT_MAX_DELTA_PER_TURN
+      );
+      if (delta) {
+        const before = newStats[stat] ?? SUBSTAT_DEFAULTS[stat] ?? 50;
+        newStats[stat] = Math.max(0, Math.min(100, before + delta));
+        statDeltas[stat] = (statDeltas[stat] ?? 0) + delta;
+      }
+    }
+  }
+  // Удар по союзникам Украины (санкционный обход, дипломатическое давление и т.п.) частично
+  // размывает её западную поддержку — переиспользует уже посчитанные relationDeltas выше.
+  for (const rd of relationDeltas) {
+    if (rd.delta < 0 && UA_ALLY_COUNTRIES.has(rd.country)) {
+      const westHit = Math.round(rd.delta * 0.4); // 40% удара по союзнику долетает до ua_west_support
+      if (westHit) {
+        const cappedHit = Math.max(-UA_IMPACT_MAX_DELTA_PER_TURN.ua_west_support, westHit);
+        const before = newStats.ua_west_support ?? SUBSTAT_DEFAULTS.ua_west_support ?? 75;
+        newStats.ua_west_support = Math.max(0, Math.min(100, before + cappedHit));
+        statDeltas.ua_west_support = (statDeltas.ua_west_support ?? 0) + cappedHit;
+      }
+    }
   }
 
   return {
