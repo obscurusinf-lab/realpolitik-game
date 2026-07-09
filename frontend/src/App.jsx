@@ -3000,7 +3000,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 {t("app.new_game_button")}
               </button>
             )}
-            {rawMobile && <DesktopViewToggle />}
           </div>
         </div>
       </div>
@@ -3397,6 +3396,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         </div>
       )}
 
+      {rawMobile && (
+        <div style={{ textAlign: "center", padding: "10px 0 0", background: "#1a1f2c" }}>
+          <DesktopViewToggle />
+        </div>
+      )}
       <div className="mono-font" style={{ textAlign: "center", fontSize: 10, letterSpacing: "0.1em", color: "#5a5f6e", padding: "10px 0 16px", background: "#1a1f2c" }}>
         ПАНЕЛЬ ОБНОВЛЯЕТСЯ ПО ХОДАМ
       </div>
