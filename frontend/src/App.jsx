@@ -2483,7 +2483,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   useEffect(() => {
     actionModeRef.current = actionMode;
     setAdvisorState(Object.fromEntries(ADVISOR_INFO.map(a => [a.id, { status: "idle", data: null, error: null }])));
-  }, [actionMode, state.turn]);
+  }, [actionMode, state?.turn]);
 
   async function handlePreview() {
     if (!draftInput.trim() || previewing) return;
