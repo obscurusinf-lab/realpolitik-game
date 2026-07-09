@@ -2470,10 +2470,17 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // решения, показывать его как актуальный было бы неверно. НЕ запрашиваем автоматически:
   // раньше смена масштаба/загрузка партии/переключение вкладки сами по себе дёргали ИИ на всех
   // пятерых советников сразу — теперь только явный клик "Жду ваш совет" на конкретной карточке.
+  // БАГ (Петя, 2026-07-09: "укрепил экономику по совету в первом ходу, на втором ходу тот же
+  // совет висит") — эффект зависел ТОЛЬКО от actionMode, но не от смены хода/месяца. Карточка
+  // с текстом рекомендации из прошлого месяца оставалась на экране нетронутой — не потому что
+  // backend снова посоветовал то же самое (computeOptimalMove уже умеет не повторять недавно
+  // подписанную реформу, см. ECON_REFORM_CATEGORIES в advisors.js), а потому что фронтенд просто
+  // никогда не запрашивал совет заново и не убирал устаревшую карточку. Добавлен state.turn —
+  // смена месяца (через /turns/end-month) сбрасывает карточки так же, как смена масштаба.
   useEffect(() => {
     actionModeRef.current = actionMode;
     setAdvisorState(Object.fromEntries(ADVISOR_INFO.map(a => [a.id, { status: "idle", data: null, error: null }])));
-  }, [actionMode]);
+  }, [actionMode, state.turn]);
 
   async function handlePreview() {
     if (!draftInput.trim() || previewing) return;
