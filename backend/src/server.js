@@ -21,6 +21,7 @@ const { createAdminEventStore } = require("./db/admin-events");
 const { callClaudeApi: rawCallClaudeApi } = require("./ai/claude-client");
 const { wrapCallClaudeApi } = require("./ai/usage-tracker");
 const { recordEvent } = require("./db/player-events");
+const { checkNameBlocklist } = require("./lib/name-blocklist");
 
 function getJwtSecret() {
   const s = process.env.JWT_SECRET;
@@ -112,6 +113,8 @@ async function buildServer() {
     if (!username || username.trim().length < 3) return reply.code(400).send({ error: "Имя пользователя — минимум 3 символа" });
     if (!password || password.length < 6) return reply.code(400).send({ error: "Пароль — минимум 6 символов" });
     const name = (displayName || username).trim();
+    const blocked = checkNameBlocklist(name);
+    if (blocked) return reply.code(409).send({ error: blocked.tier === "hard" ? "no way" : "Это имя уже занято" });
     const uname = username.trim().toLowerCase();
     const exists = await db.query(`SELECT id FROM users WHERE username = $1`, [uname]);
     if (exists.rowCount > 0) return reply.code(409).send({ error: "Такое имя пользователя уже занято" });
@@ -149,6 +152,8 @@ async function buildServer() {
     const name = (displayName || "").trim();
     if (name.length < 2) return reply.code(400).send({ error: "Имя — минимум 2 символа" });
     if (name.length > 40) return reply.code(400).send({ error: "Имя — максимум 40 символов" });
+    const blocked = checkNameBlocklist(name);
+    if (blocked) return reply.code(409).send({ error: blocked.tier === "hard" ? "no way" : "Это имя уже занято" });
     const res = await db.query(
       `UPDATE users SET display_name = $1 WHERE id = $2 RETURNING id, display_name, username`,
       [name, payload.userId]

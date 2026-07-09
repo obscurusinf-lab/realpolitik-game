@@ -12,6 +12,7 @@ const fs = require("fs");
 const path = require("path");
 const { recordEvent } = require("../db/player-events");
 const { languageInstruction } = require("../ai/language-instruction");
+const { checkNameBlocklist } = require("../lib/name-blocklist");
 // verifyToken injected via options
 
 const COUNTRIES_DIR = path.join(__dirname, "../db/seed/countries");
@@ -56,6 +57,10 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const mode = assistMode === "hardcore" ? "hardcore" : "advisor";
     // Имя президента — своё на каждую партию, не путать с логином/аккаунтом.
     const president = (typeof presidentName === "string" ? presidentName.trim() : "").slice(0, 40) || null;
+    if (president) {
+      const blocked = checkNameBlocklist(president);
+      if (blocked) return reply.code(409).send({ error: blocked.tier === "hard" ? "no way" : "Это имя уже занято" });
+    }
     // Зал Славы: игрок явно выбирает публикацию (false по умолчанию).
     const leaderboardOpt = showInLeaderboard === true;
     // Язык партии — закреплён при создании, как assist_mode (i18n, Фаза 1, Петя, 2026-07-07).
