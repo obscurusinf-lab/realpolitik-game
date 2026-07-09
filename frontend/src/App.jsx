@@ -6080,7 +6080,7 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
                 {Number(policy.budget_upkeep) > 0 && (
                   <span className="doc-font" style={{ fontSize: 13, color: "#a8313a", fontWeight: 700 }}>{t("policies.treasury_upkeep_plain", { n: policy.budget_upkeep, rub: (Number(policy.budget_upkeep) * TREASURY_PER_TRILLION).toFixed(1), trillion: t("treasury.trillion") })}</span>
                 )}
-                {Number(policy.approval_upkeep) !== 0 && (
+                {(Number(policy.approval_upkeep) || 0) !== 0 && (
                   <span className="doc-font" style={{ fontSize: 13, color: Number(policy.approval_upkeep) < 0 ? "#a8313a" : "#2f6f5f", fontWeight: 700 }}>
                     {t("policies.approval_plain", { sign: Number(policy.approval_upkeep) > 0 ? "+" : "", n: policy.approval_upkeep })}
                   </span>
@@ -7059,7 +7059,7 @@ function PoliciesTab({ state, gameId, currentTurn, onStateRefresh }) {
             {t("policies.while_active")}
             {Number(policy.budget_income) > 0 && <span style={{ color: "#7fae93", fontWeight: 700 }}>{t("policies.treasury_plus", { n: policy.budget_income, rub: (Number(policy.budget_income) * TREASURY_PER_TRILLION).toFixed(1), trillion: t("treasury.trillion") })}</span>}
             {Number(policy.budget_upkeep) > 0 && <span style={{ color: "#e09090", fontWeight: 700 }}> · {t("policies.treasury_minus", { n: policy.budget_upkeep, rub: (Number(policy.budget_upkeep) * TREASURY_PER_TRILLION).toFixed(1), trillion: t("treasury.trillion") })}</span>}
-            {Number(policy.approval_upkeep) !== 0 && (
+            {(Number(policy.approval_upkeep) || 0) !== 0 && (
               <span style={{ color: Number(policy.approval_upkeep) < 0 ? "#e09090" : "#7fae93", fontWeight: 700 }}> · {t("policies.approval_rate", { sign: Number(policy.approval_upkeep) > 0 ? "+" : "", n: policy.approval_upkeep })}</span>
             )}
           </div>
@@ -7330,12 +7330,14 @@ function RelationsTab({ state }) {
       function onUp(ev) {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
         const hit = document.elementsFromPoint(ev.clientX, ev.clientY)
           .find(el => el.dataset && el.dataset.relationId && el.dataset.relationId !== id);
         handleDrop(id, hit ? hit.dataset.relationId : null);
       }
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
     };
   }
 
@@ -7766,6 +7768,7 @@ function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, dragge
     function onUp(ev) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       setDragOffset(null);
       const hit = document.elementsFromPoint(ev.clientX, ev.clientY)
         .find(el => el.dataset && el.dataset.widgetId && el.dataset.widgetId !== id);
@@ -7773,6 +7776,7 @@ function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, dragge
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   useEffect(() => {
@@ -7800,6 +7804,7 @@ function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, dragge
     function onUp() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       setDragPreviewHeight(cur => {
         if (cur == null) return null;
         const fullH = el ? el.scrollHeight : startH;
@@ -7810,6 +7815,7 @@ function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, dragge
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   const p = pos || { left: 0, top: 0, width: 320 };
@@ -9287,7 +9293,9 @@ function WikiTab({ dark = false }) {
         {P("wiki.kremlin.p4")}
         {P("wiki.kremlin.p5")}
         {P("wiki.kremlin.p6")}
-        {P("wiki.kremlin.p7", { marginBottom: 0 })}
+        {P("wiki.kremlin.p7")}
+        {P("wiki.kremlin.p8")}
+        {P("wiki.kremlin.p9", { marginBottom: 0 })}
       </WikiSection>
 
       <WikiSection id="ukraine">
@@ -9332,7 +9340,8 @@ function WikiTab({ dark = false }) {
 
       <WikiSection id="advisors">
         {P("wiki.advisors.p1")}
-        {P("wiki.advisors.p2", { marginBottom: 0 })}
+        {P("wiki.advisors.p2")}
+        {P("wiki.advisors.p3", { marginBottom: 0 })}
       </WikiSection>
     </div>
   );
