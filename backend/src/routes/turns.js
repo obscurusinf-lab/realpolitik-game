@@ -228,7 +228,6 @@ function generateAutonomousEvents(stats, month, gameId) {
   const mil = stats.military ?? 50;
   const eco = stats.economy ?? 50;
   const corr = stats.corruption ?? 55;
-  const tension = stats.social_tension ?? 38;
   const streak = stats.military_streak ?? 0;
   const iso = stats.isolation ?? 68;
   const don = stats.donetsk_control ?? 78;
@@ -273,14 +272,17 @@ function generateAutonomousEvents(stats, month, gameId) {
   // Коррупция: скандал при высоком уровне
   if (corr > 65) {
     const variants = [
-      { text: "Утечка в прессу: журналисты-расследователи опубликовали данные об откатах в оборонных закупках. Соцсети взорвались — рейтинг под давлением.", statDelta: { approval: -2, social_tension: 2 } },
+      { text: "Утечка в прессу: журналисты-расследователи опубликовали данные об откатах в оборонных закупках. Соцсети взорвались — рейтинг под давлением.", statDelta: { approval: -2 } },
       { text: "Губернатор одного из ключевых регионов задержан по подозрению в хищении бюджетных средств. Скандал бьёт по доверию к власти.", statDelta: { approval: -3, stability: -1 } },
       { text: "Расследование «Медиазоны»: в оборонных контрактах выявлена схема двойного списания. Сумма нанесённого ущерба — более ₽80 млрд.", statDelta: { approval: -2, corruption: 2 } },
     ];
     pool.push({ priority: 2, source: "СМИ", ...variants[Math.floor(rng() * variants.length)] });
   }
-  // Внутреннее: соц. напряжение
-  if (tension > 55) {
+  // Внутреннее: недовольство народа (раньше триггерилось декоративным social_tension,
+  // удалённым за ненадобностью — переключено на lower_class_mood, тот же смысл, но реально
+  // работающий стат)
+  const lowerMoodNow = stats.lower_class_mood ?? 41;
+  if (lowerMoodNow < 35) {
     const variants = [
       { text: "Фиксируем нарастание протестных настроений в ряде регионов — в основном связаны с ростом цен и задержками выплат. Ситуация под наблюдением.", statDelta: { stability: -1, lower_class_mood: -2 } },
       { text: "В нескольких промышленных городах прошли стихийные акции против мобилизации и роста цен. Полиция применила силу при разгоне.", statDelta: { stability: -2, approval: -1 } },
@@ -344,7 +346,7 @@ function generateFinalChapterEvent(stats, month) {
     return [{
       source: "Совет Безопасности",
       text: "Внеочередное заседание Совбеза: аналитики фиксируют, что окно для урегулирования конфликта сужается. Западные союзники Киева намерены принять решение о долгосрочном военном пакете в течение 3–4 месяцев — до этого момента переговорная позиция России остаётся более сильной.",
-      statDelta: { social_tension: 1 },
+      statDelta: {},
       reactions: [{ text: "Время работает против нас — каждый упущенный месяц укрепляет ВПК НАТО.", stat_delta: {} }],
     }];
   }
@@ -2661,7 +2663,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const statDeltas = {};
       const homeRecovery = {
         approval: 3, stability: 3,
-        lower_class_mood: 3, reserves: 2, employment: 1, social_tension: -2,
+        lower_class_mood: 3, reserves: 2, employment: 1,
         inflation: -1,
       };
       for (const [k, d] of Object.entries(homeRecovery)) {
@@ -2966,7 +2968,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
     const gameRes = await db.query(`SELECT current_turn FROM games WHERE id = $1`, [gameId]);
     const turnN = gameRes.rows[0]?.current_turn || 0;
-    const STAT_RU = { stability: "стабильность", approval: "рейтинг", economy: "экономика", military: "армия", diplomacy: "дипломатия", reserves: "резервы", inflation: "инфляция", middle_class: "средний класс", lower_class_mood: "настроения населения", social_tension: "напряжённость", army_morale: "боевой дух", readiness: "боеготовность", equipment: "оснащение", media_control: "контроль СМИ", employment: "занятость" };
+    const STAT_RU = { stability: "стабильность", approval: "рейтинг", economy: "экономика", military: "армия", diplomacy: "дипломатия", reserves: "резервы", inflation: "инфляция", middle_class: "средний класс", lower_class_mood: "настроения населения", army_morale: "боевой дух", readiness: "боеготовность", equipment: "оснащение", employment: "занятость" };
     const penaltyText = Object.entries(penalty)
       .map(([k, v]) => `${STAT_RU[k] || k} ${v > 0 ? "+" : ""}${v}`).join(", ");
     const budgetBits = [];

@@ -1176,7 +1176,6 @@ const ALL_STAT_LABELS = {
   gdp_growth: "Рост ВВП", inflation: "Инфляция", employment: "Занятость", reserves: "Резервы",
   army_morale: "Боевой дух", equipment: "Техника", readiness: "Боеготовность", veterans: "Опыт войск",
   ally_trust: "Доверие союзников", isolation: "Изоляция",
-  social_tension: "Соц. напряж.", media_control: "Контроль СМИ",
   elite_satisfaction: "Элиты", corruption: "Коррупция", middle_class: "Средний класс", lower_class_mood: "Народ",
   treasury: "Казна", peace_progress: "Мирный трек",
   donetsk_control: "Контроль Донецка", luhansk_control: "Контроль Луганска",
@@ -1193,7 +1192,7 @@ const DELTA_GROUPS = [
   { key: "economy",   label: "Экономика",  stats: ["economy", "gdp_growth", "employment", "inflation", "reserves", "treasury"] },
   { key: "military",  label: "Военные",    stats: ["military", "army_morale", "equipment", "readiness", "veterans", "donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"] },
   { key: "diplomacy", label: "Дипломатия", stats: ["diplomacy", "ally_trust", "isolation", "peace_progress"] },
-  { key: "stability", label: "Стабильность", stats: ["stability", "social_tension", "media_control"] },
+  { key: "stability", label: "Стабильность", stats: ["stability"] },
   { key: "approval",  label: "Общество",   stats: ["approval", "elite_satisfaction", "corruption", "middle_class", "lower_class_mood"] },
   { key: "resources", label: "Ресурсы",    stats: ["initiative"] },
 ];
@@ -1319,7 +1318,7 @@ const UA_STAT_META = {
   ua_stability: { label: "Стабильность Украины", icon: ScrollText, color: "#8a8fa0", desc: "Внутренняя устойчивость власти — усталость от войны, единство элит" },
 };
 // Метрики где рост = плохо (инвертированные: красный при росте, зелёный при снижении)
-const INVERTED_STATS = new Set(["corruption", "inflation", "social_tension", "isolation", "war_escalation_counter"]);
+const INVERTED_STATS = new Set(["corruption", "inflation", "isolation", "war_escalation_counter"]);
 
 // Инфляция хранится как внутренний индекс давления 0–100 (стартует с 64) — это
 // НЕ проценты, но цифра "64" выглядит как пугающий уровень инфляции и сбивает с толку.
@@ -1455,8 +1454,8 @@ function boostStrings(effectStats) {
 function penaltyEntries(cancelPenalty) {
   if (!cancelPenalty) return [];
   return Object.entries(cancelPenalty).map(([k, v]) => {
-    // Для инфляции/напряжённости/изоляции/коррупции рост = плохо
-    const inverse = ["inflation", "social_tension", "isolation", "corruption"].includes(k);
+    // Для инфляции/изоляции/коррупции рост = плохо
+    const inverse = ["inflation", "isolation", "corruption"].includes(k);
     const good = inverse ? v < 0 : v > 0;
     return { label: statLabel(k, ALL_STAT_LABELS[k] || k), delta: v, good };
   });
@@ -4864,10 +4863,7 @@ const SUBSTAT_META = {
     { key: "ally_trust",  label: "Доверие союзников", color: "#5b6b8c", desc: "ОДКБ номинально, реально — Китай, КНДР, Беларусь. Ограниченный, но стабильный блок." },
     { key: "isolation",   label: "Изоляция",    color: "#8c5b5b", desc: "21-й пакет санкций ЕС готовится. Отрезаны от SWIFT, западных технологий и рынков.", inverted: true },
   ],
-  stability: [
-    { key: "social_tension",  label: "Соц. напряж.",     color: "#a85030", desc: "Усталость от ограничений растёт, но открытых волнений нет. ВЦИОМ: поддержка СВО 65%.", inverted: true },
-    { key: "media_control",   label: "Контроль СМИ",     color: "#5c7a6b", desc: "Большинство независимых СМИ закрыты или за рубежом. Телевидение полностью под контролем." },
-  ],
+  stability: [],
   approval: [
     { key: "elite_satisfaction", label: "Элиты",        color: "#8c6b3a", desc: "Силовики и госкорпорации в выигрыше от ВПК. Бизнес страдает от ставки ЦБ и санкций." },
     { key: "corruption",         label: "Коррупция",    color: "#a8313a", desc: "Военные контракты и параллельный импорт открыли новые схемы. Transparency: 137-е место.", inverted: true },
@@ -4956,7 +4952,6 @@ function StatDetailModal({ statKey, state, gameId, onClose }) {
     stability: [
       { text: en ? "A negative treasury lowers stability by 1 point a month — a budget deficit destabilizes the country." : "Отрицательная казна снижает стабильность на 1 пункт в месяц — дефицит бюджета дестабилизирует страну.", warn: (state.stats.treasury ?? 52) < 0 },
       { text: en ? "Repression temporarily raises stability, but increases corruption and lowers approval." : "Репрессии временно поднимают стабильность, но повышают коррупцию и снижают рейтинг.", warn: false },
-      { text: en ? "If social tension is above 70, the risk of domestic crisis events rises." : "Если социальная напряжённость выше 70, растёт риск внутренних кризисных событий.", warn: (state.stats.social_tension ?? 38) > 70 },
     ],
     diplomacy: [
       { text: en ? "Above 70 international isolation, sanctions pressure intensifies and the economy becomes more vulnerable." : "При международной изоляции выше 70 санкционное давление усиливается, а экономика становится более уязвимой.", warn: (state.stats.isolation ?? 68) > 70 },

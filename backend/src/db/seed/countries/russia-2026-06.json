@@ -38,8 +38,6 @@
     "veterans": 72,
     "ally_trust": 42,
     "isolation": 68,
-    "social_tension": 38,
-    "media_control": 76,
     "donetsk_control": 78,
     "luhansk_control": 96,
     "zaporizhzhia_control": 68,
@@ -323,7 +321,6 @@
       "completion_conditions": null,
       "effect_stats": {
         "economy": 1,
-        "media_control": 1,
         "reserves": 1
       },
       "cancel_penalty": {
@@ -404,8 +401,7 @@
       "cancel_penalty": {
         "reserves": -3,
         "approval": 2,
-        "inflation": -2,
-        "social_tension": -2
+        "inflation": -2
       },
       "items": [
         "Повышение базовой ставки НДС с 20% до 22%",
