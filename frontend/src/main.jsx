@@ -277,7 +277,6 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
       <div style={{ background: "linear-gradient(180deg,#0f1318 0%,#1a1f2c 100%)", borderBottom: "2px solid #9c8347", padding: "32px 20px 24px", textAlign: "center", position: "relative" }}>
         <div style={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 8 }}>
-          {rawMobile && <DesktopViewToggle />}
           <LangToggle />
         </div>
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.2em", color: "#9c8347", marginBottom: 10 }}>{t("brand.classified")}</div>
@@ -538,6 +537,11 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
           </div>
 
           {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
+          {rawMobile && (
+            <div style={{ textAlign: "center", marginTop: 14 }}>
+              <DesktopViewToggle />
+            </div>
+          )}
           <div className="mono-font" onClick={handleSecretTap}
             style={{ textAlign: "center", fontSize: 9, color: "#2a3040", marginTop: 10, letterSpacing: "0.08em", userSelect: "none", cursor: "default" }}>
             {t("start.footer_note")}{tapCount > 0 ? ` ·` + "·".repeat(tapCount) : ""}
