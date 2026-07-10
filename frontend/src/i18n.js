@@ -322,6 +322,7 @@ const RU = {
   "advisors.accept_tooltip": "Вставит указ: «{decree}»",
   "advisors.btn_accept": "Принять совет →",
   "advisors.btn_orders": "Распоряжения",
+  "advisors.btn_consult": "Совет",
 
   // ---- WidgetCard (Казна/Отношения) ----
   "widget.drag_tooltip": "Потяните за эту область, чтобы переставить виджет",
@@ -899,6 +900,7 @@ const EN = {
   "advisors.accept_tooltip": "Will insert the decree: \"{decree}\"",
   "advisors.btn_accept": "Accept advice →",
   "advisors.btn_orders": "Orders",
+  "advisors.btn_consult": "Advice",
 
   // ---- WidgetCard (Treasury/Relations) ----
   "widget.drag_tooltip": "Drag this area to reorder the widget",

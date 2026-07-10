@@ -3519,6 +3519,11 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
   // элиты в башнях кремля пытаются на меня повлиять") — браузер категорий переехал сюда из
   // бывшего KremlinTab, по одному министру на область, вместо общего браузера всех доменов.
   const [expandedMinisterId, setExpandedMinisterId] = useState(null);
+  // Форма совета свёрнута по умолчанию (Петя, 2026-07-10: "Кабинет министров... не выглядит
+  // изящно" — 5 карточек, каждая всегда с портретом+цитатой+textarea+кнопками, это и создавало
+  // ощущение перегруза). Тот же паттерн, что "Распоряжения" — за кнопкой, только один советник
+  // открыт одновременно.
+  const [openConsultId, setOpenConsultId] = useState(null);
   // Баннер-рекомендация (Петя, 2026-07-10: "система подсказок куда-то делась") — вернулся как
   // единый баннер над списком министров, а не per-министр дублирование (та же математика,
   // что и раньше в KremlinTab, computeKremlinRecommendation ниже в файле не менялась).
@@ -3629,81 +3634,21 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                     )}
                   </div>
 
-                  {st.status === "idle" && (
-                    <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#a8a294", fontStyle: "italic", marginBottom: 10 }}>
-                      «{pickGreeting(info.id, info.id + actionMode)}»
-                    </div>
-                  )}
-                  {st.status === "loading" && (
-                    <div className="mono-font" style={{ fontSize: 12, color: "#c8a96a", marginBottom: 10, animation: "pulse 1.2s infinite" }}>
-                      {t("advisors.thinking")}
-                    </div>
-                  )}
-                  {st.status === "error" && (
-                    <div className="doc-font" style={{ fontSize: 12.5, color: "#e09090", marginBottom: 10 }}>
-                      {t("advisors.error_prefix")}{st.error}
-                    </div>
-                  )}
-                  {st.status === "loaded" && adv && (
-                    <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.55, color: "#cdd3e0", marginBottom: 10 }}>
-                      {adv.recommendation}
-                    </div>
-                  )}
-
-                  {st.status === "loaded" && adv?.proposed_decree && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
-                    <div style={{ background: "#1f1a10", borderLeft: "3px solid #9c8347", borderRadius: 3, padding: "6px 9px", marginBottom: 10 }}>
-                      <div className="mono-font" style={{ fontSize: 8, color: "#c8a96a", letterSpacing: "0.08em", marginBottom: 2 }}>{t("advisors.proposed_decree")}</div>
-                      <div className="doc-font" style={{ fontSize: 12.5, color: "#e0c878", fontStyle: "italic", lineHeight: 1.45 }}>«{adv.proposed_decree}»</div>
-                    </div>
-                  )}
-
-                  <textarea
-                    value={questionDrafts[info.id] || ""}
-                    onChange={(e) => setQuestionDrafts(prev => ({ ...prev, [info.id]: e.target.value }))}
-                    placeholder={t("advisors.question_placeholder")}
-                    rows={2}
-                    disabled={st.status === "loading"}
-                    style={{
-                      width: "100%", resize: "vertical", marginBottom: 4, padding: "6px 8px",
-                      background: "#0f131c", border: "1px solid #2a3040", borderRadius: 3,
-                      fontFamily: "'PT Serif',serif", fontSize: 12.5, color: "#ece7d8", boxSizing: "border-box",
-                    }}
-                  />
-                  {!questionDrafts[info.id]?.trim() && st.status !== "loading" && (
-                    <div className="doc-font" style={{ fontSize: 11, color: "#a8a294", fontStyle: "italic", marginBottom: 6 }}>
-                      {t("advisors.empty_hint")}
-                    </div>
-                  )}
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                     <button
-                      onClick={() => onConsultAdvisor(info.id, questionDrafts[info.id] || "")}
-                      disabled={st.status === "loading"}
+                      onClick={() => setOpenConsultId(openConsultId === info.id ? null : info.id)}
                       style={{
-                        background: st.status === "loading" ? "#5a5040" : "#9c8347", color: "#1a1f2c", border: "none",
+                        background: "transparent", color: "#9c8347", border: "1px solid #3a4050",
                         borderRadius: 3, padding: "6px 14px", fontFamily: "'PT Serif',serif", fontSize: 12.5,
-                        cursor: st.status === "loading" ? "default" : "pointer", fontWeight: 700, opacity: st.status === "loading" ? 0.7 : 1,
+                        cursor: "pointer",
                       }}
                     >
-                      {st.status === "loading" ? t("advisors.btn_thinking") : t("advisors.btn_get_advice")}
+                      {t("advisors.btn_consult")} {openConsultId === info.id ? "▲" : "▼"}
                     </button>
-                    {st.status === "loaded" && adv?.suggested_direction && adv.suggested_direction !== "null_action" && (
-                      <button
-                        onClick={() => onSelectAdvice(adv)}
-                        title={adv.proposed_decree ? t("advisors.accept_tooltip", { decree: adv.proposed_decree }) : undefined}
-                        style={{
-                          background: "transparent", color: "#9c8347", border: "1px solid #9c8347",
-                          borderRadius: 3, padding: "6px 14px",
-                          fontFamily: "'PT Serif',serif", fontSize: 12.5,
-                          cursor: "pointer", fontWeight: 700,
-                        }}
-                      >
-                        {t("advisors.btn_accept")}
-                      </button>
-                    )}
                     <button
                       onClick={() => setExpandedMinisterId(expandedMinisterId === info.id ? null : info.id)}
                       style={{
-                        marginLeft: "auto", background: "transparent", color: "#c8a857", border: "1px solid #3a4050",
+                        background: "transparent", color: "#c8a857", border: "1px solid #3a4050",
                         borderRadius: 3, padding: "6px 14px", fontFamily: "'PT Serif',serif", fontSize: 12.5,
                         cursor: "pointer",
                       }}
@@ -3711,6 +3656,83 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                       {t("advisors.btn_orders")} {expandedMinisterId === info.id ? "▲" : "▼"}
                     </button>
                   </div>
+
+                  {openConsultId === info.id && (
+                    <div style={{ marginBottom: 10 }}>
+                      {st.status === "idle" && (
+                        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#a8a294", fontStyle: "italic", marginBottom: 10 }}>
+                          «{pickGreeting(info.id, info.id + actionMode)}»
+                        </div>
+                      )}
+                      {st.status === "loading" && (
+                        <div className="mono-font" style={{ fontSize: 12, color: "#c8a96a", marginBottom: 10, animation: "pulse 1.2s infinite" }}>
+                          {t("advisors.thinking")}
+                        </div>
+                      )}
+                      {st.status === "error" && (
+                        <div className="doc-font" style={{ fontSize: 12.5, color: "#e09090", marginBottom: 10 }}>
+                          {t("advisors.error_prefix")}{st.error}
+                        </div>
+                      )}
+                      {st.status === "loaded" && adv && (
+                        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.55, color: "#cdd3e0", marginBottom: 10 }}>
+                          {adv.recommendation}
+                        </div>
+                      )}
+
+                      {st.status === "loaded" && adv?.proposed_decree && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
+                        <div style={{ background: "#1f1a10", borderLeft: "3px solid #9c8347", borderRadius: 3, padding: "6px 9px", marginBottom: 10 }}>
+                          <div className="mono-font" style={{ fontSize: 8, color: "#c8a96a", letterSpacing: "0.08em", marginBottom: 2 }}>{t("advisors.proposed_decree")}</div>
+                          <div className="doc-font" style={{ fontSize: 12.5, color: "#e0c878", fontStyle: "italic", lineHeight: 1.45 }}>«{adv.proposed_decree}»</div>
+                        </div>
+                      )}
+
+                      <textarea
+                        value={questionDrafts[info.id] || ""}
+                        onChange={(e) => setQuestionDrafts(prev => ({ ...prev, [info.id]: e.target.value }))}
+                        placeholder={t("advisors.question_placeholder")}
+                        rows={2}
+                        disabled={st.status === "loading"}
+                        style={{
+                          width: "100%", resize: "vertical", marginBottom: 4, padding: "6px 8px",
+                          background: "#0f131c", border: "1px solid #2a3040", borderRadius: 3,
+                          fontFamily: "'PT Serif',serif", fontSize: 12.5, color: "#ece7d8", boxSizing: "border-box",
+                        }}
+                      />
+                      {!questionDrafts[info.id]?.trim() && st.status !== "loading" && (
+                        <div className="doc-font" style={{ fontSize: 11, color: "#a8a294", fontStyle: "italic", marginBottom: 6 }}>
+                          {t("advisors.empty_hint")}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          onClick={() => onConsultAdvisor(info.id, questionDrafts[info.id] || "")}
+                          disabled={st.status === "loading"}
+                          style={{
+                            background: st.status === "loading" ? "#5a5040" : "#9c8347", color: "#1a1f2c", border: "none",
+                            borderRadius: 3, padding: "6px 14px", fontFamily: "'PT Serif',serif", fontSize: 12.5,
+                            cursor: st.status === "loading" ? "default" : "pointer", fontWeight: 700, opacity: st.status === "loading" ? 0.7 : 1,
+                          }}
+                        >
+                          {st.status === "loading" ? t("advisors.btn_thinking") : t("advisors.btn_get_advice")}
+                        </button>
+                        {st.status === "loaded" && adv?.suggested_direction && adv.suggested_direction !== "null_action" && (
+                          <button
+                            onClick={() => onSelectAdvice(adv)}
+                            title={adv.proposed_decree ? t("advisors.accept_tooltip", { decree: adv.proposed_decree }) : undefined}
+                            style={{
+                              background: "transparent", color: "#9c8347", border: "1px solid #9c8347",
+                              borderRadius: 3, padding: "6px 14px",
+                              fontFamily: "'PT Serif',serif", fontSize: 12.5,
+                              cursor: "pointer", fontWeight: 700,
+                            }}
+                          >
+                            {t("advisors.btn_accept")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {expandedMinisterId === info.id && (
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
