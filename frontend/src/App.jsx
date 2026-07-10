@@ -1182,6 +1182,11 @@ const ALL_STAT_LABELS = {
   zaporizhzhia_control: "Контроль Запорожья", kherson_control: "Контроль Херсона", kharkiv_control: "Контроль Харькова",
   military_streak: "Воен. стрик",
   ua_army: "Армия ВСУ", ua_west_support: "Поддержка Запада", ua_morale: "Боевой дух ВСУ",
+  // Башни Кремля — раньше в превью/итогах хода протекали сырыми ключами ("faction_siloviki +12"),
+  // т.к. этих меток тут не было (Петя, 2026-07-10, скриншот с багом). Метки/цвета зеркалят
+  // FACTION_META ниже по файлу (её саму сюда не переносим — определена позже, до неё не дотянуться).
+  faction_siloviki: "Силовики", faction_tehnokraty: "Технократы",
+  faction_oligarhi: "Олигархи", faction_konservatory: "Консерваторы",
 };
 
 // Группировка дельт превью по подкатегориям (Петя, 2026-07-05: "много полей в прогнозе — можно
@@ -1198,6 +1203,11 @@ const DELTA_GROUPS = [
   // Прямая цена для Украины от военных/тайных операций игрока (Петя, 2026-07-09: "должно быть
   // понятно, как это повлияло на Украину") — см. UA_IMPACT_FROM_PLAYER в rules-engine.js.
   { key: "ukraine",   label: "Украина",    stats: ["ua_army", "ua_morale", "ua_stability", "ua_west_support"] },
+  // Реакция башен Кремля — своя группа, а не общее "Прочее" (Петя, 2026-07-10: "надписи с башнями
+  // по-английски + под них отдельно завести — реакция башен"). Раньше faction_* не входили ни в
+  // одну группу, падали в leftover, и текстовый фоллбэк рендерил их сырыми ключами (не было меток
+  // в ALL_STAT_LABELS вовсе) — см. фикс меток чуть выше.
+  { key: "factions",  label: "Башни Кремля", stats: ["faction_siloviki", "faction_tehnokraty", "faction_oligarhi", "faction_konservatory"] },
 ];
 
 // Раскладывает плоский список [stat, delta] по DELTA_GROUPS + "Прочее" — общая логика для
@@ -2991,13 +3001,14 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               <LangToggle />
               <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>{t("app.alpha_badge")}</span>
             </div>
-            {assistMode !== "hardcore" && (
-              <button onClick={() => setShowWiki(true)}
-                style={{ background: "transparent", border: `1px solid ${NK.accent}`, borderRadius: 3, color: NK.accent, fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}
-              >
-                {t("app.wiki_button")}
-              </button>
-            )}
+            {/* Ликбез виден в ОБОИХ режимах (Петя, 2026-07-10: "в хардкоре нужно только ликбез
+                оставить") — раньше прятался в hardcore вместе со всеми подсказками, но это
+                справочник по правилам игры, не подсказка "что сделать сейчас". */}
+            <button onClick={() => setShowWiki(true)}
+              style={{ background: "transparent", border: `1px solid ${NK.accent}`, borderRadius: 3, color: NK.accent, fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}
+            >
+              {t("app.wiki_button")}
+            </button>
             <button onClick={() => setShowFeedback(true)}
               style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer" }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
@@ -3075,6 +3086,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             actionMode={actionMode}
             stats={state?.stats}
             turnNumber={(state?.turn ?? 0) + 1}
+            hardcore={assistMode === "hardcore"}
             onConsultAdvisor={handleConsultAdvisor}
             onSelectMode={setActionMode}
             onSelectCategory={(template, mode) => {
@@ -3513,7 +3525,7 @@ function pickGreeting(id, seedKey) {
   return advisorGreeting(id, ruText, pool);
 }
 
-function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory, stats, turnNumber }) {
+function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory, stats, turnNumber, hardcore }) {
   const badge = ACTION_MODE_BADGE[actionMode] || ACTION_MODE_BADGE.decree_fast;
   // Свой текст на каждого советника отдельно (не общий черновик указа) — можно спросить
   // конкретного министра о чём-то своём, а можно просто нажать "Получить совет" пустым полем.
@@ -3531,7 +3543,10 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
   // единый баннер над списком министров, а не per-министр дублирование (та же математика,
   // что и раньше в KremlinTab, computeKremlinRecommendation ниже в файле не менялась).
   const [jumpTarget, setJumpTarget] = useState(null);
-  const rec = computeKremlinRecommendation(stats || {}, turnNumber ?? 1);
+  // В hardcore ("сам по себе") баннер-рекомендация не считается вовсе — не просто прячем готовый
+  // рендер, а не даём игроку даже мгновение увидеть заголовок/reason (Петя, 2026-07-10: "в
+  // хардкоре нужно только ликбез оставить" — единственная подсказка, которая должна остаться).
+  const rec = hardcore ? null : computeKremlinRecommendation(stats || {}, turnNumber ?? 1);
   const recTarget = rec ? findMinisterDomainForCategory(rec.category) : null;
   const goToRecommendation = () => {
     if (!rec || !recTarget) return;
@@ -3614,7 +3629,10 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                     </div>
                     {adv && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                        {adv.is_optimal && (
+                        {/* is_optimal/suggested_* — это готовый "ответ", а не мнение советника
+                            (см. рекомендацию ниже) — в hardcore прячем, тон советника оставляем
+                            (это в-ролевая реакция, не подсказка "что делать"). */}
+                        {!hardcore && adv.is_optimal && (
                           <span className="mono-font" title={t("advisors.optimal_tooltip")}
                             style={{ fontSize: 9, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 3, background: "#1a3a2a", color: "#5adc8c", border: "1px solid #2a6a4a", fontWeight: 700 }}>
                             {t("advisors.optimal_badge")}
@@ -3623,12 +3641,12 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                         <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 3, background: toneColor + "22", color: toneColor }}>
                           {advisorToneLabel(adv.tone, ADVISOR_TONE_LABEL[adv.tone] || adv.tone)?.toUpperCase()}
                         </span>
-                        {adv.suggested_direction && adv.suggested_direction !== "null_action" && (
+                        {!hardcore && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
                           <span className="mono-font" style={{ fontSize: 9, color: "#a8a294" }}>
                             → {directionLabel(adv.suggested_direction, DIRECTION_LABEL[adv.suggested_direction] || adv.suggested_direction)}
                           </span>
                         )}
-                        {adv.suggested_scale && (
+                        {!hardcore && adv.suggested_scale && (
                           <span className="mono-font" style={{ fontSize: 8, padding: "2px 6px", borderRadius: 2, background: adv.suggested_scale === "decree_program" ? "#2a1f3a" : adv.suggested_scale === "decree_reform" ? "#1a2a1f" : "#1f2a2a", color: adv.suggested_scale === "decree_program" ? "#9c7ab0" : adv.suggested_scale === "decree_reform" ? "#7ab09c" : "#7a9cb0", letterSpacing: "0.06em" }}>
                             {actionScaleLabel(adv.suggested_scale, { decree_fast: "БЫСТРЫЙ УКАЗ", decree_reform: "РЕФОРМА", decree_program: "ПРОГРАММА", intel: "РАЗВЕДКА", military: "ВОЕННАЯ ОП." }[adv.suggested_scale] || adv.suggested_scale)}
                           </span>
@@ -3683,7 +3701,11 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                         </div>
                       )}
 
-                      {st.status === "loaded" && adv?.proposed_decree && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
+                      {/* Готовый текст указа от советника — прямая подсказка "вот что писать",
+                          в hardcore её нет (Петя, 2026-07-10: "в хардкоре только ликбез
+                          оставить") — остаётся только СВОБОДНОЕ мнение министра (adv.recommendation
+                          выше), без готового ответа. */}
+                      {!hardcore && st.status === "loaded" && adv?.proposed_decree && adv.suggested_direction && adv.suggested_direction !== "null_action" && (
                         <div style={{ background: "#1f1a10", borderLeft: "3px solid #9c8347", borderRadius: 3, padding: "6px 9px", marginBottom: 10 }}>
                           <div className="mono-font" style={{ fontSize: 8, color: "#c8a96a", letterSpacing: "0.08em", marginBottom: 2 }}>{t("advisors.proposed_decree")}</div>
                           <div className="doc-font" style={{ fontSize: 12.5, color: "#e0c878", fontStyle: "italic", lineHeight: 1.45 }}>«{adv.proposed_decree}»</div>
@@ -3719,7 +3741,7 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                         >
                           {st.status === "loading" ? t("advisors.btn_thinking") : t("advisors.btn_get_advice")}
                         </button>
-                        {st.status === "loaded" && adv?.suggested_direction && adv.suggested_direction !== "null_action" && (
+                        {!hardcore && st.status === "loaded" && adv?.suggested_direction && adv.suggested_direction !== "null_action" && (
                           <button
                             onClick={() => onSelectAdvice(adv)}
                             title={adv.proposed_decree ? t("advisors.accept_tooltip", { decree: adv.proposed_decree }) : undefined}
@@ -4077,9 +4099,11 @@ function WelcomeModal({ state, playerName, assistMode, onClose, onOpenWiki }) {
           </BriefSection>
 
           {/* Напоминание прочитать Ликбез — перенесено вниз (после того, как игрок увидел
-              актуальную сводку), чтобы не отвлекать от неё сразу под личным делом. Скрыто
-              в hardcore-режиме — там сознательно нет подсказок. */}
-          {assistMode !== "hardcore" && onOpenWiki && (
+              актуальную сводку), чтобы не отвлекать от неё сразу под личным делом. Видно в ОБОИХ
+              режимах (Петя, 2026-07-10: "в хардкоре нужно только ликбез оставить") — Ликбез не
+              подсказка "что делать", а справочник правил, нужен именно в hardcore едва ли не
+              больше, раз остальные подсказки там отключены. */}
+          {onOpenWiki && (
             <div style={{ background: "#241a10", border: "1px solid #9c8347", borderRadius: 4, padding: "12px 14px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div className="doc-font" style={{ fontSize: 12.5, color: "#e0c878", lineHeight: 1.5 }}>
                 {richText(t("welcome.wiki_banner"), { fontWeight: 700 })}
@@ -4976,6 +5000,12 @@ EXTRA_BAR_META.peace_progress = { label: "Мирный трек", color: "#5b8c6
 for (const k of ["ua_army", "ua_morale", "ua_stability", "ua_west_support"]) {
   EXTRA_BAR_META[k] = { label: UA_STAT_META[k].label, color: UA_STAT_META[k].color, inverted: false };
 }
+// Башни Кремля — те же 4 ключа, что и FACTION_META ниже по файлу (её саму сюда не поднять —
+// определена позже, до неё не дотянуться на момент вычисления EXTRA_BAR_META).
+EXTRA_BAR_META.faction_siloviki     = { label: "Силовики",     color: "#b2585a", inverted: false };
+EXTRA_BAR_META.faction_konservatory = { label: "Консерваторы", color: "#9a5a86", inverted: false };
+EXTRA_BAR_META.faction_oligarhi     = { label: "Олигархи",     color: "#c8a857", inverted: false };
+EXTRA_BAR_META.faction_tehnokraty   = { label: "Технократы",   color: "#5b8ab0", inverted: false };
 
 // Спарклайн-график из SVG без библиотек
 function Sparkline({ data, color, width = 120, height = 32 }) {

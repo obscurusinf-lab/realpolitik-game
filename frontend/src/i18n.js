@@ -1346,6 +1346,11 @@ const STAT_NAME_EN = {
   ua_army: "Ukrainian Army", ua_west_support: "Western Support", ua_morale: "Ukrainian Morale",
   ua_economy: "Ukraine Economy", ua_diplomacy: "Ukraine Diplomacy", ua_stability: "Ukraine Stability",
   key_rate: "Key Rate", oil_price: "Oil Price", usd_rub: "USD/RUB", corruption_index: "Corruption Index",
+  // Башни Кремля — раньше протекали в дельты превью/итогов хода необработанными ключами
+  // ("faction_siloviki +12") вместо переведённых меток (Петя, 2026-07-10, скриншот с багом).
+  factions: "Kremlin Towers",
+  faction_siloviki: "Siloviki", faction_tehnokraty: "Technocrats",
+  faction_oligarhi: "Oligarchs", faction_konservatory: "Conservatives",
 };
 // statLabel(key, ruLabel) — ruLabel это то, что уже лежит в словаре (RU по умолчанию); если язык
 // en и для этого ключа есть перевод — подставляем его, иначе возвращаем ruLabel как есть (не
