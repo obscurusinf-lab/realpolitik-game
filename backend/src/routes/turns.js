@@ -73,28 +73,53 @@ function inflationPercent(score) {
  *   - military < 30 → "defeat_military_collapse"
  *   - donetsk_control < 40 И luhansk_control < 40 → "defeat_donbass_lost"
  */
+// Проверка условий военной/комбинированной победы БЕЗ гейта по ходу (используется и самим
+// detectGameOutcome под gate turnNumber>=8, и отдельно для раннего бонуса очков ниже —
+// см. markEarlyVictoryIfQualified). Возвращает тип исхода или null, если условия не выполнены.
+function checkMilitaryVictoryType(stats) {
+  const militaryDominance = (stats.military ?? 50) >= 85;
+  const armyReady = (stats.army_morale ?? 50) >= 70 && (stats.readiness ?? 50) >= 70;
+  const homeStable = (stats.stability ?? 50) >= 52 && (stats.approval ?? 50) >= 52;
+  const economyHolds = (stats.economy ?? 50) >= 36;
+  const donbassSecured = (stats.donetsk_control ?? 0) >= 100 && (stats.luhansk_control ?? 0) >= 100;
+  const otherRegions = [
+    (stats.zaporizhzhia_control ?? 0) >= 85,
+    (stats.kherson_control ?? 0) >= 65,
+    (stats.kharkiv_control ?? 0) >= 50,
+  ].filter(Boolean).length;
+  if (!(militaryDominance && armyReady && homeStable && economyHolds && donbassSecured && otherRegions >= 2)) {
+    return null;
+  }
+  const peace = (stats.peace_progress ?? 0);
+  if (peace >= 40) return "victory_combined";   // лучший исход — оба пути сошлись
+  if (peace < 35) return "victory_military";     // чистая военная победа
+  return null; // зона 35..40 — переговоры ещё не дожаты, не считается выполненным условием
+}
+
+// Плюшка (Петя, 2026-07-10): гейт "победа не раньше хода 8" остаётся — игрок всё равно должен
+// дотянуть до 8-го хода, чтобы игра формально завершилась победой. Но если условия военной/
+// комбинированной победы фактически выполнены РАНЬШЕ (ход < 8), это фиксируется отдельным флагом
+// в stats — и когда победа впоследствии официально засчитывается (на 8-м ходу или позже),
+// очки за неё удваиваются (см. computeGameScore). Мутирует stats на месте (ожидается newStats).
+// Возвращает true, если флаг выставлен именно этим вызовом (т.е. "только что" квалифицировался) —
+// вызывающий код использует это, чтобы один раз показать игроку уведомление в ленте.
+function markEarlyVictoryIfQualified(stats, turnNumber) {
+  if (turnNumber >= 8 || stats.early_victory_qualified) return false;
+  if (checkMilitaryVictoryType(stats)) {
+    stats.early_victory_qualified = true;
+    return true;
+  }
+  return false;
+}
+
 function detectGameOutcome(stats, turnNumber, maxTurns) {
   // Военная победа проверяется ПЕРВОЙ — если контроль над территориями достигнут,
   // война закончена ДО того как экономика успела рухнуть.
   if (turnNumber >= 8) {
-    const militaryDominance = (stats.military ?? 50) >= 85;
-    const armyReady = (stats.army_morale ?? 50) >= 70 && (stats.readiness ?? 50) >= 70;
-    const homeStable = (stats.stability ?? 50) >= 52 && (stats.approval ?? 50) >= 52;
-    const economyHolds = (stats.economy ?? 50) >= 36;
-    const donbassSecured = (stats.donetsk_control ?? 0) >= 100 && (stats.luhansk_control ?? 0) >= 100;
-    const otherRegions = [
-      (stats.zaporizhzhia_control ?? 0) >= 85,
-      (stats.kherson_control ?? 0) >= 65,
-      (stats.kharkiv_control ?? 0) >= 50,
-    ].filter(Boolean).length;
-    if (militaryDominance && armyReady && homeStable && economyHolds && donbassSecured && otherRegions >= 2) {
-      // Принуждение к миру: территории взяты + построен мирный трек (дипломатия с позиции силы).
-      const peace = (stats.peace_progress ?? 0);
-      if (peace >= 40) return "victory_combined";   // лучший исход — оба пути сошлись
-      if (peace < 35) return "victory_military";     // чистая военная победа
-      // Зона 35..40 — игрок явно ведёт переговоры: не завершаем партию автоматически,
-      // даём окно дожать мирный трек до 40 и получить принуждение к миру.
-    }
+    const earlyType = checkMilitaryVictoryType(stats);
+    if (earlyType) return earlyType;
+    // Зона 35..40 peace_progress — игрок явно ведёт переговоры: не завершаем партию
+    // автоматически, даём окно дожать мирный трек до 40 и получить принуждение к миру.
   }
 
   // Поражение — проверяем каждый ход
@@ -178,13 +203,22 @@ function computeGameScore(stats, outcome) {
     );
   }
 
-  const score = Math.max(1, tierBase + qualityBonus + combinedBonus);
+  const baseScore = Math.max(1, tierBase + qualityBonus + combinedBonus);
+
+  // Плюшка за досрочное выполнение условий победы (ход < 8, см. markEarlyVictoryIfQualified) —
+  // гейт "победа не раньше хода 8" не трогаем, игрок всё равно должен дотянуть до 8-го хода,
+  // это только удвоение очков за то, что фактически справился раньше.
+  const earlyVictoryBonus = stats.early_victory_qualified === true &&
+    (outcome === "victory_combined" || outcome === "victory_military");
+  const score = earlyVictoryBonus ? baseScore * 2 : baseScore;
+
   return {
     score,
     breakdown: {
       stability, economy, military, diplomacy, approval, treasury,
       outcome: outcome || null,
       tierBase, qualityBonus, combinedBonus,
+      earlyVictoryBonus,
     },
   };
 }
@@ -229,6 +263,21 @@ function makeSeededRng(gameId, month) {
   };
 }
 
+// Кулдаун на повторяющиеся НЕГАТИВНЫЕ автономные/внутренние события (Петя, 2026-07-10 —
+// пункт из отчёта домашней сессии: "5/5 живых партий проиграно", событие могло повторяться
+// почти дословно 2 хода подряд, пока условие-триггер оставалось истинным). Каждому негативному
+// варианту присвоен стабильный id; после срабатывания id "замораживается" на N месяцев и не
+// может быть выбран повторно, даже если условие (низкая армия/санкции/коррупция и т.п.)
+// продолжает выполняться — даёт игроку реальную передышку вместо гарантированного повтора.
+const NEGATIVE_EVENT_COOLDOWN_MONTHS = 2;
+function negativeEventOnCooldown(stats, id, month) {
+  const lastFired = (stats.recent_negative_events || {})[id];
+  return typeof lastFired === "number" && (month - lastFired) < NEGATIVE_EVENT_COOLDOWN_MONTHS;
+}
+function markNegativeEventFired(newStats, id, month) {
+  newStats.recent_negative_events = { ...(newStats.recent_negative_events || {}), [id]: month };
+}
+
 // Генерирует 1-2 автономных события в конце месяца (мир живёт без игрока).
 // Внутри каждой группы приоритета события выбираются случайно (ГСЧ, сид = gameId+month),
 // поэтому в разных партиях и разных месяцах при одинаковых условиях события разнятся.
@@ -245,21 +294,21 @@ function generateAutonomousEvents(stats, month, gameId) {
   const pool = [];
 
   // Украина: зондирует слабые участки при низкой боеспособности
-  if (mil < 55) {
+  if (mil < 55 && !negativeEventOnCooldown(stats, "ua_probe", month)) {
     const variants = [
       { text: "ВСУ активизировались на харьковском направлении — разведывательно-ударные группы тестируют линию обороны. Требуется внимание.", statDelta: { kharkiv_control: -2, army_morale: -1 } },
       { text: "Украинские дроны-камикадзе нанесли серию ударов по логистическим узлам в Белгородской области. Поставки на фронт временно нарушены.", statDelta: { readiness: -2, army_morale: -1 } },
       { text: "Разведка фиксирует накопление ВСУ у линии соприкосновения — готовится зондирующая атака на слабых участках.", statDelta: { kherson_control: -2 } },
     ];
-    pool.push({ priority: 3, source: "Генштаб", ...variants[Math.floor(rng() * variants.length)] });
+    pool.push({ priority: 3, source: "Генштаб", id: "ua_probe", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Украина: контрнаступление если давно перегруппировка
-  if (streak === 0 && mil < 70) {
+  if (streak === 0 && mil < 70 && !negativeEventOnCooldown(stats, "ua_counter", month)) {
     const variants = [
       { text: "Противник воспользовался оперативной паузой и усилил давление на запорожском фасе. Подтянуты резервы и западное вооружение.", statDelta: { zaporizhzhia_control: -3, military: -1 } },
       { text: "ВСУ начали локальное наступление в Херсонском направлении, используя отсутствие активного давления с нашей стороны.", statDelta: { kherson_control: -4, army_morale: -1 } },
     ];
-    pool.push({ priority: 2, source: "Минобороны", ...variants[Math.floor(rng() * variants.length)] });
+    pool.push({ priority: 2, source: "Минобороны", id: "ua_counter", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Экономика: санкционное давление. Порог был eco < 55 ("ниже среднего") — живой плейтест
   // вскрыл доом-луп: экономика чуть просела → это событие включается → давит экономику ещё
@@ -270,34 +319,35 @@ function generateAutonomousEvents(stats, month, gameId) {
   // разумной игре (3-4 экономических указа, армия отстроена до 85). Порог поднят до eco < 40 —
   // событие теперь бьёт только по УЖЕ реально критической экономике, а не по "ниже среднего",
   // оставляя указам шанс работать в диапазоне 40-55 без дополнительного автоматического налога.
-  if (iso > 65 && eco < 40) {
+  // Плюс кулдаун ниже — тот же доом-луп ломается ещё и по времени, не только по порогу.
+  if (iso > 65 && eco < 40 && !negativeEventOnCooldown(stats, "sanctions_pressure", month)) {
     const variants = [
       { text: "Новый пакет западных ограничений бьёт по параллельному импорту. Ряд поставщиков приостановил отгрузки — логистика усложнилась.", statDelta: { economy: -2, reserves: -1 } },
       { text: "Американские вторичные санкции вынудили китайские банки ограничить транзакции с Россией. Экспортные расчёты усложнились.", statDelta: { economy: -1, reserves: -2 } },
       { text: "Страховщики отказали в покрытии российских судов — стоимость морского фрахта выросла на 40%. Доходы от экспорта нефти сократились.", statDelta: { economy: -3 } },
     ];
-    pool.push({ priority: 2, source: "Минфин", ...variants[Math.floor(rng() * variants.length)] });
+    pool.push({ priority: 2, source: "Минфин", id: "sanctions_pressure", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Коррупция: скандал при высоком уровне
-  if (corr > 65) {
+  if (corr > 65 && !negativeEventOnCooldown(stats, "corruption_scandal", month)) {
     const variants = [
       { text: "Утечка в прессу: журналисты-расследователи опубликовали данные об откатах в оборонных закупках. Соцсети взорвались — рейтинг под давлением.", statDelta: { approval: -2 } },
       { text: "Губернатор одного из ключевых регионов задержан по подозрению в хищении бюджетных средств. Скандал бьёт по доверию к власти.", statDelta: { approval: -3, stability: -1 } },
       { text: "Расследование «Медиазоны»: в оборонных контрактах выявлена схема двойного списания. Сумма нанесённого ущерба — более ₽80 млрд.", statDelta: { approval: -2, corruption: 2 } },
     ];
-    pool.push({ priority: 2, source: "СМИ", ...variants[Math.floor(rng() * variants.length)] });
+    pool.push({ priority: 2, source: "СМИ", id: "corruption_scandal", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Внутреннее: недовольство народа (раньше триггерилось декоративным social_tension,
   // удалённым за ненадобностью — переключено на lower_class_mood, тот же смысл, но реально
   // работающий стат)
   const lowerMoodNow = stats.lower_class_mood ?? 41;
-  if (lowerMoodNow < 35) {
+  if (lowerMoodNow < 35 && !negativeEventOnCooldown(stats, "public_unrest", month)) {
     const variants = [
       { text: "Фиксируем нарастание протестных настроений в ряде регионов — в основном связаны с ростом цен и задержками выплат. Ситуация под наблюдением.", statDelta: { stability: -1, lower_class_mood: -2 } },
       { text: "В нескольких промышленных городах прошли стихийные акции против мобилизации и роста цен. Полиция применила силу при разгоне.", statDelta: { stability: -2, approval: -1 } },
       { text: "Опрос ФСО: 62% граждан считают экономическую ситуацию «плохой» или «очень плохой». Базовый электорат теряет доверие.", statDelta: { approval: -2, lower_class_mood: -3 } },
     ];
-    pool.push({ priority: 2, source: "ФСБ", ...variants[Math.floor(rng() * variants.length)] });
+    pool.push({ priority: 2, source: "ФСБ", id: "public_unrest", ...variants[Math.floor(rng() * variants.length)] });
   }
   // Дипломатия: нейтральные страны ищут контакт
   if (iso < 60) {
@@ -1552,11 +1602,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         });
       }
 
+      // Проверка раннего выполнения условий победы (ход < 8) — см. markEarlyVictoryIfQualified.
+      // Должно случиться ДО сохранения stats ниже, иначе флаг не переживёт этот запрос.
+      const justQualifiedEarlyVictory = markEarlyVictoryIfQualified(newStats, turnNumber);
+
       // Сохраняем все изменения stats (decay + blowback + crisis + interference + ukraine)
       await client.query(
         `UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`,
         [JSON.stringify(newStats), gameId]
       );
+
+      if (justQualifiedEarlyVictory) {
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+          [gameId, turnNumber, "Ставка", "Условия для военно-дипломатической победы фактически выполнены — досрочно, до официального объявления. Когда исход будет засчитан (не раньше 8-го хода), итоговые очки будут удвоены за столь раннее достижение."]
+        );
+      }
 
       await client.query("COMMIT");
       await pendingTurnStore.clear(gameId);
@@ -2201,24 +2262,30 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const domesticCrisisChance = newStats.coalition_milestone_reached ? 0.06 : 0.07;
       if (Math.random() < domesticCrisisChance) {
         const DOMESTIC_CRISES = [
-          { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
+          { id: "capital_flight", source: "Ведомости", approvalDelta: -6, economyDelta: -4,
             text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
-          { source: "Новая газета", stabilityDelta: -5, approvalDelta: -5,
+          { id: "antiwar_protests", source: "Новая газета", stabilityDelta: -5, approvalDelta: -5,
             text: "В 15 регионах прошли антивоенные акции. Задержаны более 3000 человек. Социологи фиксируют рекордный рост недовольства среди молодёжи и женщин — тех, кто теряет мужей и сыновей." },
-          { source: "РИА Новости", economyDelta: -7, stabilityDelta: -3,
+          { id: "banking_crisis", source: "РИА Новости", economyDelta: -7, stabilityDelta: -3,
             text: "Крупный банковский кризис: четыре региональных банка обратились за экстренной ликвидностью. ЦБ объявил о введении временной администрации. Вкладчики выстроились в очереди." },
-          { source: "Интерфакс", approvalDelta: -5, stabilityDelta: -4,
+          { id: "corruption_leak", source: "Интерфакс", approvalDelta: -5, stabilityDelta: -4,
             text: "Антикоррупционный скандал: в Telegram-каналах опубликованы данные о роскошной жизни окружения президента. Яхты, виллы, тайные счета. Рейтинг падает на фоне военных расходов." },
-          { source: "ТАСС", economyDelta: -5, approvalDelta: -4,
+          { id: "goods_shortage", source: "ТАСС", economyDelta: -5, approvalDelta: -4,
             text: "Дефицит базовых товаров в ряде регионов: сахар, масло, лекарства исчезли с полок. Губернаторы просят федеральный центр о помощи. Граждане начали делать запасы." },
-          { source: "Фонтанка", stabilityDelta: -6, approvalDelta: -3,
+          { id: "kia_families_protest", source: "Фонтанка", stabilityDelta: -6, approvalDelta: -3,
             text: "Семьи погибших военнослужащих провели демонстрацию у здания Министерства обороны. Требования о выплате компенсаций и возврате тел не выполняются уже полгода. Силовики разгоняют акцию." },
-          { source: "Медиазона", stabilityDelta: -5, economyDelta: -3,
+          { id: "colony_riot", source: "Медиазона", stabilityDelta: -5, economyDelta: -3,
             text: "Бунт в нескольких исправительных колониях: заключённые отказываются подписывать контракты для отправки на фронт. Информация подтверждается перехватами ФСБ." },
-          { source: "The Bell", economyDelta: -6, approvalDelta: -4,
+          { id: "inflation_crisis", source: "The Bell", economyDelta: -6, approvalDelta: -4,
             text: "Инфляция вышла из-под контроля — официально 24%, реально, по независимым оценкам, все 40%. Пенсии и зарплаты бюджетников обесценились. Недовольство растёт в базовом электорате." },
         ];
-        const crisis = DOMESTIC_CRISES[Math.floor(Math.random() * DOMESTIC_CRISES.length)];
+        // Кулдаун: тот же механизм и та же карта recent_negative_events, что и у автономных
+        // событий выше — не даём одному и тому же внутреннему кризису повториться в течение
+        // NEGATIVE_EVENT_COOLDOWN_MONTHS месяцев после срабатывания.
+        const availableCrises = DOMESTIC_CRISES.filter(c => !negativeEventOnCooldown(newStats, c.id, completedMonth));
+        const crisisPool = availableCrises.length > 0 ? availableCrises : DOMESTIC_CRISES;
+        const crisis = crisisPool[Math.floor(Math.random() * crisisPool.length)];
+        markNegativeEventFired(newStats, crisis.id, completedMonth);
         // СМЯГЧЕНИЕ СТАБИЛЬНОСТЬЮ: устойчивое общество лучше переносит шоки — при стабильности
         // выше 60 часть удара гасится (до 50% при стабильности 100), тот же принцип, что и
         // доверие союзников для санкций. Раньше кризис бил одинаково независимо от того, как
@@ -2387,6 +2454,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         if (economyDeltaFromEvent) {
           economyAutoEffects.push({ label: `Мир живёт без вас (${ev.source})`, delta: economyDeltaFromEvent });
         }
+        if (ev.id) markNegativeEventFired(newStats, ev.id, completedMonth);
         await client.query(
           `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'world_reaction',$3,$4,'[]')`,
           [gameId, completedMonth, ev.source, ev.text]
@@ -2618,6 +2686,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       if (newGameDate) updatedOverview = { ...updatedOverview, date: newGameDate };
 
       const MAX_TURNS = 24;
+      // Проверка раннего выполнения условий победы (ход < 8) — см. markEarlyVictoryIfQualified.
+      // Должно случиться ДО сохранения stats ниже, иначе флаг не переживёт этот запрос.
+      const justQualifiedEarlyVictory = markEarlyVictoryIfQualified(newStats, completedMonth);
       const gameOutcome = detectGameOutcome(newStats, completedMonth, MAX_TURNS);
 
       await client.query(
@@ -2625,6 +2696,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         [JSON.stringify(newStats), JSON.stringify(updatedOverview), gameId]
       );
       await client.query(`UPDATE games SET current_turn = $1, updated_at = now() WHERE id = $2`, [completedMonth, gameId]);
+      if (justQualifiedEarlyVictory) {
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
+          [gameId, completedMonth, "Ставка", "Условия для военно-дипломатической победы фактически выполнены — досрочно, до официального объявления. Когда исход будет засчитан (не раньше 8-го хода), итоговые очки будут удвоены за столь раннее достижение."]
+        );
+      }
       if (gameOutcome) {
         await client.query(`UPDATE games SET status = $1 WHERE id = $2`, [gameOutcome, gameId]);
         recordEvent(db, { playerId: payload.userId, eventType: "game_completed", payload: { gameId, outcome: gameOutcome, turnNumber: completedMonth } });
@@ -3200,4 +3277,4 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
   });
 }
 
-module.exports = { registerTurnRoutes, detectGameOutcome };
+module.exports = { registerTurnRoutes, detectGameOutcome, markEarlyVictoryIfQualified };

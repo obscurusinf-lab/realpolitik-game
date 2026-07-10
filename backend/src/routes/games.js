@@ -666,7 +666,7 @@ ${historyLines || "(история пуста)"}
       return reply.code(400).send({ error: "Invalid responseType" });
     }
     const { resolveUkraineResponse } = require("../rules/rules-engine");
-    const { detectGameOutcome } = require("./turns");
+    const { detectGameOutcome, markEarlyVictoryIfQualified } = require("./turns");
 
     const client = await db.connect();
     try {
@@ -732,11 +732,13 @@ ${historyLines || "(история пуста)"}
       }
       stats.ukraine_responses = { ...responded, [turnN]: responseType };
 
-      await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
-
       // Ретейлиейт двигает war_escalation_counter немедленно (не только на confirm/end-month) —
       // без этой проверки поражение (defeat_war) обнаруживалось бы с опозданием на целый ход.
       const currentTurn = gsRes.rows[0].current_turn ?? turnN;
+      markEarlyVictoryIfQualified(stats, currentTurn);
+
+      await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
+
       const gameOutcome = detectGameOutcome(stats, currentTurn, 24);
       if (gameOutcome) {
         await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
