@@ -1688,9 +1688,14 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
       }).catch((err) => fastify.log.error({ err }, "worldUpdate failed"));
 
-      // Win/loss/partial outcome detection
+      // Win/loss/partial outcome detection — ПОРАЖЕНИЯ откладываются до конца месяца (Петя,
+      // 2026-07-10, по находке домашней сессии "5/5 живых партий проиграли": экономика может
+      // обвалиться и убить партию ПОСРЕДИ хода, даже если игрок в этом же месяце ещё пытается
+      // её спасти — до end-month просто не доходит). Победа объявляется сразу же — тут спешить
+      // некуда, приятная новость не должна ждать конца месяца.
       const MAX_TURNS = 24;
-      const gameOutcome = detectGameOutcome(newStats, turnNumber, MAX_TURNS);
+      const rawOutcome = detectGameOutcome(newStats, turnNumber, MAX_TURNS);
+      const gameOutcome = (rawOutcome && rawOutcome.startsWith("defeat_")) ? null : rawOutcome;
       if (gameOutcome) {
         await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
         recordEvent(db, { playerId: payload.userId, eventType: "game_completed", payload: { gameId, outcome: gameOutcome, turnNumber } });
@@ -2309,6 +2314,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
       if ((newStats.perk_corruption_audit_turns ?? 0) > 0) {
         newStats.perk_corruption_audit_turns -= 1;
+      }
+      // Похмелье после экстренного стимулирования экономики (Петя, 2026-07-10: "как вколоть
+      // адреналин в умирающего" — см. treasury.js /emergency-stimulus). Мгновенный буст к economy
+      // не бесплатен: несколько месяцев подряд небольшой -1, пока эффект не сойдёт на нет. Часть
+      // economyAutoEffects — попадает под тот же потолок месячной эрозии (EROSION_CAP ниже).
+      if ((newStats.perk_stimulus_hangover_turns ?? 0) > 0) {
+        newStats.economy = Math.max(0, (newStats.economy ?? 50) - 1);
+        economyAutoEffects.push({ label: "Похмелье после экстренного стимула", delta: -1 });
+        newStats.perk_stimulus_hangover_turns -= 1;
       }
 
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.

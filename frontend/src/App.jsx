@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, Send, AlertTriangle, Users, FileText } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
@@ -276,13 +276,22 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
                 {shown.map((item, i) => {
                   const analystNote = item.reactions?.[0];
                   const delta = analystNote?.stat_delta || {};
+                  // Цвет карточки — по знаку суммарного эффекта, не фиксированный "враждебный"
+                  // оттенок для всех (Петя, 2026-07-10: Беларусь с +Экономика/+Дипломатия
+                  // выглядела в той же красно-коричневой палитре, что и враждебная Британия).
+                  const netDelta = Object.values(delta).reduce((s, v) => s + v, 0);
+                  const palette = netDelta > 0
+                    ? { bg: "#0a1a0d", border: "#3a6a40", accent: "#5a9c6a", text: "#a8d0b0", note: "#7ab088" }
+                    : netDelta < 0
+                    ? { bg: "#1a0e0a", border: "#6a3020", accent: "#8c4a2a", text: "#d0a090", note: "#906050" }
+                    : { bg: "#161b26", border: "#3a4050", accent: "#8a94a6", text: "#c8ccd4", note: "#8a94a6" };
                   return (
-                    <div key={i} className="et-fade" style={{ background: "#1a0e0a", border: "1px solid #6a3020", borderLeft: "3px solid #8c4a2a", borderRadius: 6, padding: "12px 16px", marginBottom: 8 }}>
-                      <div className="mono-font" style={{ fontSize: 9, color: "#8c4a2a", marginBottom: 4 }}>{item.source?.toUpperCase()}</div>
-                      <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55, color: "#d0a090" }}>{item.text}</div>
+                    <div key={i} className="et-fade" style={{ background: palette.bg, border: `1px solid ${palette.border}`, borderLeft: `3px solid ${palette.accent}`, borderRadius: 6, padding: "12px 16px", marginBottom: 8 }}>
+                      <div className="mono-font" style={{ fontSize: 9, color: palette.accent, marginBottom: 4 }}>{item.source?.toUpperCase()}</div>
+                      <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55, color: palette.text }}>{item.text}</div>
                       <StatDeltaBadges delta={delta} />
                       {analystNote?.text && (
-                        <div className="doc-font" style={{ fontSize: 12, color: "#906050", marginTop: 6, fontStyle: "italic" }}>{analystNote.text}</div>
+                        <div className="doc-font" style={{ fontSize: 12, color: palette.note, marginTop: 6, fontStyle: "italic" }}>{analystNote.text}</div>
                       )}
                     </div>
                   );
@@ -8409,6 +8418,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     finally { setLoading(null); }
   }
 
+  async function handleEmergencyStimulus() {
+    setLoading("emergency_stimulus"); setError(null);
+    try { await emergencyStimulus(gameId); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
   async function handleConvertReserves() {
     setLoading("convert_reserves"); setError(null);
     try { await convertReserves(gameId); onRefresh?.(); }
@@ -8525,6 +8541,51 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           </div>
         )}
         <EndMonthForecastPanel stats={stats} policies={state.policies} />
+
+        {/* Экстренное стимулирование ("адреналин") — Петя, 2026-07-10, по находке домашней
+            сессии "5/5 живых партий проиграли": у economy нет мгновенного рычага, только это
+            и убивало партии посреди хода. Появляется только когда экономика реально в опасности —
+            не рутинная кнопка роста, а именно аварийный выход. */}
+        {(() => {
+          const emergencyThreshold = 45;
+          const emergencyAvailable = eco < emergencyThreshold;
+          const currentTurn = state.turn ?? 0;
+          const lastStimTurn = stats.emergency_stimulus_last_turn;
+          const cooldownTurns = 4;
+          const turnsLeft = typeof lastStimTurn === "number" ? cooldownTurns - (currentTurn - lastStimTurn) : 0;
+          const onCooldown = turnsLeft > 0;
+          const initiative = stats.initiative ?? 100;
+          const canAfford = emergencyAvailable && !onCooldown && initiative >= 40;
+          if (!emergencyAvailable && !onCooldown) return null; // не мозолит глаза, пока не нужна
+          return (
+            <div style={{ background: "#1a1010", border: "1px solid #5a2020", borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: "#d97a7a", marginBottom: 6 }}>
+                {t("treasury.emergency_label")}
+              </div>
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#a89494", lineHeight: 1.4, marginBottom: 8 }}>
+                {t("treasury.emergency_desc")}
+              </div>
+              <button
+                onClick={handleEmergencyStimulus}
+                disabled={!canAfford || loading === "emergency_stimulus"}
+                style={{
+                  width: "100%", background: !canAfford ? "#1a1414" : "#3a1414",
+                  border: `1px solid ${!canAfford ? "#3a2828" : "#8a3030"}`,
+                  color: !canAfford ? "#5a4040" : "#e08080",
+                  borderRadius: 3, padding: "9px 12px",
+                  fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: !canAfford ? "not-allowed" : "pointer",
+                  textAlign: "left", fontWeight: 700,
+                }}
+              >
+                {loading === "emergency_stimulus"
+                  ? t("treasury.emergency_running")
+                  : onCooldown
+                  ? t("treasury.emergency_cooldown", { n: turnsLeft })
+                  : t("treasury.emergency_btn")}
+              </button>
+            </div>
+          );
+        })()}
       </WidgetCard>
 
       {/* Баланс: доходы и расходы — очки + рублёвый эквивалент тем же курсом T, что и казна/
