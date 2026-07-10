@@ -163,7 +163,7 @@ ${Object.values(SCALE_DESCRIPTIONS).join("\n\n")}
 {
   "recommendation": "...",
   "proposed_decree": "...",
-  "suggested_direction": "одно из: military_offensive | military_defensive | diplomacy_outreach | diplomacy_confrontation | economic_stimulus | economic_austerity | domestic_repression | domestic_liberalization | info_narrative | intelligence_covert | peace_initiative | null_action",
+  "suggested_direction": "одно из: military_offensive | military_defensive | military_reinforcement | diplomacy_outreach | diplomacy_confrontation | economic_stimulus | economic_austerity | domestic_repression | domestic_liberalization | elite_consolidation | info_narrative | intelligence_covert | peace_initiative | null_action",
   "suggested_scale": "одно из: decree_fast | decree_reform | decree_program | intel | military",
   "tone": "одно из: supportive | cautious | critical | alarmed"
 }`;
@@ -381,6 +381,8 @@ function describeFactionBuffs(stats) {
  * Победа военная (с хода 8): армия ≥85, мораль/готовность ≥70, стаб/рейтинг ≥52,
  * экономика ≥36, Донецк/Луганск 100 + 2 из 3 (Запорожье ≥85, Херсон ≥65, Харьков ≥50).
  * Победа дипломатическая (с хода 12): мирный трек 100 + экономика/рейтинг/стабильность ≥65.
+ * Совет "начать мирную инициативу" ниже нарочно триггерится РАНЬШЕ, с хода 10 (не 12) — трек
+ * нужно успеть докрутить до 100 к самому 12-му ходу, ждать до последнего момента бессмысленно.
  *
  * ВАЖНО (баг из реальной партии, ход 3/24: экономика 55→29 и defeat_collapse раньше,
  * чем margin<10 вообще успел сработать): опасность считалась ТОЛЬКО по текущему запасу
@@ -392,13 +394,43 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
   const s = (k, d = 50) => (typeof stats[k] === "number" ? stats[k] : d);
   const economy = s("economy"), approval = s("approval"), stability = s("stability"),
     diplomacy = s("diplomacy"), treasury = s("treasury", 52), inflation = s("inflation", 64),
-    military = s("military"), peace = s("peace_progress", 0);
+    military = s("military"), peace = s("peace_progress", 0),
+    // Дефолты 78/96 — реальные стартовые значения TERRITORY_BASELINE (rules-engine.js), а не 0.
+    // БАГ, найденный при тестировании этого же фикса: старый дефолт 0 был безопасен, пока
+    // использовался только в ветке "путь к победе" (0% просто означало "победа ещё далеко",
+    // никогда ложно не срабатывало) — но теперь donetsk/luhansk участвуют ЕЩЁ и в проверке
+    // риска потери Донбасса ниже (donbassSafetyMargin), где дефолт 0/0 у ОБОИХ ложно выглядел
+    // бы как "Донбасс уже почти потерян" при отсутствующих полях (очень старые партии).
+    donetsk = s("donetsk_control", 78), luhansk = s("luhansk_control", 96);
   // Башни Кремля (Петя, 2026-07-10: "а в этой системе помощи учитываются башни Кремля?" — не
   // учитывались вовсе). elite_satisfaction < 35 — реальный триггер "мятежа элит" (см. turns.js,
   // раздел МЯТЕЖ ЭЛИТ): раз в месяц шанс выступления силового блока, способный одним махом снять
   // −9 стабильности/−4 рейтинг/−3 армия/−5 боевой дух. faction_siloviki < 30 дополнительно
   // повышает и вероятность, и тяжесть исхода — тот же реальный механизм, не выдумка советника.
   const eliteSat = s("elite_satisfaction", 62), silovikiVal = s("faction_siloviki", 65);
+
+  // 0. Существующие риски поражения, которых советник раньше НЕ отслеживал вовсе (аудит
+  // 2026-07-10) — war_escalation_counter>=3 (defeat_war) и одновременная потеря Донецка И
+  // Луганска ниже 40 (defeat_donbass_lost), см. detectGameOutcome в turns.js. У обоих нет
+  // гладкой 0-100 шкалы как у остальных danger-кандидатов, поэтому это отдельные ранние
+  // проверки, а не часть общего массива dangers ниже — но по приоритету они СТРОЖЕ прочих: это
+  // буквально "ещё один шаг — и поражение", независимо от того, что показывают остальные статы.
+  const warEscalation = stats.war_escalation_counter ?? 0;
+  if (warEscalation >= 2) {
+    const category = "diplo_negotiate";
+    return { advisorId: "foreign", category, mode: "diplomacy_op", direction: "diplomacy_outreach",
+      title: "Деэскалация войны (срочно)",
+      decree: "Министерству иностранных дел поручаю провести переговоры о деэскалации через посредников.",
+      reason: `Эскалация войны ${warEscalation}/3 — при достижении 3 партия завершается поражением (defeat_war) немедленно. Ретейлиейт и наступательные операции поднимают счётчик ещё выше — сейчас нужна деэскалация, не новый виток.${describeSideEffects(category)}` };
+  }
+  const donbassSafetyMargin = Math.max(donetsk, luhansk) - 40;
+  if (donbassSafetyMargin < 15) {
+    const category = "mil_operational_defensive";
+    return { advisorId: "defense", category, mode: "military", direction: "military_defensive",
+      title: "Оборона Донбасса (срочно)",
+      decree: "Приказываю перейти к глубокоэшелонированной обороне на Донецком и Луганском направлениях.",
+      reason: `Донецк ${donetsk}, Луганск ${luhansk} — поражение (defeat_donbass_lost) наступает, если ОБА направления одновременно опустятся ниже 40. Запас держит только более сильное направление; если и оно просядет — обвал неизбежен. Оборона, не мирные инициативы (они откатывают территориальный контроль).${describeSideEffects(category)}` };
+  }
 
   // 1. Опасность: расстояние до порога поражения + скорость падения
   const dangers = [
@@ -407,14 +439,22 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
     { key: "stability", margin: stability - 25, label: "стабильность" },
     { key: "diplomacy", margin: diplomacy - 15, label: "дипломатия" },
     { key: "elite_satisfaction", margin: eliteSat - 35, label: "довольство элит" },
+    { key: "military", margin: military - 30, label: "армия (боеспособность)" },
   ].map(d => {
     const velocity = computeVelocity(statHistory, d.key);
     const turnsLeft = velocity < -0.5 ? d.margin / -velocity : Infinity;
     return { ...d, velocity, turnsLeft, urgent: d.margin < 10 || turnsLeft <= 2 };
   }).sort((a, b) => {
     // Срочные — первыми, по числу ходов до обвала; дальше — по обычному запасу.
+    // БАГ (аудит 2026-07-10): когда ДВА срочных показателя одновременно не в свободном падении
+    // (velocity ≥ −0.5 у обоих → turnsLeft = Infinity у обоих), `a.turnsLeft - b.turnsLeft`
+    // превращался в Infinity−Infinity = NaN. Array.prototype.sort молча не переставляет пару
+    // при NaN (stable sort), поэтому "худший" всегда оказывался первым по ПОРЯДКУ ОПИСАНИЯ
+    // массива (economy → approval → ...), а не реально ближайшим к порогу — прямое
+    // противоречие докстрингу функции. Сравниваем turnsLeft только когда они РЕАЛЬНО разные,
+    // иначе (в т.ч. Infinity===Infinity) сразу проваливаемся на сравнение по margin.
     if (a.urgent !== b.urgent) return a.urgent ? -1 : 1;
-    if (a.urgent) return a.turnsLeft - b.turnsLeft;
+    if (a.urgent && a.turnsLeft !== b.turnsLeft) return a.turnsLeft - b.turnsLeft;
     return a.margin - b.margin;
   });
   const worst = dangers[0];
@@ -466,6 +506,13 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
         decree: "Поручаю провести встречу с ключевыми представителями силового блока и элит — гарантии, назначения, разъяснение курса.",
         reason: `${describeFollowThrough(category, "elite_satisfaction", "Довольство элит", stats, statHistory, recentCategories)}Довольство элит ${eliteSat} — ниже 35 каждый месяц есть реальный шанс мятежа силового блока (см. Башни Кремля): при неудачном исходе −9 стабильность, −4 рейтинг, −3 армия, −5 боевой дух одним событием.${trendNote}${silovikiNote} Консолидация элит — прямой рычаг довольства.${describeSideEffects(category)}` };
     }
+    if (worst.key === "military") {
+      const category = "mil_admin_budget";
+      return { advisorId: "defense", category, mode: "decree_fast", direction: "military_reinforcement",
+        title: "Военный бюджет (срочно)",
+        decree: "Правительству поручаю экстренно нарастить военный бюджет и снабжение действующей армии.",
+        reason: `${describeFollowThrough(category, "military", "Армия", stats, statHistory, recentCategories)}Армия ${military} — до небоеспособности (<30, defeat_military_collapse) осталось ${worst.margin} п.${trendNote} Административное усиление бюджета поднимает боеспособность без траты месячного лимита военных операций — сейчас важнее восстановить армию, чем начинать новое наступление.${describeSideEffects(category)}` };
+    }
     const category = "diplo_negotiate";
     return { advisorId: "foreign", category, mode: "diplomacy_op", direction: "diplomacy_outreach",
       title: "Дипломатические переговоры (срочно)",
@@ -489,13 +536,22 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
       reason: `Инфляция: индекс ${Math.round(inflation)} (порог 73, ~${Math.max(0, Math.round(inflation - 58))}% г/г) — каждый месяц −1..−3 экономике и рейтингу. Консолидация снижает дефицитное давление; ставку ЦБ поднимет сам.${describeSideEffects("econ_austerity")}${describeFactionPressure(stats)}${describeFactionBuffs(stats)}` };
   }
 
-  // 4. Опасностей нет — путь к победе
-  const donetsk = s("donetsk_control", 0), luhansk = s("luhansk_control", 0),
-    zap = s("zaporizhzhia_control", 0), kher = s("kherson_control", 0), khar = s("kharkiv_control", 0);
+  // 4. Опасностей нет — путь к победе (donetsk/luhansk уже объявлены в начале функции)
+  const zap = s("zaporizhzhia_control", 0), kher = s("kherson_control", 0), khar = s("kharkiv_control", 0),
+    armyMorale = s("army_morale"), readiness = s("readiness");
   const secondary = [zap >= 85, kher >= 65, khar >= 50].filter(Boolean).length;
-  const territoriesClose = donetsk >= 80 && luhansk >= 90;
+  // БАГ (аудит 2026-07-10): было donetsk>=80 && luhansk>=90 (И) — если одно направление уже
+  // взято на 100%, а второе отстаёт, вся ветка молчала вместо "дожать отстающее" (выбор target
+  // ниже и так уже умеет называть именно отстающее направление). Теперь ИЛИ.
+  const territoriesClose = donetsk >= 80 || luhansk >= 80;
 
-  if (territoriesClose && military >= 75 && economy >= 45 && treasury >= 35) {
+  // Реальные условия военной/комбинированной победы — см. checkMilitaryVictoryType в
+  // backend/src/routes/turns.js. БАГ (аудит 2026-07-10): здесь были ДРУГИЕ, более мягкие и
+  // неполные пороги (military>=75 вместо 85, army_morale/readiness/stability/approval не
+  // проверялись вовсе) — советник мог писать "победа близко!", когда реальные условия из
+  // detectGameOutcome ещё далеко не выполнены. economy>=45/treasury>=35 — не часть условий
+  // победы, а отдельная (более строгая, безопасная) проверка "потянем ли ещё одну операцию".
+  if (territoriesClose && military >= 85 && armyMorale >= 70 && readiness >= 70 && stability >= 52 && approval >= 52 && economy >= 45 && treasury >= 35) {
     const target = donetsk < 100 ? { nom: "Донецкое", prep: "Донецком", key: "donetsk_control" }
       : luhansk < 100 ? { nom: "Луганское", prep: "Луганском", key: "luhansk_control" }
       : secondary < 2 ? { nom: "Запорожское", prep: "Запорожском", key: "zaporizhzhia_control" } : null;

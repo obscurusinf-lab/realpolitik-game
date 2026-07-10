@@ -606,7 +606,11 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       newStats.economy = Math.min(100, economyBefore + EMERGENCY_STIMULUS_ECONOMY_BOOST);
       newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + EMERGENCY_STIMULUS_INFLATION_HIT);
       newStats.emergency_stimulus_last_turn = currentTurn;
-      newStats.perk_stimulus_hangover_turns = EMERGENCY_STIMULUS_HANGOVER_TURNS;
+      // Суммируем, а не перезаписываем (аудит 2026-07-10): сейчас кулдаун стимула (4 хода)
+      // строго больше похмелья (3 хода), поэтому повторно уколоть, пока похмелье ещё активно,
+      // физически нельзя — но если константы когда-нибудь изменятся местами, перезапись молча
+      // обнулила бы остаток похмелья вместо накопления полного штрафа.
+      newStats.perk_stimulus_hangover_turns = (newStats.perk_stimulus_hangover_turns ?? 0) + EMERGENCY_STIMULUS_HANGOVER_TURNS;
 
       await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
 

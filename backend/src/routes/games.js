@@ -734,14 +734,20 @@ ${historyLines || "(история пуста)"}
 
       // Ретейлиейт двигает war_escalation_counter немедленно (не только на confirm/end-month) —
       // без этой проверки поражение (defeat_war) обнаруживалось бы с опозданием на целый ход.
+      // НО поражение (defeat_*) откладывается до конца месяца (Петя, 2026-07-10, аудит: этот
+      // роут-дубликат /turns/ukraine/respond был пропущен при первоначальном фиксе "поражение
+      // только в конце месяца" — несколько подряд "Отомстить" в один месяц могли завершить
+      // партию defeat_war посреди месяца). Победа по-прежнему объявляется сразу.
       const currentTurn = gsRes.rows[0].current_turn ?? turnN;
       markEarlyVictoryIfQualified(stats, currentTurn);
 
       await client.query(`UPDATE game_state SET stats = $1, updated_at = now() WHERE game_id = $2`, [JSON.stringify(stats), gameId]);
 
-      const gameOutcome = detectGameOutcome(stats, currentTurn, 24);
+      const rawOutcome = detectGameOutcome(stats, currentTurn, 24);
+      const gameOutcome = (rawOutcome && rawOutcome.startsWith("defeat_")) ? null : rawOutcome;
       if (gameOutcome) {
         await client.query(`UPDATE games SET status = $1, updated_at = now() WHERE id = $2`, [gameOutcome, gameId]);
+        recordEvent(db, { playerId: payload.userId, eventType: "game_completed", payload: { gameId, outcome: gameOutcome, turnNumber: currentTurn } });
       }
 
       await client.query("COMMIT");

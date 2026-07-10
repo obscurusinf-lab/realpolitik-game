@@ -3497,12 +3497,14 @@ const ADVISOR_TONE_LABEL = {
 const DIRECTION_LABEL = {
   military_offensive: "наступление",
   military_defensive: "оборона",
+  military_reinforcement: "военное усиление",
   diplomacy_outreach: "дипломатия",
   diplomacy_confrontation: "конфронтация",
   economic_stimulus: "стимул экономики",
   economic_austerity: "режим экономии",
   domestic_repression: "закручивание гаек",
   domestic_liberalization: "либерализация",
+  elite_consolidation: "консолидация элит",
   info_narrative: "информационная работа",
   intelligence_covert: "спецоперация",
   peace_initiative: "мирная инициатива",
@@ -3622,12 +3624,18 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
               <div className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#cfeeda", marginBottom: 3 }}>{rec.title}</div>
               <div className="doc-font" style={{ fontSize: 11.5, color: "#a8c4b2", lineHeight: 1.45 }}>{rec.reason}</div>
             </div>
-            <button
-              onClick={goToRecommendation}
-              style={{ flexShrink: 0, background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
-            >
-              {t("kremlin.open_btn")}
-            </button>
+            {/* recTarget может быть null (например, категория "econ_hold" — "дать реформе
+                сработать", ей некуда вести, decree:null) — раньше кнопка всё равно рисовалась
+                кликабельной и молча ничего не делала (аудит 2026-07-10). Теперь просто не
+                рендерим кнопку, если действительно некуда прыгать. */}
+            {recTarget && (
+              <button
+                onClick={goToRecommendation}
+                style={{ flexShrink: 0, background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+              >
+                {t("kremlin.open_btn")}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -5628,12 +5636,19 @@ function EndMonthForecastPanel({ stats, policies }) {
   {
     const eliteSat = stats.elite_satisfaction ?? 62;
     if (eliteSat < 35) {
+      // БАГ (аудит 2026-07-10): текст раньше был статичным "15%/55%" независимо от
+      // faction_siloviki, хотя реальная формула в backend/src/routes/turns.js (раздел МЯТЕЖ
+      // ЭЛИТ) масштабирует оба числа при низкой лояльности силовиков — панель занижала риск
+      // именно тогда, когда он выше всего. Дублируем ТУ ЖЕ формулу здесь для честного прогноза.
+      const silovikiNow = stats.faction_siloviki ?? 65;
+      const mutinyChancePct = Math.round((silovikiNow < 30 ? Math.min(0.35, 0.15 + (30 - silovikiNow) * 0.01) : 0.15) * 100);
+      const escalatePct = Math.round((silovikiNow < 25 ? 0.75 : 0.55) * 100);
       mechanisms.push({
         active: true, severity: "crit",
         name: "Риск мятежа элит",
-        trigger: `Элиты ${eliteSat} < 35 — 15% шанс выступления силового блока`,
+        trigger: `Элиты ${eliteSat} < 35 — ${mutinyChancePct}% шанс выступления силового блока${silovikiNow < 30 ? ` (силовики ${silovikiNow}/100 — риск повышен)` : ""}`,
         impacts: [{ label: "Стабильность −4…−9, Одобрение −0…−4, Армия −0…−3", delta: null }],
-        fix: "Не гарантированно подавляется быстро (55% шанс перерасти в тяжёлый кризис). Консолидация элит или уступки силовикам снижают риск.",
+        fix: `Не гарантированно подавляется быстро (${escalatePct}% шанс перерасти в тяжёлый кризис). Консолидация элит или уступки силовикам снижают риск.`,
       });
     } else {
       mechanisms.push({
@@ -7287,7 +7302,7 @@ const DILEMMA_META = {
       perk: "★ Силовики берут оргнагрузку на себя: военные категории −30% инициативы, 2 хода" },
     optionB: { factionId: "faction_tehnokraty", label: "Встать на сторону Технократов", desc: "заморозить военный бюджет, пустить средства на стабилизацию",
       preview: ["70%: Экономика +3, Готовность −1", "30%: Экономика +1, Армия −2, Готовность −3", "всегда: Технократы +18 лояльности, Силовики −16, Олигархи +4"],
-      perk: "★ Технократы берут финансы под личный аудит: коррупционная утечка ×0.4, 2 хода" },
+      perk: "★ Технократы берут финансы под личный аудит: коррупционная утечка ×0.5, 2 хода" },
     compromise: { label: "Компромисс", desc: "точечная индексация военного бюджета под независимым аудитом расходов",
       preview: ["Армия +1, Экономика +1, Стабильность +2 — без риска провала", "всегда: Силовики +4, Технократы +4, Олигархи +2"] },
   },
@@ -7314,7 +7329,7 @@ const DILEMMA_META = {
     advisor: "И тут, и там — реальная цена. Аудит без лишнего шума даёт часть эффекта, не разрушая ни одну из сторон до конца.",
     optionA: { factionId: "faction_tehnokraty", label: "Встать на сторону Технократов", desc: "реальный аудит расходов",
       preview: ["65%: Коррупция −4, Одобрение +2", "35%: Коррупция −2, Стабильность −1", "всегда: Технократы +18 лояльности, Олигархи −16, Консерваторы −2"],
-      perk: "★ Технократы берут финансы под личный аудит: коррупционная утечка ×0.4, 2 хода" },
+      perk: "★ Технократы берут финансы под личный аудит: коррупционная утечка ×0.5, 2 хода" },
     optionB: { factionId: "faction_oligarhi", label: "Встать на сторону Олигархов", desc: "реформу спустить на тормозах",
       preview: ["70%: Экономика +2, Коррупция +2", "30%: Экономика +1, Одобрение −2", "всегда: Олигархи +18 лояльности, Технократы −16, Консерваторы +2"], perk: null },
     compromise: { label: "Компромисс", desc: "точечный аудит без публичных разбирательств",
