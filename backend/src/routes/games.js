@@ -316,7 +316,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     if (statsWithTerritories.oil_price === undefined) statsWithTerritories.oil_price = 68;
     if (statsWithTerritories.usd_rub === undefined) statsWithTerritories.usd_rub = 80;
     // Башни Кремля — дефолт для партий, созданных до этой механики
-    const FACTION_DEFAULTS_FOR_OLD_GAMES = { faction_siloviki: 55, faction_tehnokraty: 55, faction_oligarhi: 55, faction_konservatory: 55, coalition_stability: 0 };
+    const FACTION_DEFAULTS_FOR_OLD_GAMES = { faction_siloviki: 65, faction_tehnokraty: 65, faction_oligarhi: 65, faction_konservatory: 65, coalition_stability: 0 };
     for (const [key, val] of Object.entries(FACTION_DEFAULTS_FOR_OLD_GAMES)) {
       if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
     }

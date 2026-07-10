@@ -2249,7 +2249,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Башни Кремля: недовольство силового блока конкретно (не только общий elite_satisfaction)
       // — реальный мятеж делают силовики, не либералы или бизнес. Низкая faction_siloviki
       // повышает и вероятность выступления, и шанс, что оно перерастёт в тяжёлый сценарий.
-      const silovikiNow = newStats.faction_siloviki ?? 55;
+      const silovikiNow = newStats.faction_siloviki ?? 65;
       const mutinyChance = silovikiNow < 30 ? Math.min(0.35, 0.15 + (30 - silovikiNow) * 0.01) : 0.15;
       const escalateThreshold = silovikiNow < 25 ? 0.75 : 0.55;
       const eliteSatNow = newStats.elite_satisfaction ?? 62;

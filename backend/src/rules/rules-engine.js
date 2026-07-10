@@ -79,10 +79,14 @@ const SUBSTAT_DEFAULTS = {
   ua_morale: 65,       // боевой дух (зависит от военного баланса)
   // Башни Кремля (см. FACTION_DEFAULTS/computeFactionReactions ниже) + счётчик коалиционной
   // стабильности за выбор компромисса в карточках-дилеммах.
-  faction_siloviki: 55,
-  faction_tehnokraty: 55,
-  faction_oligarhi: 55,
-  faction_konservatory: 55,
+  // Старт 65, НЕ 55 (Петя, 2026-07-10: "все дают стабильный минус в башнях... по дефолту по
+  // нулям по негативу") — лестница дебаффов (computeFactionDebuffs) бьёт "ниже 60", а старт 55
+  // был УЖЕ ниже первого порога: все 4 башни получали дебафф с 1-го хода независимо от игрока.
+  // 65 даёт запас в 5 очков нейтралитета до первого уровня давления.
+  faction_siloviki: 65,
+  faction_tehnokraty: 65,
+  faction_oligarhi: 65,
+  faction_konservatory: 65,
   coalition_stability: 0,
   coalition_milestone_reached: 0, // 0/1 — флаг, ставится один раз при coalition_stability достигшей 5
   // Временные бонусы от карточек-дилемм (см. FACTION_DILEMMAS ниже). Счётчик ходов декрементируется

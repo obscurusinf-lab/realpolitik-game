@@ -3070,6 +3070,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           <AdvisorsTab
             advisorState={advisorState}
             actionMode={actionMode}
+            stats={state?.stats}
+            turnNumber={(state?.turn ?? 0) + 1}
             onConsultAdvisor={handleConsultAdvisor}
             onSelectMode={setActionMode}
             onSelectCategory={(template, mode) => {
@@ -3508,7 +3510,7 @@ function pickGreeting(id, seedKey) {
   return advisorGreeting(id, ruText, pool);
 }
 
-function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory }) {
+function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory, stats, turnNumber }) {
   const badge = ACTION_MODE_BADGE[actionMode] || ACTION_MODE_BADGE.decree_fast;
   // Свой текст на каждого советника отдельно (не общий черновик указа) — можно спросить
   // конкретного министра о чём-то своём, а можно просто нажать "Получить совет" пустым полем.
@@ -3517,8 +3519,38 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
   // элиты в башнях кремля пытаются на меня повлиять") — браузер категорий переехал сюда из
   // бывшего KremlinTab, по одному министру на область, вместо общего браузера всех доменов.
   const [expandedMinisterId, setExpandedMinisterId] = useState(null);
+  // Баннер-рекомендация (Петя, 2026-07-10: "система подсказок куда-то делась") — вернулся как
+  // единый баннер над списком министров, а не per-министр дублирование (та же математика,
+  // что и раньше в KremlinTab, computeKremlinRecommendation ниже в файле не менялась).
+  const [jumpTarget, setJumpTarget] = useState(null);
+  const rec = computeKremlinRecommendation(stats || {}, turnNumber ?? 1);
+  const recTarget = rec ? findMinisterDomainForCategory(rec.category) : null;
+  const goToRecommendation = () => {
+    if (!rec || !recTarget) return;
+    setExpandedMinisterId(recTarget.ministerId);
+    setJumpTarget({ ministerId: recTarget.ministerId, domainId: recTarget.domainId, categoryId: rec.category, tier: rec.tier });
+  };
   return (
     <div>
+      {rec && (
+        <div style={{ background: "#12241a", border: "1px solid #2a5a3a", borderLeft: "4px solid #3a8a5a", borderRadius: 6, padding: "10px 13px", marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 3 }}>
+                {t("kremlin.advisor_rec_header")}
+              </div>
+              <div className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#cfeeda", marginBottom: 3 }}>{rec.title}</div>
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#a8c4b2", lineHeight: 1.45 }}>{rec.reason}</div>
+            </div>
+            <button
+              onClick={goToRecommendation}
+              style={{ flexShrink: 0, background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+            >
+              {t("kremlin.open_btn")}
+            </button>
+          </div>
+        </div>
+      )}
       <div style={{ marginBottom: 10 }}>
         <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em", marginBottom: 6 }}>{t("advisors.scale_label")}</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -3682,7 +3714,7 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
 
                   {expandedMinisterId === info.id && (
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
-                      <MinisterCategoryBrowser ministerId={info.id} onSelectCategory={onSelectCategory} />
+                      <MinisterCategoryBrowser ministerId={info.id} onSelectCategory={onSelectCategory} jumpTo={jumpTarget?.ministerId === info.id ? jumpTarget : null} />
                     </div>
                   )}
                 </div>
@@ -6809,12 +6841,23 @@ const MINISTER_DOMAINS = {
   ],
 };
 
+// Обратный поиск для баннера-рекомендации (computeKremlinRecommendation ниже) — какому министру
+// и под-домену принадлежит категория, чтобы кнопка "Перейти" знала, куда прыгать.
+function findMinisterDomainForCategory(categoryId) {
+  for (const [ministerId, domains] of Object.entries(MINISTER_DOMAINS)) {
+    for (const domain of domains) {
+      if (domain.cards.some(c => c.id === categoryId)) return { ministerId, domainId: domain.id };
+    }
+  }
+  return null;
+}
+
 // Раньше KremlinTab — браузер всех 4 доменов указов. Теперь встраивается в карточку конкретного
 // министра (Кабинет министров), область видимости сужена до его домена(ов). Рекомендация
-// советника (computeKremlinRecommendation) сюда намеренно НЕ перенесена — она была общей на все
-// домены сразу, а per-министр версия требует отдельной проработки (см. HANDOFF.md, известное
-// ограничение первого захода).
-function MinisterCategoryBrowser({ ministerId, onSelectCategory }) {
+// советника (computeKremlinRecommendation) вернулась единым баннером над списком министров в
+// AdvisorsTab (не per-министр — Петя, 2026-07-10: "система подсказок куда-то делась") — jumpTo
+// ниже принимает {domainId, categoryId, tier} от кнопки "Перейти" этого баннера.
+function MinisterCategoryBrowser({ ministerId, onSelectCategory, jumpTo }) {
   const domains = MINISTER_DOMAINS[ministerId] || [];
   const [domainId, setDomainId] = useState(domains[0]?.id);
   const [tier, setTier] = useState("decree_fast");
@@ -6824,6 +6867,16 @@ function MinisterCategoryBrowser({ ministerId, onSelectCategory }) {
   const [variantSeed, setVariantSeed] = useState(0);
   const domain = domains.find(d => d.id === domainId) || domains[0];
   const cards = domain?.cards || [];
+
+  useEffect(() => {
+    if (!jumpTo) return;
+    if (jumpTo.domainId) setDomainId(jumpTo.domainId);
+    if (jumpTo.tier) setTier(jumpTo.tier);
+    setExpandedCardId(jumpTo.categoryId);
+    setSelectedVariant(0);
+    setCustomText("");
+    setVariantSeed(0);
+  }, [jumpTo]);
 
   const toggleCard = (card) => {
     if (expandedCardId === card.id) {
@@ -7084,8 +7137,8 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
       <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
         {FACTION_ORDER.map((id) => {
           const meta = FACTION_META[id];
-          const value = stats[id] ?? 55;
-          const color = value >= 55 ? "#6ec894" : value < 35 ? "#e08080" : "#c8a857";
+          const value = stats[id] ?? 65;
+          const color = value >= 60 ? "#6ec894" : value < 45 ? "#e08080" : "#c8a857";
           const tier = factionDebuffTier(value);
           return (
             <div key={id} style={{ background: "#1c2230", border: "1px solid #2a3040", borderLeft: `4px solid ${meta.color}`, borderRadius: 6, padding: "13px 14px" }}>
@@ -7115,7 +7168,7 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
 
       {/* Риск мятежа — отдельный, более редкий механизм поверх обычной лестницы дебаффов
           (см. модуляцию elite_satisfaction-мятежа в turns.js по faction_siloviki < 30). */}
-      {(stats.faction_siloviki ?? 55) < 30 && (
+      {(stats.faction_siloviki ?? 65) < 30 && (
         <div style={{ background: "#241a12", border: "1px solid #5a4020", borderLeft: "4px solid #d99a4e", borderRadius: 6, padding: "11px 14px", marginBottom: 10 }}>
           <div className="mono-font" style={{ fontSize: 9, color: "#d99a4e", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>⚠ Риск мятежа силовиков</div>
           <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#e8d4b8" }}>Помимо ежемесячного давления, растёт и вероятность прямого выступления силовой части элит против центра.</div>
