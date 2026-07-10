@@ -2801,14 +2801,17 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     return <DiplomaticResponseScreen reactions={diplomaticReactions} onRespond={handleDiplomaticRespond} onSkip={handleDiplomaticDone} gameId={gameId} gameStats={state?.stats} />;
   }
 
+  // Порядок по умолчанию (Петя, 2026-07-10): обстановка, башни, кабинет министров, казна, затем
+  // остальные — только дефолт для НОВЫХ игроков, у кого ещё нет rp_tab_order в localStorage (см.
+  // merge ниже); уже сохранённый пользователем порядок этим не переписывается.
   const tabs = [
     { id: "overview", label: t("tab.overview"), icon: Globe2 },
     { id: "kremlin", label: t("tab.kremlin"), icon: KremlinStarIcon },
+    { id: "advisors", label: t("tab.advisors"), icon: Users },
     { id: "treasury", label: t("tab.treasury"), icon: Landmark },
     { id: "map", label: t("tab.map"), icon: Globe2 },
     { id: "stats", label: t("tab.stats"), icon: Shield },
     { id: "world", label: t("tab.world"), icon: Globe2 },
-    { id: "advisors", label: t("tab.advisors"), icon: Users },
     { id: "policies", label: t("tab.policies"), icon: FileText },
     { id: "relations", label: t("tab.relations"), icon: Landmark },
     { id: "newsfeed", label: t("tab.newsfeed"), icon: ScrollText },
