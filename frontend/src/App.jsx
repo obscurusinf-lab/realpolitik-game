@@ -9653,9 +9653,7 @@ function WikiTab({ dark = false }) {
         {P("wiki.kremlin.p4")}
         {P("wiki.kremlin.p5")}
         {P("wiki.kremlin.p6")}
-        {P("wiki.kremlin.p7")}
-        {P("wiki.kremlin.p8")}
-        {P("wiki.kremlin.p9", { marginBottom: 0 })}
+        {P("wiki.kremlin.p7", { marginBottom: 0 })}
       </WikiSection>
 
       <WikiSection id="ukraine">
@@ -9702,7 +9700,15 @@ function WikiTab({ dark = false }) {
       <WikiSection id="advisors">
         {P("wiki.advisors.p1")}
         {P("wiki.advisors.p2")}
-        {P("wiki.advisors.p3", { marginBottom: 0 })}
+        {P("wiki.advisors.p3")}
+        {P("wiki.advisors.p4")}
+        {P("wiki.advisors.p5")}
+        {P("wiki.advisors.p6")}
+        {P("wiki.advisors.p7")}
+        {P("wiki.advisors.p8")}
+        {P("wiki.advisors.p9")}
+        {P("wiki.advisors.p10")}
+        {P("wiki.advisors.p11", { marginBottom: 0 })}
       </WikiSection>
     </div>
   );
