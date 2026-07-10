@@ -41,7 +41,25 @@ const MAX_RETRIES = 2;
 const KEY_STATS = ["economy", "military", "stability", "diplomacy", "approval", "peace_progress", "initiative",
   "army_morale", "readiness", "donetsk_control", "luhansk_control", "zaporizhzhia_control", "kherson_control", "kharkiv_control"];
 
-function buildUserMessage({ countryName, playerName, gameDate, turnNumber, currentState, activePolicies, delayedEffects, playerInput, actionMode = "decree", language }) {
+// Гостевой режим (2026-07-10, Петя — перед публичным постом): аккаунты, зарегистрированные по
+// одному из 10 разовых гостевых кодов (account_tier='guest' на users, см. миграцию 0004), не
+// имеют личной истории доверия с игроком (в отличие от существующих аккаунтов/друзей по
+// админскому коду) — на абсурдные/провокационные указы для них советник ОТКАЗЫВАЕТ вместо
+// полного разыгрывания последствий (см. fix "Фикс: абсурдные/шуточные указы падали в fallback" —
+// та правка даёт ПОЛНОЕ вовлечение всем аккаунтам; здесь для гостей сознательно другое поведение).
+// Это НЕ статичное правило в CACHED_SYSTEM — тир зависит от конкретного игрока, значит уходит
+// в динамическую (некэшируемую) часть промпта, добавляется только гостям, не раздувает промпт
+// всем остальным.
+const GUEST_TIER_INSTRUCTION = `
+
+РЕЖИМ АККАУНТА: гостевой доступ. Если ход абсурдный/шуточный/провокационный (не серьёзное
+политическое решение) — НЕ разыгрывай его как реальное действие с последствиями. Верни
+action_type: "null_action", severity: 1, а в narrative дай живую (не канцелярскую) реакцию
+советника: он искренне удивлён таким предложением от президента и по-человечески объясняет,
+почему это невозможно и почему так поступать не стоит. НЕ проси "уточнить формулировку решения" —
+это не непонятный ход, а понятный, которого мы не разыгрываем для этого типа доступа.`;
+
+function buildUserMessage({ countryName, playerName, gameDate, turnNumber, currentState, activePolicies, delayedEffects, playerInput, actionMode = "decree", language, accountTier }) {
   // Trim stats — только ключевые, без субметрик
   const trimmedStats = {};
   for (const k of KEY_STATS) {
@@ -66,7 +84,7 @@ ${JSON.stringify(trimmedPolicies, null, 2)}
 ${JSON.stringify((delayedEffects || []).slice(0, 3), null, 2)}
 
 ХОД ИГРОКА: "${playerInput}"
-ТИП ДЕЙСТВИЯ: ${actionMode}${languageInstruction(language)}`;
+ТИП ДЕЙСТВИЯ: ${actionMode}${accountTier === "guest" ? GUEST_TIER_INSTRUCTION : ""}${languageInstruction(language)}`;
 }
 
 function stripMarkdownFences(text) {

@@ -175,6 +175,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState(null);
 
@@ -227,7 +228,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
       if (authMode === "login") {
         result = await login(username.trim(), password);
       } else {
-        result = await register(username.trim(), password, displayName.trim() || username.trim());
+        result = await register(username.trim(), password, displayName.trim() || username.trim(), inviteCode.trim());
       }
       setToken(result.token);
       onAuthSuccess(result);
@@ -340,6 +341,11 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                   <input value={displayName} onChange={e => setDisplayName(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleAuth()}
                     placeholder={t("start.placeholder_display_name")} style={inputStyle} />
+
+                  <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>{t("start.field_invite_code")}</div>
+                  <input value={inviteCode} onChange={e => setInviteCode(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleAuth()}
+                    placeholder={t("start.placeholder_invite_code")} style={{ ...inputStyle, fontFamily: "'JetBrains Mono',monospace", letterSpacing: "0.05em" }} />
                 </>
               )}
 
@@ -350,10 +356,15 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
 
               {authError && <div className="doc-font" style={{ color: "#e09090", fontSize: 13.5, marginBottom: 14 }}>{authError}</div>}
 
-              <button onClick={handleAuth} disabled={authLoading || !username.trim() || !password}
-                style={{ width: "100%", background: authLoading || !username.trim() || !password ? "#2a3040" : "#9c8347", color: authLoading || !username.trim() || !password ? "#5a6070" : "#1a1f2c", border: "none", borderRadius: 4, padding: "14px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: authLoading || !username.trim() || !password ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
-                {authLoading ? t("start.btn_checking") : authMode === "login" ? t("start.btn_login") : t("start.btn_register")}
-              </button>
+              {(() => {
+                const disabled = authLoading || !username.trim() || !password || (authMode === "register" && !inviteCode.trim());
+                return (
+                  <button onClick={handleAuth} disabled={disabled}
+                    style={{ width: "100%", background: disabled ? "#2a3040" : "#9c8347", color: disabled ? "#5a6070" : "#1a1f2c", border: "none", borderRadius: 4, padding: "14px", fontFamily: "'PT Serif',serif", fontSize: 16, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", letterSpacing: "0.04em" }}>
+                    {authLoading ? t("start.btn_checking") : authMode === "login" ? t("start.btn_login") : t("start.btn_register")}
+                  </button>
+                );
+              })()}
             </div>
           ) : (
             /* ——— GAME SELECTION (after auth) ——— */

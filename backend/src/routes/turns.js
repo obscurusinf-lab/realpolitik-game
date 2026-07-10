@@ -1127,7 +1127,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // Только чтение — без FOR UPDATE, не открываем долгую транзакцию на время вызова ИИ
     const gameRes = await db.query(
       `SELECT g.current_turn, g.language, gs.stats, gs.relations, gs.policies, gs.delayed_effects, gs.overview,
-              c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
+              c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name,
+              COALESCE(u.account_tier, 'unrestricted') AS account_tier
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id
@@ -1169,6 +1170,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         playerInput,
         actionMode: effectiveActionMode,
         language: game.language,
+        accountTier: game.account_tier,
       },
       callClaudeApi,
       meta: { gameId, playerId: payload.userId, purpose: "classify_turn" },

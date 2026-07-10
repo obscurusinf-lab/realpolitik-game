@@ -36,11 +36,11 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
 }
 
 // ---------- Auth API ----------
-export async function register(username, password, displayName) {
+export async function register(username, password, displayName, inviteCode) {
   const res = await fetchWithTimeout(`${API_BASE}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, displayName }),
+    body: JSON.stringify({ username, password, displayName, inviteCode }),
   }, 15000);
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || "Ошибка регистрации");

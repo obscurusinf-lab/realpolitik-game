@@ -108,25 +108,62 @@ async function buildServer() {
   const adminEventStore = createAdminEventStore(redis);
 
   // --- Auth роуты (инлайн) ---
+  // Гостевые инвайт-коды (2026-07-10, Петя — перед публичным постом): без кода регистрация
+  // недоступна, чтобы неограниченный поток анонимных регистраций не сжёг бюджет на Claude API.
+  // 10 одноразовых гостевых кодов (tier=guest → account_tier='guest', особое, более сдержанное
+  // поведение геймместера на шуточные указы — см. gamemaster.js) + 1 админский код без лимита
+  // использований (tier=admin → account_tier='unrestricted', для друзей). См. миграцию 0004 и
+  // backend/scripts/seed-invite-codes.js.
   fastify.post("/auth/register", async (request, reply) => {
-    const { username, password, displayName } = request.body || {};
+    const { username, password, displayName, inviteCode } = request.body || {};
     if (!username || username.trim().length < 3) return reply.code(400).send({ error: "Имя пользователя — минимум 3 символа" });
     if (!password || password.length < 6) return reply.code(400).send({ error: "Пароль — минимум 6 символов" });
+    if (!inviteCode || !inviteCode.trim()) return reply.code(400).send({ error: "Нужен код приглашения" });
     const name = (displayName || username).trim();
     const blocked = checkNameBlocklist(name);
     if (blocked) return reply.code(409).send({ error: blocked.tier === "hard" ? "no way" : "Это имя уже занято" });
     const uname = username.trim().toLowerCase();
     const exists = await db.query(`SELECT id FROM users WHERE username = $1`, [uname]);
     if (exists.rowCount > 0) return reply.code(409).send({ error: "Такое имя пользователя уже занято" });
+
     const passwordHash = await bcrypt.hash(password, 12);
-    const res = await db.query(
-      `INSERT INTO users (display_name, username, password_hash, is_anonymous) VALUES ($1, $2, $3, false) RETURNING id, display_name, username`,
-      [name, uname, passwordHash]
-    );
-    const user = res.rows[0];
-    const token = signToken({ userId: user.id, username: user.username });
-    recordEvent(db, { playerId: user.id, eventType: "registered", payload: { username: user.username } });
-    return reply.code(201).send({ token, userId: user.id, username: user.username, displayName: user.display_name });
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Атомарно "сжигаем" один слот использования — WHERE-условие в UPDATE не даёт двум
+      // параллельным регистрациям по одному и тому же коду обеим пройти мимо лимита (одна
+      // из них получит rowCount=0 и отвалится с понятной ошибкой).
+      const codeRes = await client.query(
+        `UPDATE invite_codes SET times_used = times_used + 1
+         WHERE code = $1 AND (max_uses IS NULL OR times_used < max_uses)
+         RETURNING tier`,
+        [inviteCode.trim()]
+      );
+      if (codeRes.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return reply.code(403).send({ error: "Код приглашения недействителен или уже использован" });
+      }
+      const accountTier = codeRes.rows[0].tier === "admin" ? "unrestricted" : "guest";
+
+      const res = await client.query(
+        `INSERT INTO users (display_name, username, password_hash, is_anonymous, account_tier)
+         VALUES ($1, $2, $3, false, $4) RETURNING id, display_name, username`,
+        [name, uname, passwordHash, accountTier]
+      );
+      await client.query("COMMIT");
+
+      const user = res.rows[0];
+      const token = signToken({ userId: user.id, username: user.username });
+      recordEvent(db, { playerId: user.id, eventType: "registered", payload: { username: user.username, accountTier } });
+      return reply.code(201).send({ token, userId: user.id, username: user.username, displayName: user.display_name });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Не удалось зарегистрироваться" });
+    } finally {
+      client.release();
+    }
   });
 
   fastify.post("/auth/login", async (request, reply) => {
