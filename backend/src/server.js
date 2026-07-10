@@ -137,12 +137,13 @@ async function buildServer() {
       const codeRes = await client.query(
         `UPDATE invite_codes SET times_used = times_used + 1
          WHERE code = $1 AND (max_uses IS NULL OR times_used < max_uses)
+           AND (expires_at IS NULL OR expires_at > now())
          RETURNING tier`,
         [inviteCode.trim()]
       );
       if (codeRes.rowCount === 0) {
         await client.query("ROLLBACK");
-        return reply.code(403).send({ error: "Код приглашения недействителен или уже использован" });
+        return reply.code(403).send({ error: "Код приглашения недействителен, истёк или уже использован" });
       }
       const accountTier = codeRes.rows[0].tier === "admin" ? "unrestricted" : "guest";
 

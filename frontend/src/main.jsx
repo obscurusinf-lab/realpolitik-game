@@ -918,8 +918,17 @@ function AdminTabPlayers({ pwd }) {
                     boxShadow: u.online ? "0 0 5px #5ac97f" : "none" }} />
                 <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#ece7d8" }}>{u.display_name}</div>
               </div>
-              {u.games_active > 0 && <div style={{ fontSize: 9, background: "#2a3a1a", color: "#7fae93", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>active</div>}
+              <div style={{ display: "flex", gap: 4 }}>
+                {u.games_active > 0 && <div style={{ fontSize: 9, background: "#2a3a1a", color: "#7fae93", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>active</div>}
+              </div>
             </div>
+            {(u.account_tier === "guest" || u.is_banned || u.anomaly_flagged_at) && (
+              <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap" }}>
+                {u.account_tier === "guest" && <span style={{ fontSize: 8, background: "#2a2a3a", color: "#9a94c8", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.06em" }}>ГОСТЬ</span>}
+                {u.anomaly_flagged_at && <span style={{ fontSize: 8, background: "#3a2a14", color: "#e0a857", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.06em" }}>⚠ АНОМАЛИЯ</span>}
+                {u.is_banned && <span style={{ fontSize: 8, background: "#3a1414", color: "#e09090", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.06em" }}>ЗАБАНЕН</span>}
+              </div>
+            )}
             <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
               @{u.username || "anon"} · {u.games_total} парт. · {u.max_turn || 0} ходов макс
             </div>
@@ -953,9 +962,30 @@ function AdminTabPlayers({ pwd }) {
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #2a3040", background: "#0d1118" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
-                  <div className="doc-font" style={{ fontSize: 18, fontWeight: 700, color: "#ece7d8" }}>{detail.user.display_name}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="doc-font" style={{ fontSize: 18, fontWeight: 700, color: "#ece7d8" }}>{detail.user.display_name}</div>
+                    {detail.user.account_tier === "guest" && <span style={{ fontSize: 9, background: "#2a2a3a", color: "#9a94c8", borderRadius: 3, padding: "2px 6px", fontFamily: "monospace", letterSpacing: "0.06em" }}>ГОСТЬ</span>}
+                    {detail.user.is_banned && <span style={{ fontSize: 9, background: "#3a1414", color: "#e09090", borderRadius: 3, padding: "2px 6px", fontFamily: "monospace", letterSpacing: "0.06em" }}>ЗАБАНЕН</span>}
+                  </div>
                   <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginTop: 2 }}>
                     @{detail.user.username || "anon"} · {new Date(detail.user.created_at).toLocaleDateString("ru-RU")}
+                  </div>
+                  {detail.user.anomaly_flagged_at && (
+                    <div style={{ marginTop: 6, fontSize: 10.5, background: "#2a1a0e", border: "1px solid #4a3018", borderRadius: 4, padding: "6px 9px", color: "#e0a857", maxWidth: 340 }}>
+                      ⚠ Аномалия ({new Date(detail.user.anomaly_flagged_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}): {detail.user.anomaly_reason}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <button onClick={() => adm(pwd, `/users/${detail.user.id}/set-banned`, { method: "POST", body: JSON.stringify({ banned: !detail.user.is_banned }) }).then(() => openUser(detail.user.id))}
+                      style={{ fontSize: 10, fontFamily: "'JetBrains Mono',monospace", padding: "4px 9px", borderRadius: 3, border: `1px solid ${detail.user.is_banned ? "#4a7a3a" : "#7a3a3a"}`, background: "transparent", color: detail.user.is_banned ? "#7fae93" : "#e09090", cursor: "pointer" }}>
+                      {detail.user.is_banned ? "Разбанить" : "Забанить (новые ходы)"}
+                    </button>
+                    {detail.user.anomaly_flagged_at && (
+                      <button onClick={() => adm(pwd, `/users/${detail.user.id}/clear-anomaly`, { method: "POST" }).then(() => openUser(detail.user.id))}
+                        style={{ fontSize: 10, fontFamily: "'JetBrains Mono',monospace", padding: "4px 9px", borderRadius: 3, border: "1px solid #3a4156", background: "transparent", color: "#9c8347", cursor: "pointer" }}>
+                        Снять флаг аномалии
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="mono-font" style={{ fontSize: 22, fontWeight: 700, color: "#9c8347" }}>{detail.games.length} парт.</div>

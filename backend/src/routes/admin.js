@@ -346,6 +346,7 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     const res = await db.query(`
       SELECT
         u.id, u.username, u.display_name, u.is_anonymous, u.created_at,
+        u.account_tier, u.is_banned, u.anomaly_flagged_at, u.anomaly_reason,
         COUNT(g.id)::int                                        AS games_total,
         COUNT(CASE WHEN g.status = 'active' THEN 1 END)::int   AS games_active,
         MAX(g.updated_at)                                       AS last_active,
@@ -364,13 +365,40 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     return reply.send({ users: res.rows });
   });
 
+  // POST /admin/users/:userId/set-banned — бан блокирует только НОВЫЕ ходы (см. /turns/preview),
+  // партии остаются доступны на просмотр (2026-07-10, аномалии на гостевых аккаунтах).
+  fastify.post("/admin/users/:userId/set-banned", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const { userId } = request.params;
+    const { banned } = request.body || {};
+    if (typeof banned !== "boolean") return reply.code(400).send({ error: "banned (boolean) required" });
+    const res = await db.query(`UPDATE users SET is_banned = $1 WHERE id = $2 RETURNING id, is_banned`, [banned, userId]);
+    if (res.rowCount === 0) return reply.code(404).send({ error: "User not found" });
+    return reply.send({ ok: true, isBanned: res.rows[0].is_banned });
+  });
+
+  // POST /admin/users/:userId/clear-anomaly — снять флаг аномалии после ручной проверки
+  // (иначе он проставлен один раз навсегда и больше не сработает даже при новом всплеске).
+  fastify.post("/admin/users/:userId/clear-anomaly", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const { userId } = request.params;
+    const res = await db.query(
+      `UPDATE users SET anomaly_flagged_at = NULL, anomaly_reason = NULL WHERE id = $1 RETURNING id`,
+      [userId]
+    );
+    if (res.rowCount === 0) return reply.code(404).send({ error: "User not found" });
+    return reply.send({ ok: true });
+  });
+
   // GET /admin/users/:userId — полное досье: все партии + ходы каждой
   fastify.get("/admin/users/:userId", async (request, reply) => {
     if (!checkAuth(request, reply)) return;
     const { userId } = request.params;
 
     const userRes = await db.query(
-      `SELECT id, username, display_name, is_anonymous, created_at FROM users WHERE id = $1`,
+      `SELECT id, username, display_name, is_anonymous, created_at,
+              account_tier, is_banned, anomaly_flagged_at, anomaly_reason
+       FROM users WHERE id = $1`,
       [userId]
     );
     if (userRes.rowCount === 0) return reply.code(404).send({ error: "User not found" });

@@ -1064,6 +1064,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     const { gameId } = request.params;
     const payload = verifyToken(request, reply);
     if (!payload) return;
+
+    // Бан (2026-07-10, аномалии на гостевых аккаунтах) — блокирует ТОЛЬКО новые ходы (этот
+    // роут — единственная точка входа для /turns/confirm, т.к. confirm требует уже
+    // существующий pending-ход из preview), партии остаются доступны на просмотр.
+    const banCheck = await db.query(`SELECT is_banned FROM users WHERE id = $1`, [payload.userId]);
+    if (banCheck.rows[0]?.is_banned) {
+      return reply.code(403).send({ error: "Аккаунт заблокирован для новых ходов" });
+    }
+
     const { playerInput, actionMode = "decree" } = request.body;
 
     if (!playerInput || typeof playerInput !== "string" || playerInput.trim().length === 0) {

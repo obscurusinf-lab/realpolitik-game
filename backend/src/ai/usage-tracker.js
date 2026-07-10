@@ -26,6 +26,8 @@ const PRICING = {
 // не underestimate-ить расход в статистике, если ценник забыли добавить.
 const FALLBACK_PRICING = PRICING["claude-sonnet-4-6"];
 
+const { checkGuestAnomaly } = require("../lib/anomaly-guard");
+
 function computeCostUsd(model, usage) {
   const pricing = PRICING[model] || FALLBACK_PRICING;
   const inputTokens = usage?.input_tokens || 0;
@@ -61,7 +63,13 @@ function wrapCallClaudeApi({ db, callClaudeApi, logger }) {
           cachedTokens,
           costUsd,
         ]
-      ).catch((err) => {
+      ).then(() => {
+        // Проверка аномалии — только гостевые аккаунты (см. anomaly-guard.js), fire-and-forget,
+        // не блокирует и не может уронить основной игровой ответ.
+        if (meta.playerId) checkGuestAnomaly(db, meta.playerId, logger).catch((err) => {
+          (logger || console).error?.({ err }, "anomaly check failed");
+        });
+      }).catch((err) => {
         (logger || console).error?.({ err, purpose: meta.purpose }, "ai_usage insert failed");
       });
     }
