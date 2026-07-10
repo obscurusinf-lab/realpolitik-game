@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Send, AlertTriangle } from "lucide-react";
+import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, Send, AlertTriangle, Users, FileText } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
@@ -2808,8 +2808,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     { id: "map", label: t("tab.map"), icon: Globe2 },
     { id: "stats", label: t("tab.stats"), icon: Shield },
     { id: "world", label: t("tab.world"), icon: Globe2 },
-    { id: "advisors", label: t("tab.advisors"), icon: ChevronRight },
-    { id: "policies", label: t("tab.policies"), icon: ChevronRight },
+    { id: "advisors", label: t("tab.advisors"), icon: Users },
+    { id: "policies", label: t("tab.policies"), icon: FileText },
     { id: "relations", label: t("tab.relations"), icon: Landmark },
     { id: "newsfeed", label: t("tab.newsfeed"), icon: ScrollText },
     { id: "log", label: t("tab.log"), icon: ScrollText },
