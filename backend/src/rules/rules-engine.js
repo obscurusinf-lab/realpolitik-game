@@ -356,7 +356,7 @@ function computeFactionDebuffs(stats) {
   const deltas = {};
   const notes = [];
   for (const faction of FACTION_KEYS) {
-    const value = stats[faction] ?? 55;
+    const value = stats[faction] ?? 65;
     const ladder = FACTION_DEBUFF_LADDER[faction];
     // Находим САМЫЙ ГЛУБОКИЙ применимый уровень — его effects уже включают эффекты предыдущих
     // уровней в усиленном виде (лестница написана как кумулятивные снапшоты, не приросты).
@@ -1110,8 +1110,8 @@ function checkFactionDilemmaTrigger(stats, gameId, turnNumber) {
   const candidates = [];
   for (const [id, def] of Object.entries(FACTION_DILEMMAS)) {
     const [a, b] = def.factions;
-    const va = stats[a] ?? 55;
-    const vb = stats[b] ?? 55;
+    const va = stats[a] ?? 65;
+    const vb = stats[b] ?? 65;
     const tension = Math.abs(va - vb);
     if (tension >= 15) candidates.push({ id, tension });
   }
@@ -1149,7 +1149,7 @@ function resolveFactionDilemma(stats, dilemmaId, choice, seed) {
   }
   function applyLoyalty(loyaltyMap) {
     for (const [k, delta] of Object.entries(loyaltyMap || {})) {
-      const before = newStats[k] ?? 55;
+      const before = newStats[k] ?? 65;
       newStats[k] = Math.max(0, Math.min(100, before + delta));
       statDeltas[k] = (statDeltas[k] ?? 0) + (newStats[k] - before);
     }
