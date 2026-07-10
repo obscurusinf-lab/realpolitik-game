@@ -1439,11 +1439,12 @@ function deltaColor(stat, delta) {
 
 // Тип политики: программа / реформа / указ
 const POLICY_CATEGORY = {
+  operation: { label: "ВОЕННАЯ ОПЕРАЦИЯ", color: "#a8313a", section: "ОПЕРАЦИИ", hint: "боевая операция, не указ" },
   program: { label: "ПРОГРАММА", color: "#9c7ab0", section: "ПРОГРАММЫ", hint: "крупная многолетняя программа" },
   reform:  { label: "РЕФОРМА",  color: "#3a8a7a", section: "РЕФОРМЫ",  hint: "системная реформа" },
   decree:  { label: "УКАЗ",     color: "#5b6b8c", section: "УКАЗЫ",    hint: "оперативный указ" },
 };
-const POLICY_CATEGORY_ORDER = ["program", "reform", "decree"];
+const POLICY_CATEGORY_ORDER = ["operation", "program", "reform", "decree"];
 
 // "↑↑ Армия, ↑ Готовность" — что вырастет при успехе
 function boostStrings(effectStats) {

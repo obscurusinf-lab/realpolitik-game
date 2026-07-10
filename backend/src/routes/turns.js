@@ -192,6 +192,15 @@ function computeGameScore(stats, outcome) {
 const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP, UKRAINE_FULL_SYMMETRY, rollExposure } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
+// Прилагательные для "сводки с фронта" (см. блок ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ниже)
+const TERRITORY_REGION_ADJ = {
+  donetsk_control: "Донецкое",
+  luhansk_control: "Луганское",
+  zaporizhzhia_control: "Запорожское",
+  kherson_control: "Херсонское",
+  kharkiv_control: "Харьковское",
+};
+
 // Вычисляет новую дату игры (+1 месяц в обычном режиме, +2 недели в кризисном)
 function advanceGameDate(currentDateStr, crisisMode) {
   try {
@@ -1320,6 +1329,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           newStats.army_morale = Math.max(0, (newStats.army_morale ?? 50) + territoryMoraleDelta);
           statDeltas.army_morale = (statDeltas.army_morale ?? 0) + territoryMoraleDelta;
         }
+        // Сводка с фронта — что взято, что отдано контратакой. Только для боевых категорий
+        // (Петя попросил видеть исход наступлений/обороны в ленте, а не только в цифрах статов).
+        if (CATEGORY_GROUP.military_combat.has(gmClassification.action_type)) {
+          const nonZero = Object.entries(territoryDeltas).filter(([, d]) => d);
+          if (nonZero.length > 0) {
+            const parts = nonZero.map(([key, d]) => {
+              const adj = TERRITORY_REGION_ADJ[key] || key;
+              return d > 0 ? `${adj} направление: +${d}%` : `${adj} направление: ${d}% (контратака ВСУ)`;
+            });
+            await client.query(
+              `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+              [gameId, turnNumber, "news", "Генштаб", `Сводка с фронта: ${parts.join("; ")}.`,
+                JSON.stringify([{ stat_delta: Object.fromEntries(nonZero) }])]
+            );
+          }
+        }
       }
       // --- конец территорий ---
 
@@ -1391,6 +1416,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             items: gmClassification.policy_update.items || [],
             completion_conditions: gmClassification.policy_update.completion_conditions || null,
             newsfeed_keyword: gmClassification.policy_update.title,
+            // Военная операция — это не "политика"/указ, отдельная категория для фронтенда
+            // (см. POLICY_CATEGORY.operation в App.jsx). Для остальных категорий (эконом./дипл./
+            // полит. указы) поле оставляем как раньше — не задано, показывается общий "ПОЛИТИКА".
+            category: CATEGORY_GROUP.military_combat.has(gmClassification.action_type) ? "operation" : undefined,
           },
         ];
       }

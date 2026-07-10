@@ -1443,6 +1443,7 @@ export function actionTypeLabel(key, ruLabel) {
 
 // POLICY_CATEGORY (App.jsx, PoliciesTab) — badge/section labels по категории политики.
 const POLICY_CATEGORY_EN = {
+  operation: { label: "MILITARY OPERATION", section: "OPERATIONS" },
   program: { label: "PROGRAM", section: "PROGRAMS" },
   reform: { label: "REFORM", section: "REFORMS" },
   decree: { label: "DECREE", section: "DECREES" },
