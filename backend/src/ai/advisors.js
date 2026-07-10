@@ -5,7 +5,7 @@
  * Один вызов Claude → все пять мнений, чтобы не множить API-запросы.
  */
 
-const { TREASURY_PER_TRILLION } = require("../rules/rules-engine");
+const { TREASURY_PER_TRILLION, RULES_TABLE, CATEGORY_GROUP } = require("../rules/rules-engine");
 const { languageInstruction } = require("./language-instruction");
 
 const ADVISORS = [
@@ -280,6 +280,53 @@ function buildTrendSection(stats, statHistory) {
   return lines.join("\n");
 }
 
+// Русские подписи статов для "цены вопроса" (см. describeSideEffects) — только то, что
+// встречается в RULES_TABLE. Не дублирует TREND_STATS выше (те 4 — только для margin/скорости
+// падения, эти — для побочных эффектов любых категорий).
+const STAT_LABELS_RU = {
+  economy: "экономика", military: "армия", stability: "стабильность", diplomacy: "дипломатия",
+  approval: "рейтинг", elite_satisfaction: "элиты", corruption: "коррупция", middle_class: "средний класс",
+  lower_class_mood: "настроение масс", gdp_growth: "рост ВВП", inflation: "инфляция", employment: "занятость",
+  reserves: "резервы ФНБ", army_morale: "боевой дух", equipment: "снаряжение", readiness: "готовность",
+  veterans: "ветераны", ally_trust: "доверие союзников", isolation: "изоляция",
+};
+
+// "Цена вопроса" (Петя, 2026-07-10: "советы даются реактивно... а то что это вызовет
+// последствия — не говорится") — форматирует ВСЕ ненулевые побочные эффекты категории из
+// RULES_TABLE в одну фразу. Один переиспользуемый форматтер на данных движка вместо ручного
+// текста на каждую ветку — не может разойтись с реальными формулами, как это уже произошло
+// с peace_track/peace_progress (см. фикс ниже).
+function describeSideEffects(category) {
+  const table = RULES_TABLE[category];
+  if (!table) return "";
+  const notable = Object.entries(table)
+    .filter(([, [lo, hi]]) => lo !== 0 || hi !== 0)
+    .map(([key, [lo, hi]]) => {
+      const label = STAT_LABELS_RU[key] || key;
+      const fmt = (n) => (n > 0 ? `+${n}` : `${n}`);
+      return lo === hi ? `${label} ${fmt(lo)}` : `${label} ${fmt(lo)}..${fmt(hi)}`;
+    });
+  if (notable.length === 0) return "";
+  const opLimitNote = CATEGORY_GROUP.military_operations.has(category)
+    ? " Плюс это потратит месячный лимит военных операций." : "";
+  return ` Цена вопроса: ${notable.join(", ")}.${opLimitNote}`;
+}
+
+// Отслеживание "выполнил ли игрок совет" (Петя, 2026-07-10: "я её выполнил — а всё так же
+// висит такая же подсказка") — раньше это умела только эконом-реформа (ECON_REFORM_CATEGORIES
+// ниже). Обобщаем: если последнее принятое решение — та же категория, что рекомендуется снова,
+// явно показываем прогресс (было→стало по ключевому стату этой ветки) вместо молчаливого повтора
+// идентичного текста.
+function describeFollowThrough(category, key, label, stats, statHistory, recentCategories) {
+  if (!Array.isArray(recentCategories) || recentCategories[recentCategories.length - 1] !== category) return "";
+  if (!Array.isArray(statHistory) || statHistory.length === 0) return "";
+  const before = statHistory[statHistory.length - 1]?.stats?.[key];
+  const after = stats[key];
+  if (typeof before !== "number" || typeof after !== "number") return "";
+  const delta = Math.round((after - before) * 10) / 10;
+  return `✓ В прошлом ходу вы уже выбрали это направление: ${label} ${before}→${after} (${delta >= 0 ? "+" : ""}${delta}). `;
+}
+
 /**
  * Детерминированный расчёт оптимального хода из формул движка (не ИИ).
  * Приоритет: сначала отвести от порога поражения тот показатель, что ближе всех
@@ -299,7 +346,7 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
   const s = (k, d = 50) => (typeof stats[k] === "number" ? stats[k] : d);
   const economy = s("economy"), approval = s("approval"), stability = s("stability"),
     diplomacy = s("diplomacy"), treasury = s("treasury", 52), inflation = s("inflation", 64),
-    military = s("military"), peace = s("peace_track", 0);
+    military = s("military"), peace = s("peace_progress", 0);
 
   // 1. Опасность: расстояние до порога поражения + скорость падения
   const dangers = [
@@ -330,32 +377,37 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
     if (worst.key === "economy") {
       // При пустой казне стимулирование гасится дефицитной спиралью — сначала казна.
       if (treasury < 10) {
-        return { advisorId: "finance", category: "econ_austerity", mode: "decree_fast", direction: "economic_austerity",
+        const category = "econ_austerity";
+        return { advisorId: "finance", category, mode: "decree_fast", direction: "economic_austerity",
           title: "Бюджетная консолидация (срочно)",
           decree: "Правительству поручаю программу срочной бюджетной консолидации: сокращение некритических расходов и повышение сборов с экспортёров.",
-          reason: `Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п.${trendNote} Казна ${treasury} — стимулирование при пустой казне гасится дефицитной спиралью, сначала нужно закрыть дефицит. Никаких военных операций в этом месяце: end-month снимет ещё до −6 автоматических потерь.` };
+          reason: `${describeFollowThrough(category, "economy", "Экономика", stats, statHistory, recentCategories)}Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п.${trendNote} Казна ${treasury} — стимулирование при пустой казне гасится дефицитной спиралью, сначала нужно закрыть дефицит. Никаких военных операций в этом месяце: end-month снимет ещё до −6 автоматических потерь.${describeSideEffects(category)}` };
       }
-      return { advisorId: "finance", category: "econ_stimulus", mode: "decree_fast", direction: "economic_stimulus",
+      const category = "econ_stimulus";
+      return { advisorId: "finance", category, mode: "decree_fast", direction: "economic_stimulus",
         title: "Стимулирование экономики (срочно)",
         decree: "Правительству поручаю разработать пакет мер по льготному кредитованию малого и среднего бизнеса.",
-        reason: `Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п.${trendNote} Стимул даёт +1..+3, автоматическая эрозия за месяц ограничена −6, так что одного стимула может не хватить — стоит воздержаться от дорогих военных операций.` };
+        reason: `${describeFollowThrough(category, "economy", "Экономика", stats, statHistory, recentCategories)}Экономика ${economy} — до коллапса (<30) осталось ${worst.margin} п.${trendNote} Стимул даёт +1..+3, автоматическая эрозия за месяц ограничена −6, так что одного стимула может не хватить — стоит воздержаться от дорогих военных операций.${describeSideEffects(category)}` };
     }
     if (worst.key === "approval") {
-      return { advisorId: "press", category: "pol_social", mode: "decree_fast", direction: "domestic_liberalization",
+      const category = "pol_social";
+      return { advisorId: "press", category, mode: "decree_fast", direction: "domestic_liberalization",
         title: "Социальная программа (срочно)",
         decree: "Утверждаю социальную программу поддержки семей военнослужащих и ветеранов.",
-        reason: `Рейтинг ${approval} — до переворота (<30) осталось ${worst.margin} п.${trendNote} Социальные меры — самый прямой рычаг одобрения (+1..+2); мобилизация и жёсткая экономия сейчас недопустимы.` };
+        reason: `${describeFollowThrough(category, "approval", "Рейтинг", stats, statHistory, recentCategories)}Рейтинг ${approval} — до переворота (<30) осталось ${worst.margin} п.${trendNote} Социальные меры — самый прямой рычаг одобрения (+1..+2); мобилизация и жёсткая экономия сейчас недопустимы.${describeSideEffects(category)}` };
     }
     if (worst.key === "stability") {
-      return { advisorId: "press", category: "pol_propaganda", mode: "decree_fast", direction: "info_narrative",
+      const category = "pol_propaganda";
+      return { advisorId: "press", category, mode: "decree_fast", direction: "info_narrative",
         title: "Информационная кампания (срочно)",
         decree: "Поручаю госСМИ развернуть информационную кампанию об успехах на фронте и героизме военнослужащих.",
-        reason: `Стабильность ${stability} — до волнений (<25) осталось ${worst.margin} п.${trendNote} Информационная кампания поднимает стабильность и рейтинг без удара по казне (подавление подняло бы стабильность, но обвалило бы рейтинг ${approval}).` };
+        reason: `${describeFollowThrough(category, "stability", "Стабильность", stats, statHistory, recentCategories)}Стабильность ${stability} — до волнений (<25) осталось ${worst.margin} п.${trendNote} Информационная кампания поднимает стабильность и рейтинг без удара по казне (подавление подняло бы стабильность, но обвалило бы рейтинг ${approval}).${describeSideEffects(category)}` };
     }
-    return { advisorId: "foreign", category: "diplo_negotiate", mode: "diplomacy_op", direction: "diplomacy_outreach",
+    const category = "diplo_negotiate";
+    return { advisorId: "foreign", category, mode: "diplomacy_op", direction: "diplomacy_outreach",
       title: "Дипломатические переговоры (срочно)",
       decree: "Министерству иностранных дел поручаю провести переговоры с Турцией и ОАЭ о посредничестве в мирном процессе.",
-      reason: `Дипломатия ${diplomacy} — до изоляции (<15) осталось ${worst.margin} п.${trendNote} Переговоры — единственный прямой рычаг; эскалация и тайные операции сейчас усугубят изоляцию.` };
+      reason: `${describeFollowThrough(category, "diplomacy", "Дипломатия", stats, statHistory, recentCategories)}Дипломатия ${diplomacy} — до изоляции (<15) осталось ${worst.margin} п.${trendNote} Переговоры — единственный прямой рычаг; эскалация и тайные операции сейчас усугубят изоляцию.${describeSideEffects(category)}` };
   }
 
   // 2. Казна в минусе — спираль вниз тянет экономику каждый месяц
@@ -363,7 +415,7 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
     return { advisorId: "finance", category: "econ_austerity", mode: "decree_fast", direction: "economic_austerity",
       title: "Закрыть дефицит казны",
       decree: "Правительству поручаю программу бюджетной консолидации с сокращением некритических расходов.",
-      reason: `Казна ${treasury} — дефицит каждый месяц давит экономику (${economy}) и разгоняет инфляцию. Пока дефицит не закрыт, любые дорогие операции углубляют спираль.` };
+      reason: `Казна ${treasury} — дефицит каждый месяц давит экономику (${economy}) и разгоняет инфляцию. Пока дефицит не закрыт, любые дорогие операции углубляют спираль.${describeSideEffects("econ_austerity")}` };
   }
 
   // 3. Инфляция выше порога — ежемесячный штраф экономике и рейтингу
@@ -371,7 +423,7 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
     return { advisorId: "finance", category: "econ_austerity", mode: "decree_reform", direction: "economic_austerity",
       title: "Сбить инфляцию",
       decree: "Правительству поручаю программу бюджетной консолидации: сдержать госрасходы и не давить на ЦБ за снижение ставки.",
-      reason: `Инфляция: индекс ${Math.round(inflation)} (порог 73, ~${Math.max(0, Math.round(inflation - 58))}% г/г) — каждый месяц −1..−3 экономике и рейтингу. Консолидация снижает дефицитное давление; ставку ЦБ поднимет сам.` };
+      reason: `Инфляция: индекс ${Math.round(inflation)} (порог 73, ~${Math.max(0, Math.round(inflation - 58))}% г/г) — каждый месяц −1..−3 экономике и рейтингу. Консолидация снижает дефицитное давление; ставку ЦБ поднимет сам.${describeSideEffects("econ_austerity")}` };
   }
 
   // 4. Опасностей нет — путь к победе
@@ -381,22 +433,35 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
   const territoriesClose = donetsk >= 80 && luhansk >= 90;
 
   if (territoriesClose && military >= 75 && economy >= 45 && treasury >= 35) {
-    const target = donetsk < 100 ? { nom: "Донецкое", prep: "Донецком" }
-      : luhansk < 100 ? { nom: "Луганское", prep: "Луганском" }
-      : secondary < 2 ? { nom: "Запорожское", prep: "Запорожском" } : null;
+    const target = donetsk < 100 ? { nom: "Донецкое", prep: "Донецком", key: "donetsk_control" }
+      : luhansk < 100 ? { nom: "Луганское", prep: "Луганском", key: "luhansk_control" }
+      : secondary < 2 ? { nom: "Запорожское", prep: "Запорожском", key: "zaporizhzhia_control" } : null;
     if (target) {
-      return { advisorId: "defense", category: "mil_operational_offensive", mode: "military", direction: "military_offensive",
+      // Следующая цель ПОСЛЕ этой (Петя, 2026-07-10: "помоги дойти до победы" — дорожная карта,
+      // не только текущий шаг). Порядок совпадает с приоритетом выбора target выше.
+      const nextAfter = target.key === "donetsk_control"
+        ? (luhansk < 100 ? `После Донецка — Луганск (уже ${luhansk}%).` : secondary < 2 ? `После Донецка — доп. регионы (Запорожье ${zap}%, Херсон ${kher}%, Харьков ${khar}%, нужно 2 из 3).` : "")
+        : target.key === "luhansk_control"
+        ? (secondary < 2 ? `После Луганска — доп. регионы (Запорожье ${zap}%, Херсон ${kher}%, Харьков ${khar}%, нужно 2 из 3).` : "")
+        : "";
+      const category = "mil_operational_offensive";
+      return { advisorId: "defense", category, mode: "military", direction: "military_offensive",
         title: `Наступление (${target.nom} направление)`,
         decree: `Приказываю начать наступательную операцию на ${target.prep} направлении.`,
-        reason: `Военная победа близко (Донецк ${donetsk}, Луганск ${luhansk}, доп. регионы ${secondary}/2). Экономика ${economy} и казна ${treasury} выдержат месячное военное бремя (потолок автопотерь −6/мес).` };
+        reason: `${describeFollowThrough(category, target.key, target.nom, stats, statHistory, recentCategories)}Военная победа близко (Донецк ${donetsk}, Луганск ${luhansk}, доп. регионы ${secondary}/2). Экономика ${economy} и казна ${treasury} выдержат месячное военное бремя (потолок автопотерь −6/мес). Нужно ещё ${100 - s(target.key, 0)}% на ${target.nom.toLowerCase()} направлении. ${nextAfter}${describeSideEffects(category)}` };
     }
   }
 
   if (peace >= 40 || turnNumber >= 10) {
-    return { advisorId: "foreign", category: "diplo_peace", mode: "diplomacy_op", direction: "peace_initiative",
+    const economyGap = Math.max(0, 65 - economy), approvalGap = Math.max(0, 65 - approval), stabilityGap = Math.max(0, 65 - stability);
+    const gapsNote = (economyGap || approvalGap || stabilityGap)
+      ? ` Разрывы до порога победы: экономика −${economyGap}, рейтинг −${approvalGap}, стабильность −${stabilityGap} (нужно 65 по каждому).`
+      : " Экономика/рейтинг/стабильность уже держат порог 65 — остаётся только мирный трек.";
+    const category = "diplo_peace";
+    return { advisorId: "foreign", category, mode: "diplomacy_op", direction: "peace_initiative",
       title: "Мирная инициатива",
       decree: "Поручаю МИДу инициировать переговоры об урегулировании конфликта при посредничестве Турции и ОАЭ.",
-      reason: `Мирный трек ${peace} — самая дешёвая дипломатическая операция и главный двигатель к дипломатической победе (нужен трек 100 и экономика/рейтинг/стабильность ≥65; сейчас ${economy}/${approval}/${stability}).` };
+      reason: `${describeFollowThrough(category, "peace_progress", "Мирный трек", stats, statHistory, recentCategories)}Мирный трек ${peace}/100 — самая дешёвая дипломатическая операция и главный двигатель к дипломатической победе.${gapsNote}${describeSideEffects(category)}` };
   }
 
   // Дефолт (экономика) — но НЕ дублировать реформу, если она уже в работе. Реальный баг из
@@ -421,7 +486,7 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
       return auto.total < 0
         ? ` Но в ЭТОМ ходу ждите автоматическое ${auto.total} (${auto.effects.map(e => e.label).join(", ")}) — реформа доходит до экономики только через 1-3 хода, база сработает раньше. Это не признак ошибки.`
         : "";
-    })()}` };
+    })()}${describeSideEffects("econ_stimulus")}` };
 }
 
 // Динамическая часть промпта — всё, что меняется от хода к ходу (см. комментарий у

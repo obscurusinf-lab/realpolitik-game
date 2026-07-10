@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, Send, AlertTriangle, Users, FileText } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
@@ -1894,10 +1894,15 @@ function MissionPanel({ stats, turn, maxTurns = 24 }) {
   const peace = stats?.peace_progress ?? 0;
   const peaceColor = peace >= 100 ? "#4caf50" : peace >= 60 ? "#8bc34a" : peace >= 30 ? "#ffc107" : "#ef5350";
 
+  // Пороги мирной победы — 65/65/65 (не 55/60/60, как было раньше): реальное условие в
+  // detectGameOutcome (backend/src/routes/turns.js) требует economy/approval/stability ≥65 +
+  // peace_progress ≥100. Старые цифры здесь были рассинхронизированы с бэкендом (тот же класс
+  // бага, что и peace_track/peace_progress в советнике) — если баннер советов (см. AdvisorsTab)
+  // теперь честно называет 65/65/65, эта панель не должна противоречить ему устаревшими цифрами.
   const objectives = [
-    { label: "Экономика", key: "economy", target: 55 },
-    { label: "Рейтинг",   key: "approval", target: 60 },
-    { label: "Стабильность", key: "stability", target: 60 },
+    { label: "Экономика", key: "economy", target: 65 },
+    { label: "Рейтинг",   key: "approval", target: 65 },
+    { label: "Стабильность", key: "stability", target: 65 },
   ];
 
   const turnsLeft = maxTurns - turn;
@@ -2461,6 +2466,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // по явному клику "Жду ваш совет" на конкретной карточке (см. AdvisorsTab).
   const [advisorState, setAdvisorState] = useState(() => Object.fromEntries(ADVISOR_INFO.map(a => [a.id, { status: "idle", data: null, error: null }])));
   const actionModeRef = useRef("decree_fast");
+  // Баннер-рекомендация в AdvisorsTab (Петя, 2026-07-10: "советы даются реактивно... не
+  // отслеживает выполнение") — раньше считался локально устаревшей функцией без памяти о ходах
+  // (computeKremlinRecommendation, удалена). Теперь берётся с бэкенда — тот же детерминированный
+  // расчёт computeOptimalMove, что питает /consult, но без вызова ИИ (см. эффект ниже).
+  const [optimalMove, setOptimalMove] = useState(null);
 
   const [showTreasuryTip, setShowTreasuryTip] = useState(false);
 
@@ -2521,6 +2531,18 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     actionModeRef.current = actionMode;
     setAdvisorState(Object.fromEntries(ADVISOR_INFO.map(a => [a.id, { status: "idle", data: null, error: null }])));
   }, [actionMode, state?.turn]);
+
+  // Баннер-рекомендация (см. optimalMove выше) — перезапрашивается на каждую смену месяца, не
+  // на смену масштаба (в отличие от advisorState выше): рекомендация не зависит от того, какой
+  // масштаб указа сейчас выбран в форме, только от statов/истории ходов. В hardcore не считается
+  // вовсе — не просто прячем готовый рендер, а не даём игроку даже мгновение увидеть баннер
+  // (тот же принцип, что уже применялся к computeKremlinRecommendation).
+  useEffect(() => {
+    if (assistMode === "hardcore") { setOptimalMove(null); return; }
+    let cancelled = false;
+    fetchOptimalMove(gameId).then(({ optimalMove: om }) => { if (!cancelled) setOptimalMove(om || null); }).catch(() => { if (!cancelled) setOptimalMove(null); });
+    return () => { cancelled = true; };
+  }, [gameId, state?.turn, assistMode]);
 
   async function handlePreview() {
     if (!draftInput.trim() || previewing) return;
@@ -3113,6 +3135,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             stats={state?.stats}
             turnNumber={(state?.turn ?? 0) + 1}
             hardcore={assistMode === "hardcore"}
+            optimalMove={optimalMove}
             onConsultAdvisor={handleConsultAdvisor}
             onSelectMode={setActionMode}
             onSelectCategory={(template, mode) => {
@@ -3551,7 +3574,7 @@ function pickGreeting(id, seedKey) {
   return advisorGreeting(id, ruText, pool);
 }
 
-function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory, stats, turnNumber, hardcore }) {
+function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory, stats, turnNumber, hardcore, optimalMove }) {
   const badge = ACTION_MODE_BADGE[actionMode] || ACTION_MODE_BADGE.decree_fast;
   // Свой текст на каждого советника отдельно (не общий черновик указа) — можно спросить
   // конкретного министра о чём-то своём, а можно просто нажать "Получить совет" пустым полем.
@@ -3565,19 +3588,27 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
   // ощущение перегруза). Тот же паттерн, что "Распоряжения" — за кнопкой, только один советник
   // открыт одновременно.
   const [openConsultId, setOpenConsultId] = useState(null);
-  // Баннер-рекомендация (Петя, 2026-07-10: "система подсказок куда-то делась") — вернулся как
-  // единый баннер над списком министров, а не per-министр дублирование (та же математика,
-  // что и раньше в KremlinTab, computeKremlinRecommendation ниже в файле не менялась).
+  // Баннер-рекомендация (Петя, 2026-07-10: "система подсказок куда-то делась", затем "советы
+  // даются реактивно... не отслеживает выполнение") — единый баннер над списком министров, а не
+  // per-министр дублирование. Раньше считался локально устаревшей computeKremlinRecommendation
+  // (удалена), теперь приходит с бэкенда через проп optimalMove (см. App, computeOptimalMove в
+  // advisors.js) — та же логика, что питает /consult, с историей ходов и антидубликатной
+  // проверкой, без вызова ИИ.
   const [jumpTarget, setJumpTarget] = useState(null);
   // В hardcore ("сам по себе") баннер-рекомендация не считается вовсе — не просто прячем готовый
   // рендер, а не даём игроку даже мгновение увидеть заголовок/reason (Петя, 2026-07-10: "в
   // хардкоре нужно только ликбез оставить" — единственная подсказка, которая должна остаться).
-  const rec = hardcore ? null : computeKremlinRecommendation(stats || {}, turnNumber ?? 1);
+  // Родитель уже не запрашивает optimalMove в hardcore (см. эффект в App), но проверяем и здесь.
+  const rec = hardcore ? null : optimalMove;
   const recTarget = rec ? findMinisterDomainForCategory(rec.category) : null;
   const goToRecommendation = () => {
     if (!rec || !recTarget) return;
     setExpandedMinisterId(recTarget.ministerId);
-    setJumpTarget({ ministerId: recTarget.ministerId, domainId: recTarget.domainId, categoryId: rec.category, tier: rec.tier });
+    // computeOptimalMove отдаёт поле `mode` (не `tier`, как раньше computeKremlinRecommendation) —
+    // MinisterCategoryBrowser ожидает tier только для указов (decree_fast/reform/program),
+    // у военных/дипломатических/шпионских категорий это action_mode, а не тир указа.
+    const tier = rec.mode && rec.mode.startsWith("decree_") ? rec.mode : undefined;
+    setJumpTarget({ ministerId: recTarget.ministerId, domainId: recTarget.domainId, categoryId: rec.category, tier });
   };
   return (
     <div>
@@ -6844,60 +6875,6 @@ function domainOfCategory(catId) {
   return "decrees";
 }
 
-// Детерминированный расчёт рекомендованного хода — зеркало computeOptimalMove в
-// backend/src/ai/advisors.js. Держать в синхроне при изменении балансовых порогов.
-// Возвращает { category, tier, title, reason } или null.
-function computeKremlinRecommendation(stats, turnNumber = 1) {
-  const s = (k, d = 50) => (typeof stats[k] === "number" ? stats[k] : d);
-  const economy = s("economy"), approval = s("approval"), stability = s("stability"),
-    diplomacy = s("diplomacy"), treasury = s("treasury", 52), inflation = s("inflation", 64),
-    military = s("military"), peace = s("peace_track", 0);
-
-  const dangers = [
-    { key: "economy", margin: economy - 30 },
-    { key: "approval", margin: approval - 30 },
-    { key: "stability", margin: stability - 25 },
-    { key: "diplomacy", margin: diplomacy - 15 },
-  ].sort((a, b) => a.margin - b.margin);
-  const worst = dangers[0];
-
-  if (worst.margin < 10) {
-    if (worst.key === "economy") {
-      if (treasury < 10) return { category: "econ_austerity", tier: "decree_fast", title: "Бюджетная консолидация",
-        reason: `Экономика ${economy} — до коллапса (<30) ${worst.margin} п. Казна ${treasury} пуста: стимул сейчас съест дефицитная спираль, сначала закройте дефицит. Военные операции в этом месяце опасны.` };
-      return { category: "econ_stimulus", tier: "decree_fast", title: "Стимулирование экономики",
-        reason: `Экономика ${economy} — до коллапса (<30) ${worst.margin} п. Стимул даёт +1..+3; воздержитесь от дорогих военных операций в этом месяце.` };
-    }
-    if (worst.key === "approval") return { category: "pol_social", tier: "decree_fast", title: "Социальная программа",
-      reason: `Рейтинг ${approval} — до переворота (<30) ${worst.margin} п. Социальные меры — самый прямой рычаг одобрения. Мобилизация и жёсткая экономия сейчас недопустимы.` };
-    if (worst.key === "stability") return { category: "pol_propaganda", tier: "decree_fast", title: "Информационная кампания",
-      reason: `Стабильность ${stability} — до волнений (<25) ${worst.margin} п. Инфокампания поднимает стабильность без удара по казне (подавление обвалило бы рейтинг).` };
-    return { category: "diplo_negotiate", title: "Дипломатические переговоры",
-      reason: `Дипломатия ${diplomacy} — до изоляции (<15) ${worst.margin} п. Переговоры — единственный прямой рычаг; эскалация и тайные операции усугубят изоляцию.` };
-  }
-
-  if (treasury < 0) return { category: "econ_austerity", tier: "decree_fast", title: "Закрыть дефицит казны",
-    reason: `Казна ${treasury} — дефицит каждый месяц давит экономику (${economy}) и разгоняет инфляцию. Дорогие операции углубляют спираль.` };
-
-  if (inflation > 73 && economy < 55) return { category: "econ_austerity", tier: "decree_reform", title: "Сбить инфляцию",
-    reason: `Инфляция ${inflation} (порог 73) — каждый месяц −1..−3 экономике и рейтингу. Консолидация снижает дефицитное давление.` };
-
-  const donetsk = s("donetsk_control", 0), luhansk = s("luhansk_control", 0),
-    zap = s("zaporizhzhia_control", 0), kher = s("kherson_control", 0), khar = s("kharkiv_control", 0);
-  const secondary = [zap >= 85, kher >= 65, khar >= 50].filter(Boolean).length;
-  if (donetsk >= 80 && luhansk >= 90 && military >= 75 && economy >= 45 && treasury >= 35) {
-    const target = donetsk < 100 ? "Донецком" : luhansk < 100 ? "Луганском" : secondary < 2 ? "Запорожском" : null;
-    if (target) return { category: "mil_operational_offensive", title: `Наступление (${target} направление)`,
-      reason: `Военная победа близко (Донецк ${donetsk}, Луганск ${luhansk}, доп. регионы ${secondary}/2). Экономика ${economy} и казна ${treasury} выдержат военное бремя.` };
-  }
-
-  if (peace >= 40 || turnNumber >= 10) return { category: "diplo_peace", title: "Мирная инициатива",
-    reason: `Мирный трек ${peace} — самая дешёвая дипоперация и главный двигатель к дипломатической победе (нужен трек 100 и экономика/рейтинг/стабильность ≥65; сейчас ${economy}/${approval}/${stability}).` };
-
-  return { category: "econ_stimulus", tier: "decree_reform", title: "Укреплять экономику",
-    reason: `Острых угроз нет. Экономика ${economy} — фундамент обоих путей к победе. Запас прочности против месячной эрозии (до −6) окупается всегда.` };
-}
-
 // БАШНИ КРЕМЛЯ теперь отдельная вкладка (элиты, не браузер категорий) — категории по указам
 // переехали сюда, в Кабинет министров, по одному министру на область (Петя, 2026-07-09:
 // "министры выполняют мои распоряжения, а элиты в башнях кремля пытаются на меня повлиять").
@@ -6922,8 +6899,8 @@ const MINISTER_DOMAINS = {
   ],
 };
 
-// Обратный поиск для баннера-рекомендации (computeKremlinRecommendation ниже) — какому министру
-// и под-домену принадлежит категория, чтобы кнопка "Перейти" знала, куда прыгать.
+// Обратный поиск для баннера-рекомендации (optimalMove с бэкенда, см. AdvisorsTab) — какому
+// министру и под-домену принадлежит категория, чтобы кнопка "Перейти" знала, куда прыгать.
 function findMinisterDomainForCategory(categoryId) {
   for (const [ministerId, domains] of Object.entries(MINISTER_DOMAINS)) {
     for (const domain of domains) {
@@ -6935,9 +6912,9 @@ function findMinisterDomainForCategory(categoryId) {
 
 // Раньше KremlinTab — браузер всех 4 доменов указов. Теперь встраивается в карточку конкретного
 // министра (Кабинет министров), область видимости сужена до его домена(ов). Рекомендация
-// советника (computeKremlinRecommendation) вернулась единым баннером над списком министров в
-// AdvisorsTab (не per-министр — Петя, 2026-07-10: "система подсказок куда-то делась") — jumpTo
-// ниже принимает {domainId, categoryId, tier} от кнопки "Перейти" этого баннера.
+// советника (optimalMove с бэкенда) — единым баннером над списком министров в AdvisorsTab (не
+// per-министр — Петя, 2026-07-10: "система подсказок куда-то делась") — jumpTo ниже принимает
+// {domainId, categoryId, tier} от кнопки "Перейти" этого баннера.
 function MinisterCategoryBrowser({ ministerId, onSelectCategory, jumpTo }) {
   const domains = MINISTER_DOMAINS[ministerId] || [];
   const [domainId, setDomainId] = useState(domains[0]?.id);

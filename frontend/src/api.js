@@ -219,6 +219,15 @@ export async function consultAdvisor(gameId, advisorId, playerDraft, actionMode)
   return res.json();
 }
 
+// Детерминированный расчёт "оптимального хода" (не ИИ, дёшево) — источник для баннера-
+// рекомендации в AdvisorsTab (Петя, 2026-07-10: советы должны отслеживать выполнение и объяснять
+// последствия — см. computeOptimalMove в backend/src/ai/advisors.js).
+export async function fetchOptimalMove(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/advisors/optimal-move`, { method: "GET" }, 20000);
+  if (!res.ok) throw new Error(`fetchOptimalMove failed: ${res.status}`);
+  return res.json();
+}
+
 export async function regroupTurn(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/regroup`, { method: "POST" }, 60000);
   if (!res.ok) {
