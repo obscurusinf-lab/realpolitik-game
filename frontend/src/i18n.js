@@ -27,6 +27,7 @@ const RU = {
   "start.pitch": "REALPOLITIK даёт тебе шанс сделать всё правильно — стань президентом.",
 
   // ---- StartScreen: форма входа ----
+  "start.auth_why": "Допуск нужен только для того, чтобы партия сохранялась и была доступна с любого устройства — логин и пароль, без почты и подтверждений, 10 секунд.",
   "start.tab_login": "ВХОД",
   "start.tab_register": "ДОПУСК",
   "start.register_clearance_label": "ПРЕЗИДЕНТСКИЙ ДОПУСК",
@@ -604,6 +605,7 @@ const EN = {
   "start.hook": "Tired of feeling powerless to change anything?",
   "start.pitch": "REALPOLITIK gives you a shot at getting it right — become president.",
 
+  "start.auth_why": "Clearance just keeps your game saved and accessible from any device — username and password, no email, no confirmations, 10 seconds.",
   "start.tab_login": "LOG IN",
   "start.tab_register": "CLEARANCE",
   "start.register_clearance_label": "PRESIDENTIAL CLEARANCE",

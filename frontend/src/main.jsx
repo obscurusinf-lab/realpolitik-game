@@ -299,6 +299,14 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
           {!authUser ? (
             /* ——— AUTH FORM ——— */
             <div>
+              {/* Скриншот живого чата: друг тестера спросил "надо регистрироваться?" не поняв,
+                  зачем вообще нужен аккаунт — реформулировка вкладки в "ДОПУСК" (см. коммент
+                  ниже) объясняла ТОЛЬКО что форма короткая, но не отвечала на сам вопрос "зачем".
+                  Эта строка — прямой ответ, до выбора вкладки. */}
+              <div className="doc-font" style={{ fontSize: 12.5, color: "#5a6070", lineHeight: 1.5, marginBottom: 16 }}>
+                {t("start.auth_why")}
+              </div>
+
               <div style={{ display: "flex", gap: 0, marginBottom: 20, border: "1px solid #2a3040", borderRadius: 4, overflow: "hidden" }}>
                 {["login", "register"].map(m => (
                   <button key={m} onClick={() => { setAuthMode(m); setAuthError(null); }}
