@@ -2323,11 +2323,13 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.perk_corruption_audit_turns -= 1;
       }
       // Похмелье после экстренного стимулирования экономики (Петя, 2026-07-10: "как вколоть
-      // адреналин в умирающего" — см. treasury.js /emergency-stimulus). Мгновенный буст к economy
-      // не бесплатен: несколько месяцев подряд небольшой -1, пока эффект не сойдёт на нет. Часть
-      // economyAutoEffects — попадает под тот же потолок месячной эрозии (EROSION_CAP ниже).
+      // адреналин в умирающего", затем уточнение того же дня — "должен сжигать резервы, разгонять
+      // инфляцию" — см. treasury.js /emergency-stimulus). Мгновенный буст к economy не бесплатен:
+      // несколько месяцев подряд небольшой -1 economy И +1 инфляция, пока эффект не сойдёт на нет.
+      // Economy-часть попадает под тот же потолок месячной эрозии (EROSION_CAP ниже).
       if ((newStats.perk_stimulus_hangover_turns ?? 0) > 0) {
         newStats.economy = Math.max(0, (newStats.economy ?? 50) - 1);
+        newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 1);
         economyAutoEffects.push({ label: "Похмелье после экстренного стимула", delta: -1 });
         newStats.perk_stimulus_hangover_turns -= 1;
       }

@@ -8572,7 +8572,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           const turnsLeft = typeof lastStimTurn === "number" ? cooldownTurns - (currentTurn - lastStimTurn) : 0;
           const onCooldown = turnsLeft > 0;
           const initiative = stats.initiative ?? 100;
-          const canAfford = emergencyAvailable && !onCooldown && initiative >= 40;
+          const reservesNow = stats.reserves ?? 48;
+          const canAfford = emergencyAvailable && !onCooldown && initiative >= 40 && reservesNow >= 15;
           if (!emergencyAvailable && !onCooldown) return null; // не мозолит глаза, пока не нужна
           return (
             <div style={{ background: "#1a1010", border: "1px solid #5a2020", borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>

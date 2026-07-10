@@ -407,8 +407,8 @@ const RU = {
   "treasury.campaign_btn": "🔍 Запустить антикоррупционную кампанию",
   "treasury.campaign_used_note": "Доступно снова после завершения месяца. Возможные исходы: успешные аресты (коррупция −6…−10, элиты недовольны), показательный процесс (тот же эффект + рост одобрения), либо саботаж расследования (минимальный эффект, удар по стабильности).",
 
-  "treasury.emergency_label": "⚠ ЭКСТРЕННОЕ СТИМУЛИРОВАНИЕ · ⚡40, −15 казны · раз в 4 хода",
-  "treasury.emergency_desc": "Прямой укол экономике +10 немедленно — единственный мгновенный рычаг, когда всё остальное действует с лагом. Цена приходит после: инфляция +5 сразу, и ещё 3 месяца по −1 к экономике («похмелье»). Не решение проблемы — окно, чтобы выиграть время.",
+  "treasury.emergency_label": "⚠ ЭКСТРЕННОЕ СТИМУЛИРОВАНИЕ · ⚡40, −15 казны, −15 резервов ФНБ · раз в 4 хода",
+  "treasury.emergency_desc": "Прямой укол экономике +10 немедленно — единственный мгновенный рычаг, когда всё остальное действует с лагом. Резервы ФНБ при этом СГОРАЮТ (не конвертируются в казну). Цена приходит после: инфляция +5 сразу, и ещё 3 месяца подряд −1 к экономике И +1 к инфляции («похмелье»). Не решение проблемы — окно, чтобы выиграть время.",
   "treasury.emergency_btn": "💉 Экстренное стимулирование",
   "treasury.emergency_running": "Вводим…",
   "treasury.emergency_cooldown": "⚠ Ещё не восстановилось (через {n} х.)",
@@ -991,8 +991,8 @@ const EN = {
   "treasury.campaign_btn": "🔍 Launch an anti-corruption campaign",
   "treasury.campaign_used_note": "Available again after the month ends. Possible outcomes: successful arrests (corruption −6…−10, elites unhappy), a show trial (same effect + approval boost), or a sabotaged investigation (minimal effect, hit to stability).",
 
-  "treasury.emergency_label": "⚠ EMERGENCY STIMULUS · ⚡40, −15 treasury · once per 4 turns",
-  "treasury.emergency_desc": "A direct +10 shot to the economy right now — the only instant lever when everything else acts with a lag. The price comes after: inflation +5 immediately, plus 3 months of −1 to the economy (the \"hangover\"). Not a fix — a window to buy time.",
+  "treasury.emergency_label": "⚠ EMERGENCY STIMULUS · ⚡40, −15 treasury, −15 FNB reserves · once per 4 turns",
+  "treasury.emergency_desc": "A direct +10 shot to the economy right now — the only instant lever when everything else acts with a lag. FNB reserves are BURNED (not converted to treasury). The price comes after: inflation +5 immediately, plus 3 months straight of −1 to the economy AND +1 to inflation (the \"hangover\"). Not a fix — a window to buy time.",
   "treasury.emergency_btn": "💉 Emergency stimulus",
   "treasury.emergency_running": "Injecting…",
   "treasury.emergency_cooldown": "⚠ Not ready yet (in {n} turns)",
