@@ -315,6 +315,22 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     // Нефть и валюта — дефолт для партий, созданных до этой механики
     if (statsWithTerritories.oil_price === undefined) statsWithTerritories.oil_price = 68;
     if (statsWithTerritories.usd_rub === undefined) statsWithTerritories.usd_rub = 80;
+    // Башни Кремля — дефолт для партий, созданных до этой механики
+    const FACTION_DEFAULTS_FOR_OLD_GAMES = { faction_siloviki: 55, faction_tehnokraty: 55, faction_oligarhi: 55, faction_konservatory: 55, coalition_stability: 0 };
+    for (const [key, val] of Object.entries(FACTION_DEFAULTS_FOR_OLD_GAMES)) {
+      if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
+    }
+
+    // Карточка-дилемма Башен Кремля — детерминированная проверка (см. checkFactionDilemmaTrigger),
+    // не чаще одной за ход и не повторно в уже разрешённый ход.
+    let pendingFactionDilemma = null;
+    if (statsWithTerritories.faction_dilemma_resolved_turn !== game.current_turn) {
+      const { checkFactionDilemmaTrigger, FACTION_DILEMMAS } = require("../rules/rules-engine");
+      const dilemmaId = checkFactionDilemmaTrigger(statsWithTerritories, gameId, game.current_turn);
+      if (dilemmaId) {
+        pendingFactionDilemma = { id: dilemmaId, factions: FACTION_DILEMMAS[dilemmaId].factions };
+      }
+    }
 
     // Merge full relations list for games created before extra countries were added
     const FULL_RELATIONS = [
@@ -361,7 +377,47 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       countryProfile: game.country_profile || null,
       newsfeed,
       log,
+      pendingFactionDilemma,
     });
+  });
+
+  // ---------- POST /games/:gameId/faction-dilemma/resolve — Башни Кремля ----------
+  fastify.post("/games/:gameId/faction-dilemma/resolve", async (request, reply) => {
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { gameId } = request.params;
+    const { dilemmaId, choice } = request.body || {};
+    const { FACTION_DILEMMAS, checkFactionDilemmaTrigger, resolveFactionDilemma } = require("../rules/rules-engine");
+
+    if (!FACTION_DILEMMAS[dilemmaId]) return reply.code(400).send({ error: "Неизвестная дилемма" });
+    if (!["optionA", "optionB", "compromise"].includes(choice)) return reply.code(400).send({ error: "Некорректный выбор" });
+
+    const gameRes = await db.query(
+      `SELECT g.id, g.current_turn, g.owner_user_id, gs.stats
+       FROM games g JOIN game_state gs ON gs.game_id = g.id WHERE g.id = $1`,
+      [gameId]
+    );
+    if (gameRes.rowCount === 0) return reply.code(404).send({ error: "Game not found" });
+    const game = gameRes.rows[0];
+    if (game.owner_user_id !== payload.userId) return reply.code(403).send({ error: "Нет доступа к этой партии" });
+
+    // Пере-проверяем, что дилемма реально ожидает решения именно сейчас — не доверяем клиенту
+    // на слово (защита от повторной отправки/устаревшего состояния на фронте).
+    if (game.stats.faction_dilemma_resolved_turn === game.current_turn) {
+      return reply.code(409).send({ error: "Дилемма этого хода уже разрешена" });
+    }
+    const actualDilemmaId = checkFactionDilemmaTrigger(game.stats, gameId, game.current_turn);
+    if (actualDilemmaId !== dilemmaId) {
+      return reply.code(409).send({ error: "Эта дилемма больше не актуальна" });
+    }
+
+    const seed = `${gameId}:${game.current_turn}:${dilemmaId}`;
+    const result = resolveFactionDilemma(game.stats, dilemmaId, choice, seed);
+    result.newStats.faction_dilemma_resolved_turn = game.current_turn;
+
+    await db.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(result.newStats), gameId]);
+
+    return reply.send({ statDeltas: result.statDeltas, outcome: result.outcome });
   });
 
   // ---------- GET /games/:gameId/newsfeed ----------

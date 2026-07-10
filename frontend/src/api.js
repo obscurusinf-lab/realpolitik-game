@@ -126,6 +126,18 @@ export async function confirmTurn(gameId) {
   return res.json();
 }
 
+// Башни Кремля — разрешение карточки-дилеммы ("Придворная интрига").
+export async function resolveFactionDilemma(gameId, dilemmaId, choice) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/faction-dilemma/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dilemmaId, choice }),
+  }, 30000);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `resolveFactionDilemma failed: ${res.status}`);
+  return body;
+}
+
 export async function cancelTurn(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/cancel`, { method: "POST" }, 15000);
   if (!res.ok) throw new Error(`cancelTurn failed: ${res.status}`);

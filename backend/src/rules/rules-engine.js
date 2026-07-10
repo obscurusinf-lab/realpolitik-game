@@ -77,6 +77,20 @@ const SUBSTAT_DEFAULTS = {
   ua_army: 65,         // военная мощь ВСУ (растёт от западных поставок, падает от ударов)
   ua_west_support: 75, // поддержка Запада (падает от дипломатических успехов России)
   ua_morale: 65,       // боевой дух (зависит от военного баланса)
+  // Башни Кремля (см. FACTION_DEFAULTS/computeFactionReactions ниже) + счётчик коалиционной
+  // стабильности за выбор компромисса в карточках-дилеммах.
+  faction_siloviki: 55,
+  faction_tehnokraty: 55,
+  faction_oligarhi: 55,
+  faction_konservatory: 55,
+  coalition_stability: 0,
+  coalition_milestone_reached: 0, // 0/1 — флаг, ставится один раз при coalition_stability достигшей 5
+  // Временные бонусы от карточек-дилемм (см. FACTION_DILEMMAS ниже). Счётчик ходов декрементируется
+  // в /turns/end-month (turns.js) — оба эффекта по природе помесячные (скидка на действия, снижение
+  // ПАССИВНОЙ ежемесячной утечки от коррупции), поэтому не имеет смысла тикать их внутри applyTurn,
+  // который вызывается на каждое отдельное действие в мульти-режиме.
+  perk_mil_initiative_discount_turns: 0,
+  perk_corruption_audit_turns: 0,
 };
 
 // Стоимость действий ДЕНЬГАМИ (из казны), отдельно от инициативы.
@@ -246,6 +260,39 @@ const UA_IMPACT_FROM_PLAYER = {
 // Реиспользует affected_relations — тот же сигнал, который классификатор УЖЕ выдаёт для дельт
 // отношений, новой ИИ-классификации не требуется.
 const UA_ALLY_COUNTRIES = new Set(["США", "ЕС", "Великобритания", "Германия", "Франция", "Польша"]);
+
+// БАШНИ КРЕМЛЯ (Петя, 2026-07-09): элиты как отдельный от Кабинета министров слой — министры
+// исполняют, башни лоббируют. 4 башни, лояльность 0-100, начало нейтральное (55). НЕ заводим
+// новую RULES_TABLE на 30 категорий × 4 башни (это ровно тот "перегруз", от которого ушли при
+// удалении social_tension/media_control) — вместо этого башни реагируют на УЖЕ посчитанные в
+// этом же ходу statDeltas (тот эффект, который категория и так дала на economy/military/
+// diplomacy/stability/approval/corruption/isolation), т.е. переиспользуем существующие тюнинги
+// RULES_TABLE, а не плодим новые числа.
+const FACTION_KEYS = ["faction_siloviki", "faction_tehnokraty", "faction_oligarhi", "faction_konservatory"];
+const FACTION_MAX_DELTA_PER_TURN = 10; // клэмп реакции башни за один ход (кроме карточек-дилемм, там свой клэмп)
+
+/**
+ * Реакция каждой башни на statDeltas, УЖЕ посчитанные обычной RULES_TABLE в этом ходу.
+ * Силовики — военные достижения, минус деэскалация/мирный трек. Технократы — экономика/рост,
+ * минус коррупция/изоляция. Олигархи — экономика + терпимость к коррупции (для них это доступ
+ * к схемам), минус изоляция (санкции режут каналы). Консерваторы — стабильность/одобрение
+ * (патриотическая мобилизация), минус дипломатическая открытость (воспринимается как уступки).
+ */
+function computeFactionReactions(statDeltas) {
+  const d = (k) => statDeltas[k] ?? 0;
+  const raw = {
+    faction_siloviki:     d("military") * 1.2 + d("army_morale") * 0.4 - d("diplomacy") * 0.4 - d("peace_progress") * 0.15,
+    faction_tehnokraty:   d("economy") * 1.0 + d("gdp_growth") * 0.3 - d("corruption") * 0.3 - d("isolation") * 0.4,
+    faction_oligarhi:     d("economy") * 0.8 + d("corruption") * 0.3 - d("isolation") * 0.5,
+    faction_konservatory: d("stability") * 0.5 + d("approval") * 0.3 - d("diplomacy") * 0.3,
+  };
+  const out = {};
+  for (const k of FACTION_KEYS) {
+    const rounded = Math.round(raw[k]);
+    out[k] = Math.max(-FACTION_MAX_DELTA_PER_TURN, Math.min(FACTION_MAX_DELTA_PER_TURN, rounded));
+  }
+  return out;
+}
 
 // Диапазоны [min, max] для каждой категории x показателя.
 // Субметрики: elite_satisfaction (0=элиты против, 100=за), corruption (0=чисто, 100=коррупция),
@@ -564,7 +611,12 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   // Стоимость по конкретной категории (военные/дипломатия/шпионаж) приоритетнее стоимости по режиму
   // (указы/crisis/regroup) — см. CATEGORY_COST.
   const categoryCost = CATEGORY_COST[action_type];
-  const cost = categoryCost ? categoryCost.initiative : (INITIATIVE_COST[actionMode] ?? INITIATIVE_COST.decree);
+  let cost = categoryCost ? categoryCost.initiative : (INITIATIVE_COST[actionMode] ?? INITIATIVE_COST.decree);
+  // Бафф карточки-дилеммы «встать на сторону Силовиков» (см. FACTION_DILEMMAS) — силовики берут
+  // оргнагрузку на себя, военные категории временно дешевле по инициативе.
+  if ((newStats.perk_mil_initiative_discount_turns ?? 0) > 0 && CATEGORY_GROUP.military_operations.has(action_type)) {
+    cost = Math.round(cost * 0.7);
+  }
   newStats.initiative = Math.max(0, regenedInitiative - cost);
   statDeltas.initiative = newStats.initiative - currentInitiative;
 
@@ -763,6 +815,19 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
     }
   }
 
+  // Башни Кремля: реакция на statDeltas, посчитанные этим же ходом (см. computeFactionReactions
+  // выше) — считается ПОСЛЕДНЕЙ, чтобы видеть полную картину дельт хода, включая цену для Украины.
+  {
+    const reactions = computeFactionReactions(statDeltas);
+    for (const k of FACTION_KEYS) {
+      const delta = reactions[k];
+      if (!delta) continue;
+      const before = typeof newStats[k] === "number" ? newStats[k] : SUBSTAT_DEFAULTS[k];
+      newStats[k] = Math.max(0, Math.min(100, before + delta));
+      statDeltas[k] = newStats[k] - before;
+    }
+  }
+
   return {
     newStats,
     newRelations,
@@ -849,6 +914,199 @@ function resolveUkraineResponse(responseType, seed) {
   };
 }
 
+// БАШНИ КРЕМЛЯ: карточки-дилеммы ("Придворная интрига"). Детерминированный, НЕ ИИ-генерируемый
+// пул — 4 конфликта, покрывающие все 6 попарных сочетаний 4 башен минус самые редко
+// конфликтующие пары (Силовики/Консерваторы обычно на одной стороне, отдельный конфликт для
+// них не заводим, чтобы не плодить контент без реальной ролевой разницы).
+// Каждая дилемма: optionA/optionB — "встать на сторону" (вероятностные тиры, сильный крен
+// лояльности + уникальный бафф той башни), compromise — гарантированный слабый эффект +
+// небольшой равномерный крен лояльности + бонус к стабильности + вклад в coalition_stability.
+const FACTION_DILEMMAS = {
+  budget_standoff: {
+    factions: ["faction_siloviki", "faction_tehnokraty"],
+    optionA: {
+      tiers: [
+        { prob: 0.7, delta: { military: 4, stability: -2, approval: -2 } },
+        { prob: 0.3, delta: { military: 2, stability: -3, approval: -3 } },
+      ],
+      loyalty: { faction_siloviki: 18, faction_tehnokraty: -16, faction_oligarhi: -6 },
+      perk: { perk_mil_initiative_discount_turns: 2 },
+    },
+    optionB: {
+      tiers: [
+        { prob: 0.7, delta: { economy: 3, readiness: -1 } },
+        { prob: 0.3, delta: { economy: 1, military: -2, readiness: -3 } },
+      ],
+      loyalty: { faction_tehnokraty: 18, faction_siloviki: -16, faction_oligarhi: 4 },
+      perk: { perk_corruption_audit_turns: 2 },
+    },
+    compromise: {
+      delta: { military: 1, economy: 1, stability: 2 },
+      loyalty: { faction_siloviki: 4, faction_tehnokraty: 4, faction_oligarhi: 2 },
+    },
+  },
+  sanctions_relief: {
+    factions: ["faction_oligarhi", "faction_konservatory"],
+    optionA: { // встать на сторону Олигархов — зондаж по снятию санкций
+      tiers: [
+        { prob: 0.6, delta: { isolation: -4, economy: 2 } },
+        { prob: 0.4, delta: { isolation: -1, approval: -2 } },
+      ],
+      loyalty: { faction_oligarhi: 18, faction_konservatory: -16, faction_siloviki: -4 },
+      perk: {},
+    },
+    optionB: { // встать на сторону Консерваторов — жёсткая линия, никаких переговоров с Западом
+      tiers: [
+        { prob: 0.7, delta: { stability: 3, approval: 2 } },
+        { prob: 0.3, delta: { stability: 1, isolation: 2 } },
+      ],
+      loyalty: { faction_konservatory: 18, faction_oligarhi: -16, faction_siloviki: 4 },
+      perk: {},
+    },
+    compromise: {
+      delta: { isolation: -1, stability: 1 },
+      loyalty: { faction_oligarhi: 4, faction_konservatory: 4, faction_siloviki: 1 },
+    },
+  },
+  anticorruption_purge: {
+    factions: ["faction_tehnokraty", "faction_oligarhi"],
+    optionA: { // встать на сторону Технократов — реальный аудит
+      tiers: [
+        { prob: 0.65, delta: { corruption: -4, approval: 2 } },
+        { prob: 0.35, delta: { corruption: -2, stability: -1 } },
+      ],
+      loyalty: { faction_tehnokraty: 18, faction_oligarhi: -16, faction_konservatory: -2 },
+      perk: { perk_corruption_audit_turns: 2 },
+    },
+    optionB: { // встать на сторону Олигархов — реформу спустить на тормозах
+      tiers: [
+        { prob: 0.7, delta: { economy: 2, corruption: 2 } },
+        { prob: 0.3, delta: { economy: 1, approval: -2 } },
+      ],
+      loyalty: { faction_oligarhi: 18, faction_tehnokraty: -16, faction_konservatory: 2 },
+      perk: {},
+    },
+    compromise: {
+      delta: { corruption: -1, economy: 1 },
+      loyalty: { faction_tehnokraty: 4, faction_oligarhi: 4 },
+    },
+  },
+  media_control: {
+    factions: ["faction_konservatory", "faction_tehnokraty"],
+    optionA: { // встать на сторону Консерваторов — закрутить гайки
+      tiers: [
+        { prob: 0.7, delta: { stability: 3, diplomacy: -2 } },
+        { prob: 0.3, delta: { stability: 1, isolation: 2 } },
+      ],
+      loyalty: { faction_konservatory: 18, faction_tehnokraty: -16, faction_siloviki: 4 },
+      perk: {},
+    },
+    optionB: { // встать на сторону Технократов — либерализация под инвестиции
+      tiers: [
+        { prob: 0.65, delta: { diplomacy: 3, isolation: -2 } },
+        { prob: 0.35, delta: { diplomacy: 1, stability: -2 } },
+      ],
+      loyalty: { faction_tehnokraty: 18, faction_konservatory: -16, faction_siloviki: -4 },
+      perk: {},
+    },
+    compromise: {
+      delta: { stability: 1, diplomacy: 1 },
+      loyalty: { faction_konservatory: 4, faction_tehnokraty: 4 },
+    },
+  },
+};
+const FACTION_DILEMMA_MAX_DELTA = { military: 10, economy: 10, stability: 10, diplomacy: 10, approval: 10, isolation: 10, corruption: 10, readiness: 10 };
+const COALITION_STABILITY_MAX = 5;
+
+/**
+ * Есть ли повод выкатить карточку-дилемму СЕЙЧАС — детерминированно (seed = gameId:turnN),
+ * не через ИИ. Триггерится, если хотя бы одна пара башен из пула ощутимо разошлась (одна
+ * заметно выше средней, другая заметно ниже) — тогда несогласие уже назрело и есть что
+ * арбитрировать. Не чаще примерно раза в несколько ходов — сглаживаем вероятностью, а не
+ * жёстким расписанием, чтобы не ощущалось как метроном.
+ */
+function checkFactionDilemmaTrigger(stats, gameId, turnNumber) {
+  const seed = `${gameId}:${turnNumber}:factionDilemma`;
+  const candidates = [];
+  for (const [id, def] of Object.entries(FACTION_DILEMMAS)) {
+    const [a, b] = def.factions;
+    const va = stats[a] ?? 55;
+    const vb = stats[b] ?? 55;
+    const tension = Math.abs(va - vb);
+    if (tension >= 20) candidates.push({ id, tension });
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((x, y) => y.tension - x.tension);
+  // Вероятность растёт с напряжением: 20 → ~20%, 40+ → ~60% (клэмп), проверяется одной ролью.
+  const top = candidates[0];
+  const prob = Math.min(0.6, 0.2 + (top.tension - 20) * 0.02);
+  if (seededFraction(seed) >= prob) return null;
+  return top.id;
+}
+
+/**
+ * Разрешает выбор игрока по карточке-дилемме. choice: "optionA" | "optionB" | "compromise".
+ * seed обязателен (детерминизм, как и у resolveUkraineResponse) — формат "gameId:turnN:dilemmaId".
+ */
+function resolveFactionDilemma(stats, dilemmaId, choice, seed) {
+  if (!seed) throw new Error("resolveFactionDilemma: seed is required");
+  const def = FACTION_DILEMMAS[dilemmaId];
+  if (!def) throw new Error(`resolveFactionDilemma: unknown dilemmaId "${dilemmaId}"`);
+
+  const newStats = { ...SUBSTAT_DEFAULTS, ...stats };
+  const statDeltas = {};
+
+  function applyDelta(stat, delta) {
+    if (!delta) return;
+    const max = FACTION_DILEMMA_MAX_DELTA[stat] ?? 10;
+    const capped = Math.max(-max, Math.min(max, delta));
+    const before = newStats[stat] ?? 50;
+    newStats[stat] = Math.max(0, Math.min(100, before + capped));
+    statDeltas[stat] = (statDeltas[stat] ?? 0) + (newStats[stat] - before);
+  }
+  function applyLoyalty(loyaltyMap) {
+    for (const [k, delta] of Object.entries(loyaltyMap || {})) {
+      const before = newStats[k] ?? 55;
+      newStats[k] = Math.max(0, Math.min(100, before + delta));
+      statDeltas[k] = (statDeltas[k] ?? 0) + (newStats[k] - before);
+    }
+  }
+
+  if (choice === "compromise") {
+    const c = def.compromise;
+    for (const [stat, delta] of Object.entries(c.delta || {})) applyDelta(stat, delta);
+    applyLoyalty(c.loyalty);
+    const beforeCoalition = newStats.coalition_stability ?? 0;
+    newStats.coalition_stability = Math.min(COALITION_STABILITY_MAX, beforeCoalition + 1);
+    statDeltas.coalition_stability = newStats.coalition_stability - beforeCoalition;
+    if (newStats.coalition_stability >= COALITION_STABILITY_MAX && !newStats.coalition_milestone_reached) {
+      newStats.coalition_milestone_reached = 1;
+      statDeltas.coalition_milestone_reached = 1;
+    }
+    return { newStats, statDeltas, outcome: "compromise" };
+  }
+
+  const option = choice === "optionA" ? def.optionA : choice === "optionB" ? def.optionB : null;
+  if (!option) throw new Error(`resolveFactionDilemma: invalid choice "${choice}"`);
+
+  const roll = seededFraction(`${seed}:${choice}`);
+  let cumulative = 0;
+  let picked = option.tiers[option.tiers.length - 1];
+  for (const tier of option.tiers) {
+    cumulative += tier.prob;
+    if (roll < cumulative) { picked = tier; break; }
+  }
+  for (const [stat, delta] of Object.entries(picked.delta || {})) applyDelta(stat, delta);
+  applyLoyalty(option.loyalty);
+  for (const [k, delta] of Object.entries(option.perk || {})) {
+    const before = newStats[k] ?? 0;
+    newStats[k] = Math.max(0, before + delta);
+    statDeltas[k] = (statDeltas[k] ?? 0) + (newStats[k] - before);
+  }
+
+  return { newStats, statDeltas, outcome: choice };
+}
+
 module.exports = {
   RULES_TABLE,
   CATEGORY_GROUP,
@@ -886,4 +1144,9 @@ module.exports = {
   TERRITORY_KEYS,
   TERRITORY_HARDNESS,
   UKRAINE_FULL_SYMMETRY,
+  FACTION_KEYS,
+  FACTION_DILEMMAS,
+  checkFactionDilemmaTrigger,
+  resolveFactionDilemma,
+  COALITION_STABILITY_MAX,
 };

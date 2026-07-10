@@ -1996,7 +1996,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // 0-50 коррупции — утечки нет; 50-100 — растёт нелинейно (схемы крупнее при высокой коррупции).
       // Подстата живёт в группе «Одобрение» (коррупция — про элиты), но эффект чисто экономический.
       const corrLevel = newStats.corruption ?? 68;
-      const corruptionDrain = corrLevel > 50 ? Math.round(Math.pow((corrLevel - 50) / 50, 1.3) * 12) : 0;
+      let corruptionDrain = corrLevel > 50 ? Math.round(Math.pow((corrLevel - 50) / 50, 1.3) * 12) : 0;
+      // Бафф карточки-дилеммы «встать на сторону Технократов» (Башни Кремля) — берут финансы
+      // под личный аудит, утечка временно вдвое меньше.
+      if ((newStats.perk_corruption_audit_turns ?? 0) > 0) {
+        corruptionDrain = Math.round(corruptionDrain * 0.5);
+      }
       // СОДЕРЖАНИЕ ОТВОЁВАННЫХ ТЕРРИТОРИЙ: администрирование и восстановление занятых регионов
       // стоит денег каждый месяц — не бесплатный трофей. Считается только сверх стартового
       // контроля (сид партии): то, что было под контролем изначально, ничего не стоит — платится
@@ -2179,7 +2184,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       }
 
       // --- ВНУТРЕННИЕ КРИЗИСЫ (раз в месяц, не на каждый confirm) ---
-      if (Math.random() < 0.07) {
+      // Долгосрочная награда за "Компромисс" в карточках-дилеммах Башен Кремля (coalition_stability
+      // дошла до 5) — постоянное снижение базового шанса случайного кризиса 7%→6%.
+      const domesticCrisisChance = newStats.coalition_milestone_reached ? 0.06 : 0.07;
+      if (Math.random() < domesticCrisisChance) {
         const DOMESTIC_CRISES = [
           { source: "Ведомости", approvalDelta: -6, economyDelta: -4,
             text: "Крупнейшая утечка капитала за последние годы: олигархи вывели за рубеж $40 млрд за месяц. Центробанк вынужден экстренно поднять ставку, что ударило по малому бизнесу." },
@@ -2238,9 +2246,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // блока/ЧВК может выступить против центра. Это НЕ поражение само по себе — тревожный
       // звоночек с реальным ударом по статам. Подавление не гарантированно быстрое: второй
       // бросок решает, обошлось малой кровью или переросло в тяжёлый внутренний кризис.
+      // Башни Кремля: недовольство силового блока конкретно (не только общий elite_satisfaction)
+      // — реальный мятеж делают силовики, не либералы или бизнес. Низкая faction_siloviki
+      // повышает и вероятность выступления, и шанс, что оно перерастёт в тяжёлый сценарий.
+      const silovikiNow = newStats.faction_siloviki ?? 55;
+      const mutinyChance = silovikiNow < 30 ? Math.min(0.35, 0.15 + (30 - silovikiNow) * 0.01) : 0.15;
+      const escalateThreshold = silovikiNow < 25 ? 0.75 : 0.55;
       const eliteSatNow = newStats.elite_satisfaction ?? 62;
-      if (eliteSatNow < 35 && Math.random() < 0.15) {
-        const escalates = Math.random() < 0.55; // не так просто подавить — почти монетка не в пользу игрока
+      if (eliteSatNow < 35 && Math.random() < mutinyChance) {
+        const escalates = Math.random() < escalateThreshold; // не так просто подавить — почти монетка не в пользу игрока
         if (escalates) {
           newStats.stability = Math.max(0, (newStats.stability ?? 50) - 9);
           newStats.approval = Math.max(0, (newStats.approval ?? 50) - 4);
@@ -2262,6 +2276,32 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           ])]
         );
         fastify.log.info({ gameId, escalates }, "Elite mutiny fired (end-month)");
+      }
+
+      // Башни Кремля: экономический блок (Технократы+Олигархи) одновременно на грани — это не
+      // силовой мятеж, а тихий саботаж (утечка капитала, торможение реформ), пока хотя бы одна
+      // из этих двух башен не поднимется выше порога.
+      const tehnokratyNow = newStats.faction_tehnokraty ?? 55;
+      const oligarhiNow = newStats.faction_oligarhi ?? 55;
+      if (tehnokratyNow < 35 && oligarhiNow < 35) {
+        newStats.economy = Math.max(0, (newStats.economy ?? 50) - 2);
+        economyAutoEffects.push({ label: "Саботаж экономического блока", delta: -2 });
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [gameId, completedMonth, "news", "The Bell",
+           "Экономический блок элит — от системных либералов до крупного бизнеса — синхронно саботирует курс: утечка капитала ускоряется, реформы тормозятся аппаратным сопротивлением. Формально всё по закону — по факту тихий бойкот.",
+           JSON.stringify([{ emoji: "🧊", label: "заморозка", count: Math.floor(Math.random() * 60) + 20 }])]
+        );
+        fastify.log.info({ gameId, tehnokratyNow, oligarhiNow }, "Economic bloc sabotage fired (end-month)");
+      }
+
+      // Декремент временных баффов от карточек-дилемм Башен Кремля (см. FACTION_DILEMMAS,
+      // rules-engine.js) — тикают раз в месяц, не на каждое отдельное действие.
+      if ((newStats.perk_mil_initiative_discount_turns ?? 0) > 0) {
+        newStats.perk_mil_initiative_discount_turns -= 1;
+      }
+      if ((newStats.perk_corruption_audit_turns ?? 0) > 0) {
+        newStats.perk_corruption_audit_turns -= 1;
       }
 
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.

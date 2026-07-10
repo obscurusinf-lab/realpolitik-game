@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, ChevronRight, Send, AlertTriangle } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame, updateGameLanguage } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
@@ -3061,21 +3061,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       <div style={{ background: tab !== "overview" ? "#161b26" : NK.contentBg, color: tab !== "overview" ? "#ece7d8" : NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} />}
         {tab === "kremlin" && (
-          <KremlinTab
-            state={state}
-            onSelectCategory={(template, mode) => {
-              // Остаёмся на вкладке «Кремль» — форма подписи (композер/предпросмотр) рендерится
-              // ниже вкладок независимо от того, какая вкладка сейчас активна, так что менять
-              // вкладку не нужно. Прокручиваем к полю и подсвечиваем, чтобы было видно, что
-              // текст подставился.
-              setDraftInput(template);
-              if (["decree_fast","decree_reform","decree_program","intel","military","diplomacy_op"].includes(mode)) setActionMode(mode);
-              setTimeout(() => {
-                draftTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-                draftTextareaRef.current?.focus();
-              }, 50);
-            }}
-          />
+          <FactionsTab state={state} gameId={gameId} onStateRefresh={loadState} />
         )}
         {tab === "map" && <MapTab state={state} />}
         {tab === "stats" && <StatsTab state={state} gameId={gameId} />}
@@ -3086,6 +3072,16 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             actionMode={actionMode}
             onConsultAdvisor={handleConsultAdvisor}
             onSelectMode={setActionMode}
+            onSelectCategory={(template, mode) => {
+              // Форма подписи (композер/предпросмотр) рендерится ниже вкладок независимо от
+              // того, какая вкладка активна — менять вкладку не нужно. Прокручиваем к полю.
+              setDraftInput(template);
+              if (["decree_fast","decree_reform","decree_program","intel","military","diplomacy_op"].includes(mode)) setActionMode(mode);
+              setTimeout(() => {
+                draftTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                draftTextareaRef.current?.focus();
+              }, 50);
+            }}
             onSelectAdvice={(adv) => {
               setDraftInput(adv.proposed_decree || adv.recommendation || "");
               const scale = adv.suggested_scale;
@@ -3512,11 +3508,15 @@ function pickGreeting(id, seedKey) {
   return advisorGreeting(id, ruText, pool);
 }
 
-function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice }) {
+function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory }) {
   const badge = ACTION_MODE_BADGE[actionMode] || ACTION_MODE_BADGE.decree_fast;
   // Свой текст на каждого советника отдельно (не общий черновик указа) — можно спросить
   // конкретного министра о чём-то своём, а можно просто нажать "Получить совет" пустым полем.
   const [questionDrafts, setQuestionDrafts] = useState({});
+  // Министры исполняют распоряжения (Петя, 2026-07-09: "министры выполняют мои распоряжения, а
+  // элиты в башнях кремля пытаются на меня повлиять") — браузер категорий переехал сюда из
+  // бывшего KremlinTab, по одному министру на область, вместо общего браузера всех доменов.
+  const [expandedMinisterId, setExpandedMinisterId] = useState(null);
   return (
     <div>
       <div style={{ marginBottom: 10 }}>
@@ -3668,7 +3668,23 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                         {t("advisors.btn_accept")}
                       </button>
                     )}
+                    <button
+                      onClick={() => setExpandedMinisterId(expandedMinisterId === info.id ? null : info.id)}
+                      style={{
+                        marginLeft: "auto", background: "transparent", color: "#c8a857", border: "1px solid #3a4050",
+                        borderRadius: 3, padding: "6px 14px", fontFamily: "'PT Serif',serif", fontSize: 12.5,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {t("advisors.btn_orders")} {expandedMinisterId === info.id ? "▲" : "▼"}
+                    </button>
                   </div>
+
+                  {expandedMinisterId === info.id && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
+                      <MinisterCategoryBrowser ministerId={info.id} onSelectCategory={onSelectCategory} />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -6769,43 +6785,45 @@ function computeKremlinRecommendation(stats, turnNumber = 1) {
     reason: `Острых угроз нет. Экономика ${economy} — фундамент обоих путей к победе. Запас прочности против месячной эрозии (до −6) окупается всегда.` };
 }
 
-function KremlinTab({ state, onSelectCategory }) {
-  const [domainId, setDomainId] = useState("military");
+// БАШНИ КРЕМЛЯ теперь отдельная вкладка (элиты, не браузер категорий) — категории по указам
+// переехали сюда, в Кабинет министров, по одному министру на область (Петя, 2026-07-09:
+// "министры выполняют мои распоряжения, а элиты в башнях кремля пытаются на меня повлиять").
+// Каждый министр — 1-2 под-области (те же карточки, что раньше жили в доменах Башен Кремля).
+const MINISTER_DOMAINS = {
+  defense: [
+    { id: "military", label: "⚔️ Военные операции", mode: "military", cards: KREMLIN_CATEGORIES.military },
+    { id: "mil_admin", label: "🏛 Административные указы", mode: null, cards: KREMLIN_CATEGORIES.decrees.filter(c => c.domain === "Военно-административные") },
+  ],
+  foreign: [
+    { id: "diplomacy", label: "🤝 Дипломатия", mode: "diplomacy_op", cards: KREMLIN_CATEGORIES.diplomacy },
+  ],
+  finance: [
+    { id: "econ", label: "💰 Экономические указы", mode: null, cards: KREMLIN_CATEGORIES.decrees.filter(c => c.domain === "Экономика") },
+  ],
+  security: [
+    { id: "espionage", label: "🕵️ Шпионаж", mode: "intel", cards: KREMLIN_CATEGORIES.espionage },
+    { id: "pol_security", label: "🛡 Внутренняя безопасность", mode: null, cards: KREMLIN_CATEGORIES.decrees.filter(c => ["pol_repression", "pol_elite_consolidation"].includes(c.id)) },
+  ],
+  press: [
+    { id: "info", label: "📰 Информационная политика", mode: null, cards: KREMLIN_CATEGORIES.decrees.filter(c => ["pol_liberalization", "pol_social", "pol_propaganda"].includes(c.id)) },
+  ],
+};
+
+// Раньше KremlinTab — браузер всех 4 доменов указов. Теперь встраивается в карточку конкретного
+// министра (Кабинет министров), область видимости сужена до его домена(ов). Рекомендация
+// советника (computeKremlinRecommendation) сюда намеренно НЕ перенесена — она была общей на все
+// домены сразу, а per-министр версия требует отдельной проработки (см. HANDOFF.md, известное
+// ограничение первого захода).
+function MinisterCategoryBrowser({ ministerId, onSelectCategory }) {
+  const domains = MINISTER_DOMAINS[ministerId] || [];
+  const [domainId, setDomainId] = useState(domains[0]?.id);
   const [tier, setTier] = useState("decree_fast");
   const [expandedCardId, setExpandedCardId] = useState(null);
-  const [expandedSubDomain, setExpandedSubDomain] = useState(null);
   const [selectedVariant, setSelectedVariant] = useState(null);
   const [customText, setCustomText] = useState("");
   const [variantSeed, setVariantSeed] = useState(0);
-  const domain = KREMLIN_DOMAINS.find(d => d.id === domainId);
-  const cards = KREMLIN_CATEGORIES[domainId] || [];
-  const stats = state.stats || {};
-  const rec = computeKremlinRecommendation(stats, (state.turn ?? 0) + 1);
-  const recDomain = rec ? domainOfCategory(rec.category) : null;
-
-  // Указы (13 категорий) группируются гармошкой по под-домену (Экономика/
-  // Военно-административные/Политика/Информационные) — иначе список слишком длинный.
-  const decreeGroups = domainId === "decrees"
-    ? cards.reduce((groups, card) => {
-        let g = groups.find(g => g.domain === card.domain);
-        if (!g) { g = { domain: card.domain, items: [] }; groups.push(g); }
-        g.items.push(card);
-        return groups;
-      }, [])
-    : null;
-
-  const goToRecommendation = () => {
-    if (!rec) return;
-    setDomainId(recDomain);
-    if (recDomain === "decrees" && rec.tier) setTier(rec.tier);
-    if (recDomain === "decrees") {
-      const card = KREMLIN_CATEGORIES.decrees.find(c => c.id === rec.category);
-      setExpandedSubDomain(card?.domain || null);
-    }
-    setExpandedCardId(rec.category);
-    setSelectedVariant(0);
-    setCustomText("");
-  };
+  const domain = domains.find(d => d.id === domainId) || domains[0];
+  const cards = domain?.cards || [];
 
   const toggleCard = (card) => {
     if (expandedCardId === card.id) {
@@ -6818,64 +6836,33 @@ function KremlinTab({ state, onSelectCategory }) {
     }
   };
 
+  if (!domain) return null;
+
   return (
     <div>
-      {/* Мини-сводка показателей */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, background: "#141a24", border: "1px solid #2a3040", borderRadius: 5, padding: "8px 12px" }}>
-        {Object.entries(KREMLIN_STAT_LABEL).map(([key, label]) => (
-          <div key={key} style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-            <span className="mono-font" style={{ fontSize: 8, color: "#7a8294", letterSpacing: "0.06em" }}>{statLabel(key, label).slice(0, 3).toUpperCase()}</span>
-            <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: (stats[key] ?? 50) >= 55 ? "#6ec894" : (stats[key] ?? 50) < 35 ? "#e08080" : "#c8a857" }}>{stats[key] ?? 50}</span>
-          </div>
-        ))}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 4 }}>
-          <span className="mono-font" style={{ fontSize: 8, color: "#7a8294", letterSpacing: "0.06em" }}>{t("kremlin.init_short")}</span>
-          <span className="mono-font" style={{ fontSize: 12, fontWeight: 700, color: "#c8a857" }}>{stats.initiative ?? 100}</span>
-        </div>
-      </div>
-
-      {/* Советник: математически рассчитанный оптимальный ход */}
-      {rec && (
-        <div style={{ background: "#12241a", border: "1px solid #2a5a3a", borderLeft: "4px solid #3a8a5a", borderRadius: 6, padding: "10px 13px", marginBottom: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 3 }}>
-                {t("kremlin.advisor_rec_header")}
-              </div>
-              <div className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#cfeeda", marginBottom: 3 }}>{rec.title}</div>
-              <div className="doc-font" style={{ fontSize: 11.5, color: "#a8c4b2", lineHeight: 1.45 }}>{rec.reason}</div>
-            </div>
+      {/* Под-области министра (если их больше одной) */}
+      {domains.length > 1 && (
+        <div className="scroll-hide" style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
+          {domains.map(d => (
             <button
-              onClick={goToRecommendation}
-              style={{ flexShrink: 0, background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 4, padding: "7px 12px", fontFamily: "'PT Serif',serif", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+              key={d.id}
+              onClick={() => setDomainId(d.id)}
+              style={{
+                flexShrink: 0, background: domainId === d.id ? "#9c8347" : "#1c2230",
+                color: domainId === d.id ? "#14181f" : "#a8b0be",
+                border: `1px solid ${domainId === d.id ? "#9c8347" : "#2a3040"}`,
+                borderRadius: 5, padding: "7px 14px", fontFamily: "'PT Serif',serif",
+                fontSize: 13, fontWeight: domainId === d.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap",
+              }}
             >
-              {t("kremlin.open_btn")}
+              {d.label}
             </button>
-          </div>
+          ))}
         </div>
       )}
 
-      {/* Домены */}
-      <div className="scroll-hide" style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
-        {KREMLIN_DOMAINS.map(d => (
-          <button
-            key={d.id}
-            onClick={() => setDomainId(d.id)}
-            style={{
-              flexShrink: 0, background: domainId === d.id ? "#9c8347" : "#1c2230",
-              color: domainId === d.id ? "#14181f" : "#a8b0be",
-              border: `1px solid ${domainId === d.id ? "#9c8347" : "#2a3040"}`,
-              borderRadius: 5, padding: "7px 14px", fontFamily: "'PT Serif',serif",
-              fontSize: 13, fontWeight: domainId === d.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap",
-            }}
-          >
-            {kremlinDomainLabel(d.id, d.label)}
-          </button>
-        ))}
-      </div>
-
-      {/* Тир для указов */}
-      {domainId === "decrees" && (
+      {/* Тир для указов (mode: null — категории с тиром decree_fast/reform/program) */}
+      {domain.mode === null && (
         <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
           {Object.entries(KREMLIN_TIER_LABEL).map(([id, label]) => (
             <button
@@ -6899,11 +6886,10 @@ function KremlinTab({ state, onSelectCategory }) {
       {(() => {
         const renderCard = (card) => {
           const isExpanded = expandedCardId === card.id;
-          const isRecommended = rec?.category === card.id && (recDomain !== "decrees" || !rec.tier || rec.tier === tier);
           return (
             <div
               key={card.id}
-              style={{ background: isRecommended ? "#12241a" : "#1c2230", border: `1px solid ${isExpanded ? "#9c8347" : isRecommended ? "#3a8a5a" : "#2a3040"}`, borderRadius: 5, padding: "11px 13px", transition: "border-color 0.15s" }}
+              style={{ background: "#1c2230", border: `1px solid ${isExpanded ? "#9c8347" : "#2a3040"}`, borderRadius: 5, padding: "11px 13px", transition: "border-color 0.15s" }}
             >
               <div
                 onClick={() => toggleCard(card)}
@@ -6912,9 +6898,6 @@ function KremlinTab({ state, onSelectCategory }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: "#ece7d8" }}>{kremlinCategoryTitle(card.id, card.title)}</span>
-                    {isRecommended && (
-                      <span className="mono-font" style={{ fontSize: 8, background: "#3a8a5a", color: "#fff", borderRadius: 3, padding: "1px 5px", fontWeight: 700 }} title={t("kremlin.recommended_tooltip")}>{t("kremlin.recommended_badge")}</span>
-                    )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                     {card.cost && <span className="mono-font" style={{ fontSize: 9, color: "#c8a857", whiteSpace: "nowrap" }}>{formatCategoryCost(card.cost)}</span>}
@@ -6992,47 +6975,279 @@ function KremlinTab({ state, onSelectCategory }) {
           );
         };
 
-        if (domainId === "decrees") {
-          return (
-            <div style={{ display: "grid", gap: 8 }}>
-              {decreeGroups.map(group => {
-                const isOpen = expandedSubDomain === group.domain;
-                const hasRecommended = recDomain === "decrees" && (!rec.tier || rec.tier === tier) && group.items.some(c => c.id === rec.category);
-                return (
-                  <div key={group.domain}>
-                    <div
-                      onClick={() => setExpandedSubDomain(isOpen ? null : group.domain)}
-                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", background: "#1c2230", border: `1px solid ${isOpen ? "#9c8347" : "#2a3040"}`, borderRadius: 5, padding: "10px 13px" }}
-                    >
-                      <span className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#c8a857" }}>{kremlinSubdomainLabel(group.domain)}</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {hasRecommended && !isOpen && (
-                          <span className="mono-font" style={{ fontSize: 8, background: "#3a8a5a", color: "#fff", borderRadius: 3, padding: "1px 5px", fontWeight: 700 }}>{t("kremlin.recommended_badge")}</span>
-                        )}
-                        <span className="mono-font" style={{ fontSize: 10, color: "#7a8294" }}>{group.items.length}</span>
-                        <span style={{ color: "#c8a857", fontSize: 13, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
-                      </div>
-                    </div>
-                    {isOpen && (
-                      <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                        {group.items.map(card => renderCard(card))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        }
-
         return (
           <div style={{ display: "grid", gap: 8 }}>
             {cards.map(card => renderCard(card))}
           </div>
         );
       })()}
-      <div className="mono-font" style={{ fontSize: 9.5, color: "#7a8294", marginTop: 12, lineHeight: 1.5 }}>
-        {t("kremlin.footer_hint")}
+    </div>
+  );
+}
+
+// ---------- БАШНИ КРЕМЛЯ: элиты (влияние, не исполнение — см. MinisterCategoryBrowser выше) ----------
+const FACTION_META = {
+  faction_siloviki:     { label: "Силовики",     role: "силовой контур, спецслужбы",        color: "#b2585a", icon: "🎖" },
+  faction_konservatory: { label: "Консерваторы", role: "охранительный, идеологический блок", color: "#9a5a86", icon: "⛪" },
+  faction_oligarhi:     { label: "Олигархи",     role: "крупный бизнес, госконтракты",       color: "#c8a857", icon: "💰" },
+  faction_tehnokraty:   { label: "Технократы",   role: "системные либералы, ЦБ",             color: "#5b8ab0", icon: "🕊" },
+};
+const FACTION_ORDER = ["faction_siloviki", "faction_konservatory", "faction_oligarhi", "faction_tehnokraty"];
+
+// Настроение башни — простая эвристика по абсолютному уровню (не дельта, дельта не всегда
+// доступна на фронте без истории); отражает то же деление на зоны, что и цвет полосы.
+function factionMoodText(id, value) {
+  const MOODS = {
+    faction_siloviki: {
+      high: "Довольны текущим курсом — силовой блок чувствует, что его слушают.",
+      mid: "Настороже, но пока не выступают открыто.",
+      low: "Раздражены — считают, что их роль и интересы игнорируют.",
+    },
+    faction_konservatory: {
+      high: "В целом довольны идеологической твёрдостью курса.",
+      mid: "Смотрят настороженно, ждут сигналов о развороте.",
+      low: "Обеспокоены — видят в курсе уступки и размывание линии.",
+    },
+    faction_oligarhi: {
+      high: "Довольны — бизнес-климат и доступ к ресурсам их устраивают.",
+      mid: "Ждут, куда качнётся политика — открытых претензий пока нет.",
+      low: "Раздражены — санкции и/или давление на схемы бьют по карману.",
+    },
+    faction_tehnokraty: {
+      high: "Довольны — экономический курс выглядит рациональным.",
+      mid: "Осторожно нейтральны, следят за цифрами.",
+      low: "На грани — считают курс экономически безответственным.",
+    },
+  };
+  const bucket = value >= 55 ? "high" : value < 35 ? "low" : "mid";
+  return MOODS[id][bucket];
+}
+
+function FactionsTab({ state, gameId, onStateRefresh }) {
+  const stats = state.stats || {};
+  const coalition = stats.coalition_stability ?? 0;
+  const milestone = !!stats.coalition_milestone_reached;
+  const pending = state.pendingFactionDilemma;
+
+  const [resolving, setResolving] = useState(false);
+  const [resolveResult, setResolveResult] = useState(null);
+  const [resolveError, setResolveError] = useState(null);
+
+  async function handleChoice(choice) {
+    if (resolving || !pending) return;
+    setResolving(true);
+    setResolveError(null);
+    try {
+      const result = await resolveFactionDilemma(gameId, pending.id, choice);
+      setResolveResult(result);
+    } catch (err) {
+      setResolveError(err.message);
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  function handleDone() {
+    setResolveResult(null);
+    onStateRefresh?.();
+  }
+
+  return (
+    <div>
+      {/* Дашборд башен */}
+      <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.1em", color: "#7a8294", textTransform: "uppercase", marginBottom: 10 }}>
+        Кремлёвские башни · ход {(state.turn ?? 0) + 1} · баланс сил элит
+      </div>
+      <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+        {FACTION_ORDER.map((id) => {
+          const meta = FACTION_META[id];
+          const value = stats[id] ?? 55;
+          const color = value >= 55 ? "#6ec894" : value < 35 ? "#e08080" : "#c8a857";
+          return (
+            <div key={id} style={{ background: "#1c2230", border: "1px solid #2a3040", borderLeft: `4px solid ${meta.color}`, borderRadius: 6, padding: "13px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+                <div>
+                  <div className="doc-font" style={{ fontSize: 15, fontWeight: 700, color: "#ece7d8" }}>{meta.icon} {meta.label}</div>
+                  <div className="mono-font" style={{ fontSize: 9.5, color: "#8a94a6", letterSpacing: "0.04em", marginTop: 2 }}>{meta.role}</div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div className="mono-font" style={{ fontSize: 20, fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
+                </div>
+              </div>
+              <div style={{ background: "#141a24", borderRadius: 3, height: 6, marginBottom: 10, overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 3, width: `${value}%`, background: color, transition: "width 0.4s" }} />
+              </div>
+              <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.45, color: "#d8dce4" }}>{factionMoodText(id, value)}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Риски коалиций — силовой блок vs экономический блок дают РАЗНЫЕ последствия */}
+      {(stats.faction_siloviki ?? 55) < 30 && (
+        <div style={{ background: "#241a12", border: "1px solid #5a4020", borderLeft: "4px solid #d99a4e", borderRadius: 6, padding: "11px 14px", marginBottom: 10 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#d99a4e", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>⚠ Силовой блок недоволен</div>
+          <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#e8d4b8" }}>Риск мятежа растёт — если это продлится, силовая часть элит может выступить против центра.</div>
+        </div>
+      )}
+      {(stats.faction_tehnokraty ?? 55) < 35 && (stats.faction_oligarhi ?? 55) < 35 && (
+        <div style={{ background: "#241a12", border: "1px solid #5a4020", borderLeft: "4px solid #d99a4e", borderRadius: 6, padding: "11px 14px", marginBottom: 10 }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#d99a4e", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>⚠ Экономический блок на грани</div>
+          <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#e8d4b8" }}>Технократы и Олигархи одновременно недовольны — не переворот, а тихий саботаж: утечка капитала, минус к экономике каждый месяц.</div>
+        </div>
+      )}
+
+      {/* Коалиционная стабильность */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#141a24", border: "1px solid #2a3040", borderRadius: 5, padding: "8px 12px", marginBottom: 16 }}>
+        <span className="mono-font" style={{ fontSize: 8.5, color: "#7a8294", letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Коалиционная стабильность</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[0, 1, 2, 3, 4].map(i => (
+            <div key={i} style={{ width: 14, height: 6, borderRadius: 2, background: i < coalition ? "#c8a857" : "#2a3040" }} />
+          ))}
+        </div>
+        <span className="mono-font" style={{ fontSize: 9, color: "#c8a857", marginLeft: "auto", textAlign: "right" }}>
+          {milestone ? "5/5 — риск случайного кризиса снижен" : `${coalition}/5 → −1% шанс случайного кризиса`}
+        </span>
+      </div>
+
+      {/* Карточка-дилемма */}
+      {pending && !resolveResult && (
+        <FactionDilemmaCard dilemmaId={pending.id} onChoose={handleChoice} resolving={resolving} error={resolveError} />
+      )}
+      {resolveResult && (
+        <div style={{ background: "#12241a", border: "1px solid #2a5a3a", borderRadius: 6, padding: "14px 16px" }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>Решение принято</div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+            {Object.entries(resolveResult.statDeltas)
+              .filter(([k, v]) => v && !k.startsWith("perk_") && k !== "coalition_milestone_reached")
+              .map(([k, v]) => (
+                <span key={k} className="mono-font" style={{ fontSize: 11, color: v > 0 ? "#7fae93" : "#e09090" }}>
+                  {FACTION_META[k]?.label || ALL_STAT_LABELS[k] || (k === "coalition_stability" ? "Коалиционная стабильность" : k)}: {v > 0 ? "+" : ""}{v}
+                </span>
+              ))}
+          </div>
+          <button onClick={handleDone} style={{ background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 5, padding: "9px 20px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            Продолжить →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Нарративное содержимое дилемм — id и цифры должны совпадать с FACTION_DILEMMAS в
+// backend/src/rules/rules-engine.js (бэкенд — источник истины по числам, тут только текст +
+// зеркало превью-цифр для игрока ДО выбора, тот же принцип, что и у UaResponsePreviewLine).
+const DILEMMA_META = {
+  budget_standoff: {
+    title: "ПРИДВОРНАЯ ИНТРИГА",
+    quotes: [
+      { who: "СИЛОВИКИ", color: "#b2585a", text: "«Инициатива на нашей стороне впервые за три месяца. Заморозить военный бюджет сейчас — значит подарить фронт обратно. Экономика подождёт.»" },
+      { who: "ТЕХНОКРАТЫ", color: "#5b8ab0", text: "«Каждый лишний рубль в оборону — рубль, которого не будет на стабилизацию рынка. Санкционный пакет ЕС уже душит бюджет.»" },
+    ],
+    advisor: "Обе стороны правы по-своему, и обе будут недовольны, если вы просто отмахнётесь. Компромисс с реальным аудитом расходов снижает трение с обеими башнями сразу, хоть и не даёт максимума ни там, ни там.",
+    optionA: { factionId: "faction_siloviki", label: "Встать на сторону Силовиков", desc: "расширенная мобилизация и рост оборонного бюджета",
+      preview: ["70%: Армия +4, Стабильность −2, Одобрение −2", "30%: Армия +2, Стабильность −3, Одобрение −3", "всегда: Силовики +18 лояльности, Технократы −16, Олигархи −6"],
+      perk: "★ Силовики берут оргнагрузку на себя: военные категории −30% инициативы, 2 хода" },
+    optionB: { factionId: "faction_tehnokraty", label: "Встать на сторону Технократов", desc: "заморозить военный бюджет, пустить средства на стабилизацию",
+      preview: ["70%: Экономика +3, Готовность −1", "30%: Экономика +1, Армия −2, Готовность −3", "всегда: Технократы +18 лояльности, Силовики −16, Олигархи +4"],
+      perk: "★ Технократы берут финансы под личный аудит: коррупционная утечка ×0.4, 2 хода" },
+    compromise: { label: "Компромисс", desc: "точечная индексация военного бюджета под независимым аудитом расходов",
+      preview: ["Армия +1, Экономика +1, Стабильность +2 — без риска провала", "всегда: Силовики +4, Технократы +4, Олигархи +2"] },
+  },
+  sanctions_relief: {
+    title: "ЗОНДАЖ О САНКЦИЯХ",
+    quotes: [
+      { who: "ОЛИГАРХИ", color: "#c8a857", text: "«Каналы сбыта сжимаются с каждым пакетом санкций. Нужен зондаж по их снятию, даже если Запад потребует уступок.»" },
+      { who: "КОНСЕРВАТОРЫ", color: "#9a5a86", text: "«Никаких переговоров с позиции слабости. Уступки сейчас — сигнал, что курс можно сломать давлением.»" },
+    ],
+    advisor: "Бизнес считает потери уже сейчас, идеологи — риски в будущем. Компромисс без громких заявлений снимает часть давления, не давая повода ни для торжества, ни для обвинений в сдаче позиций.",
+    optionA: { factionId: "faction_oligarhi", label: "Встать на сторону Олигархов", desc: "зондаж по снятию санкций",
+      preview: ["60%: Изоляция −4, Экономика +2", "40%: Изоляция −1, Одобрение −2", "всегда: Олигархи +18 лояльности, Консерваторы −16, Силовики −4"], perk: null },
+    optionB: { factionId: "faction_konservatory", label: "Встать на сторону Консерваторов", desc: "жёсткая линия, никаких переговоров с Западом",
+      preview: ["70%: Стабильность +3, Одобрение +2", "30%: Стабильность +1, Изоляция +2", "всегда: Консерваторы +18 лояльности, Олигархи −16, Силовики +4"], perk: null },
+    compromise: { label: "Компромисс", desc: "тихие контакты без публичных заявлений",
+      preview: ["Изоляция −1, Стабильность +1 — без риска провала", "всегда: Олигархи +4, Консерваторы +4, Силовики +1"] },
+  },
+  anticorruption_purge: {
+    title: "АУДИТ ИЛИ ТИШИНА",
+    quotes: [
+      { who: "ТЕХНОКРАТЫ", color: "#5b8ab0", text: "«Схемы в оборонных закупках душат бюджет не хуже санкций. Нужен реальный аудит, не для галочки.»" },
+      { who: "ОЛИГАРХИ", color: "#c8a857", text: "«Аудит сейчас — удар по тем самым людям, что держат экономику на плаву в обход санкций. Не время.»" },
+    ],
+    advisor: "И тут, и там — реальная цена. Аудит без лишнего шума даёт часть эффекта, не разрушая ни одну из сторон до конца.",
+    optionA: { factionId: "faction_tehnokraty", label: "Встать на сторону Технократов", desc: "реальный аудит расходов",
+      preview: ["65%: Коррупция −4, Одобрение +2", "35%: Коррупция −2, Стабильность −1", "всегда: Технократы +18 лояльности, Олигархи −16, Консерваторы −2"],
+      perk: "★ Технократы берут финансы под личный аудит: коррупционная утечка ×0.4, 2 хода" },
+    optionB: { factionId: "faction_oligarhi", label: "Встать на сторону Олигархов", desc: "реформу спустить на тормозах",
+      preview: ["70%: Экономика +2, Коррупция +2", "30%: Экономика +1, Одобрение −2", "всегда: Олигархи +18 лояльности, Технократы −16, Консерваторы +2"], perk: null },
+    compromise: { label: "Компромисс", desc: "точечный аудит без публичных разбирательств",
+      preview: ["Коррупция −1, Экономика +1 — без риска провала", "всегда: Технократы +4, Олигархи +4"] },
+  },
+  media_control: {
+    title: "ИНФОРМАЦИОННЫЙ КУРС",
+    quotes: [
+      { who: "КОНСЕРВАТОРЫ", color: "#9a5a86", text: "«Информационное поле надо закручивать, а не либерализовать — расслабленность сейчас читается как слабость.»" },
+      { who: "ТЕХНОКРАТЫ", color: "#5b8ab0", text: "«Жёсткий контроль отпугивает инвесторов и партнёров. Умеренная либерализация вернёт часть легитимности вовне.»" },
+    ],
+    advisor: "Идеологическая твёрдость и внешняя легитимность тянут в разные стороны. Средний курс не радикализует ни одну из сторон.",
+    optionA: { factionId: "faction_konservatory", label: "Встать на сторону Консерваторов", desc: "закрутить гайки",
+      preview: ["70%: Стабильность +3, Дипломатия −2", "30%: Стабильность +1, Изоляция +2", "всегда: Консерваторы +18 лояльности, Технократы −16, Силовики +4"], perk: null },
+    optionB: { factionId: "faction_tehnokraty", label: "Встать на сторону Технократов", desc: "либерализация под инвестиции",
+      preview: ["65%: Дипломатия +3, Изоляция −2", "35%: Дипломатия +1, Стабильность −2", "всегда: Технократы +18 лояльности, Консерваторы −16, Силовики −4"], perk: null },
+    compromise: { label: "Компромисс", desc: "точечные послабления без смены курса",
+      preview: ["Стабильность +1, Дипломатия +1 — без риска провала", "всегда: Консерваторы +4, Технократы +4"] },
+  },
+};
+
+function FactionDilemmaCard({ dilemmaId, onChoose, resolving, error }) {
+  const meta = DILEMMA_META[dilemmaId];
+  if (!meta) return null;
+  const optA = meta.optionA;
+  const optB = meta.optionB;
+  const optC = meta.compromise;
+  const renderOption = (key, opt, borderColor) => (
+    <div
+      key={key}
+      onClick={() => !resolving && onChoose(key)}
+      style={{
+        borderRadius: 5, padding: "11px 14px", background: key === "compromise" ? "#1f1a12" : "#1a1622",
+        border: `1px solid ${borderColor}`, cursor: resolving ? "default" : "pointer", opacity: resolving ? 0.6 : 1,
+      }}
+    >
+      <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.4, color: "#ece7d8", marginBottom: 6 }}>
+        <b style={{ color: borderColor }}>{opt.label}</b> — {opt.desc}
+      </div>
+      <div className="mono-font" style={{ fontSize: 9.5, display: "flex", flexDirection: "column", gap: 1 }}>
+        {opt.preview.map((line, i) => (
+          <div key={i} style={{ color: line.startsWith("всегда") ? "#c8a857" : "#9a94a6" }}>{line}</div>
+        ))}
+        {opt.perk && <div style={{ color: "#c8a857", fontWeight: 700, marginTop: 4, paddingTop: 4, borderTop: "1px dashed #3a3040" }}>{opt.perk}</div>}
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ background: "#100d16", border: "1px solid #3a2f4a", borderRadius: 10, padding: "18px 16px 16px" }}>
+      <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#c8a857", textAlign: "center", marginBottom: 6, textTransform: "uppercase" }}>🏛 Требование башен</div>
+      <div className="doc-font" style={{ fontSize: 19, fontWeight: 700, textAlign: "center", marginBottom: 16, color: "#ece7d8" }}>{meta.title}</div>
+      <div style={{ background: "#1e1a14", border: "1px solid #4a3d28", borderLeft: "3px solid #c8a857", borderRadius: 6, padding: "13px 15px", marginBottom: 12 }}>
+        {meta.quotes.map((q, i) => (
+          <div key={i} style={{ marginBottom: i < meta.quotes.length - 1 ? 10 : 0 }}>
+            <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.06em", color: q.color, marginBottom: 3, textTransform: "uppercase" }}>{q.who}</div>
+            <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#e0d8c4", fontStyle: "italic" }}>{q.text}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: "#141c14", border: "1px solid #2a4020", borderLeft: "3px solid #4a7a3a", borderRadius: 6, padding: "9px 13px", marginBottom: 14 }}>
+        <div className="mono-font" style={{ fontSize: 8, color: "#4a7a3a", letterSpacing: "0.12em", marginBottom: 4, textTransform: "uppercase" }}>👤 Советник</div>
+        <div className="doc-font" style={{ fontSize: 12.5, color: "#a8c8a0", lineHeight: 1.5 }}>{meta.advisor}</div>
+      </div>
+      {error && <div className="doc-font" style={{ fontSize: 12, color: "#e09090", marginBottom: 10 }}>{error}</div>}
+      <div className="mono-font" style={{ fontSize: 9, color: "#8a7a9a", letterSpacing: "0.08em", marginBottom: 10, textTransform: "uppercase" }}>Ваше решение:</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {renderOption("optionA", optA, FACTION_META[optA.factionId]?.color || "#b2585a")}
+        {renderOption("optionB", optB, FACTION_META[optB.factionId]?.color || "#5b8ab0")}
+        {renderOption("compromise", optC, "#9c8347")}
       </div>
     </div>
   );
