@@ -385,7 +385,7 @@
       ],
       "newsfeed_keyword": "утильсбор",
       "budget_income": 3,
-      "approval_upkeep": -1
+      "approval_upkeep": -2
     },
     {
       "title": "Повышение НДС до 22%",
@@ -411,7 +411,7 @@
       ],
       "newsfeed_keyword": "НДС",
       "budget_income": 6,
-      "approval_upkeep": -2
+      "approval_upkeep": -3
     },
     {
       "title": "Снижение порога НДС для ИП (с 60 до 20 млн ₽)",
@@ -437,7 +437,7 @@
       ],
       "newsfeed_keyword": "ИП",
       "budget_income": 3,
-      "approval_upkeep": -1
+      "approval_upkeep": -2
     }
   ],
   "initial_newsfeed": [
