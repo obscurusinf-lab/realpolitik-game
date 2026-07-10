@@ -82,7 +82,7 @@ function stripMarkdownFences(text) {
 // частая категория хода в игре про войну, каждое наступление/оборона гоняли Sonnet. Переводим
 // и его на Haiku — остаётся только crisis (редкие переломные события, где нарративная ставка
 // выше, а частота вызовов низкая, так что цена почти не влияет на общий расход).
-const HAIKU_ACTION_MODES = new Set(["decree_fast", "decree_reform", "decree_program", "intel", "diplomacy_op", "military"]);
+const HAIKU_ACTION_MODES = new Set(["decree", "decree_fast", "decree_reform", "decree_program", "intel", "diplomacy_op", "military"]);
 function selectModel(actionMode) {
   return HAIKU_ACTION_MODES.has(actionMode) ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
 }

@@ -675,7 +675,9 @@ suggested_direction — "null_action", proposed_decree — пустая стро
 
 Показатели: ${JSON.stringify(stats)}
 Отношения: ${JSON.stringify(relations.slice(0, 8))}
-Активные политики: ${JSON.stringify(policies)}
+Активные политики: ${JSON.stringify(
+    (policies || []).filter(p => p.status === "active").map(p => ({ title: p.title, target_turn: p.target_turn }))
+  )}
 
 ЭКОНОМИЧЕСКИЕ ИНДИКАТОРЫ (Силин должен их прокомментировать, если сейчас спрашивают его):
 ${buildEconIndicators(stats)}

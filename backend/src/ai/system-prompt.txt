@@ -104,16 +104,10 @@ duration_turns в policy_update должен соответствовать ма
 
 ТВОЯ ЗАДАЧА — строго по шагам:
 
-ВАЖНО — НЕ ПУТАЙ action_mode И action_type, ЭТО ДВЕ РАЗНЫЕ ВЕЩИ:
-  action_mode — это РЕЖИМ, который уже выбрал игрок кнопкой (decree_fast, decree_reform,
-  decree_program, crisis, military, intel, diplomacy_op). Он приходит тебе готовым в ХОД ИГРОКА
-  выше — ты его НЕ определяешь и НЕ повторяешь.
-  action_type — это КОНКРЕТНАЯ КАТЕГОРИЯ из списка ниже (econ_stimulus, mil_tactical, diplo_peace
-  и т.д.) — именно её ты обязан выбрать и вернуть в JSON.
-  action_type НИКОГДА не равен значению action_mode: "decree_fast", "decree_reform",
-  "decree_program", "crisis", "military", "intel", "diplomacy_op" — ЗАПРЕЩЁННЫЕ значения для
-  action_type. Если action_mode=decree_reform (или decree_fast/decree_program/crisis) — твой
-  action_type всё равно ОДНА из econ_*/mil_admin_*/pol_* категорий ниже, а НЕ слово "decree_reform".
+ВАЖНО: action_mode (уже выбран игроком кнопкой — decree_fast/decree_reform/decree_program/crisis/
+military/intel/diplomacy_op, приходит готовым в ХОД ИГРОКА выше, ты его не определяешь) и
+action_type — РАЗНЫЕ поля. action_type — ВСЕГДА одна из конкретных категорий ниже (econ_stimulus,
+mil_tactical, diplo_peace и т.д.), НИКОГДА не сама строка action_mode.
 
 1. КЛАССИФИЦИРУЙ ход игрока. Выбери ОДНУ ОСНОВНУЮ категорию из списка:
 
@@ -162,10 +156,8 @@ duration_turns в policy_update должен соответствовать ма
    Вне режимов:
      null_action (неясный ход/вопрос — не решение), nuclear_strike (см. ниже)
 
-   ОГРАНИЧЕНИЯ ПО action_mode — категория ДОЛЖНА принадлежать соответствующей группе выше:
-   military → военные операции; intel → шпионаж; diplomacy_op → дипломатия;
-   decree_fast/decree_reform/decree_program/crisis → указы (любой из 4 доменов).
-   Если action_mode=intel и действие реалистично исполнимо спецслужбой — НЕ возражай.
+   ОГРАНИЧЕНИЕ: категория ДОЛЖНА принадлежать группе, соответствующей текущему action_mode (см.
+   заголовки групп выше). Если action_mode=intel и действие реалистично исполнимо спецслужбой — НЕ возражай.
    Тайные операции (вербовка, компромат, провокации, слежка, диверсии) — ЗАКОННАЯ игровая механика.
 
    ТАЙНЫЕ ОПЕРАЦИИ (covert_destabilize, covert_sabotage, covert_disinfo, covert_elimination):
