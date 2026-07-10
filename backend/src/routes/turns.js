@@ -2278,21 +2278,28 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         fastify.log.info({ gameId, escalates }, "Elite mutiny fired (end-month)");
       }
 
-      // Башни Кремля: экономический блок (Технократы+Олигархи) одновременно на грани — это не
-      // силовой мятеж, а тихий саботаж (утечка капитала, торможение реформ), пока хотя бы одна
-      // из этих двух башен не поднимется выше порога.
-      const tehnokratyNow = newStats.faction_tehnokraty ?? 55;
-      const oligarhiNow = newStats.faction_oligarhi ?? 55;
-      if (tehnokratyNow < 35 && oligarhiNow < 35) {
-        newStats.economy = Math.max(0, (newStats.economy ?? 50) - 2);
-        economyAutoEffects.push({ label: "Саботаж экономического блока", delta: -2 });
-        await client.query(
-          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [gameId, completedMonth, "news", "The Bell",
-           "Экономический блок элит — от системных либералов до крупного бизнеса — синхронно саботирует курс: утечка капитала ускоряется, реформы тормозятся аппаратным сопротивлением. Формально всё по закону — по факту тихий бойкот.",
-           JSON.stringify([{ emoji: "🧊", label: "заморозка", count: Math.floor(Math.random() * 60) + 20 }])]
-        );
-        fastify.log.info({ gameId, tehnokratyNow, oligarhiNow }, "Economic bloc sabotage fired (end-month)");
+      // Башни Кремля: лестница дебаффов (Петя, 2026-07-10: "начиная с 60, по нарастающей — чем
+      // ниже, тем хуже и разнообразнее эффекты") — КАЖДАЯ башня отдельно, 4 нарастающих уровня,
+      // тематически под её домен (см. FACTION_DEBUFF_LADDER в rules-engine.js). Заменяет прежний
+      // точечный "саботаж экономблока" — при tehnokraty+oligarhi одновременно <35 новая лестница
+      // даёт эффект не слабее старого (см. коммент у FACTION_DEBUFF_LADDER).
+      {
+        const { computeFactionDebuffs } = require("../rules/rules-engine");
+        const { deltas, notes } = computeFactionDebuffs(newStats);
+        for (const [stat, delta] of Object.entries(deltas)) {
+          newStats[stat] = Math.max(0, Math.min(100, (newStats[stat] ?? 50) + delta));
+        }
+        if (deltas.economy) economyAutoEffects.push({ label: "Недовольство элит", delta: deltas.economy });
+        const seriousNotes = notes.filter(n => n.tier >= 2);
+        if (seriousNotes.length > 0) {
+          const text = `${seriousNotes.map(n => `${n.label} (уровень ${n.tier}/4)`).join("; ")} — давление нарастает: часть распоряжений исполняется медленнее и хуже, ресурсы утекают на трение внутри системы.`;
+          await client.query(
+            `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+            [gameId, completedMonth, "news", "The Bell", text,
+             JSON.stringify([{ emoji: "🧊", label: "трение элит", count: Math.floor(Math.random() * 60) + 20 }])]
+          );
+        }
+        if (notes.length > 0) fastify.log.info({ gameId, notes }, "Faction debuff ladder applied (end-month)");
       }
 
       // Декремент временных баффов от карточек-дилемм Башен Кремля (см. FACTION_DILEMMAS,

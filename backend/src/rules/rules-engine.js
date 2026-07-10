@@ -304,6 +304,72 @@ function computeFactionReactions(statDeltas) {
   return out;
 }
 
+// ЛЕСТНИЦА ДЕБАФФОВ БАШЕН (Петя, 2026-07-10): "начиная с 60, по нарастающей — чем ниже, тем хуже
+// и разнообразнее эффекты". Ниже 60 у КАЖДОЙ башни отдельно — 4 нарастающих уровня, эффекты не
+// заменяют друг друга, а НАКАПЛИВАЮТСЯ (T2 = T1-эффект сильнее + новый, и т.д.), тематически под
+// домен башни. Применяется ПОМЕСЯЧНО (turns.js end-month), не за каждое действие — это фоновое
+// давление недовольства, а не реакция на конкретный указ (та — computeFactionReactions выше).
+// Заменяет прежний точечный "саботаж экономблока" (oligarhi+tehnokraty<35) — при обоих <35 новая
+// лестница даёт эффект НЕ СЛАБЕЕ старого (экономика −1 от каждой = −2, плюс остальные эффекты),
+// так что старая отдельная проверка стала избыточной и удалена.
+const FACTION_DEBUFF_LADDER = {
+  faction_siloviki: [
+    { below: 60, effects: { readiness: -1 } },
+    { below: 45, effects: { readiness: -2, army_morale: -1 } },
+    { below: 30, effects: { readiness: -3, army_morale: -2, military: -1 } },
+    { below: 15, effects: { readiness: -4, army_morale: -3, military: -2, stability: -2 } },
+  ],
+  faction_tehnokraty: [
+    { below: 60, effects: { gdp_growth: -1 } },
+    { below: 45, effects: { gdp_growth: -2, inflation: 1 } },
+    { below: 30, effects: { gdp_growth: -3, inflation: 2, economy: -1 } },
+    { below: 15, effects: { gdp_growth: -4, inflation: 3, economy: -2, reserves: -2 } },
+  ],
+  faction_oligarhi: [
+    { below: 60, effects: { treasury: -1 } },
+    { below: 45, effects: { treasury: -2, corruption: 1 } },
+    { below: 30, effects: { treasury: -3, corruption: 2, economy: -1 } },
+    { below: 15, effects: { treasury: -4, corruption: 3, economy: -2, isolation: 1 } },
+  ],
+  faction_konservatory: [
+    { below: 60, effects: { approval: -1 } },
+    { below: 45, effects: { approval: -2, stability: -1 } },
+    { below: 30, effects: { approval: -3, stability: -2, elite_satisfaction: -1 } },
+    { below: 15, effects: { approval: -4, stability: -3, elite_satisfaction: -2 } },
+  ],
+};
+const FACTION_DEBUFF_LABELS = {
+  faction_siloviki: "Силовики недовольны", faction_tehnokraty: "Технократы недовольны",
+  faction_oligarhi: "Олигархи недовольны", faction_konservatory: "Консерваторы недовольны",
+};
+
+/**
+ * Считает суммарный эффект лестницы дебаффов по ВСЕМ 4 башням для текущего состояния (вызывать
+ * раз в месяц, не за каждое действие). Возвращает { deltas: {stat: -N, ...}, notes: [{faction, tier, label}] }
+ * — notes нужны для новостной ленты (объяснить игроку, откуда взялась просадка).
+ */
+function computeFactionDebuffs(stats) {
+  const deltas = {};
+  const notes = [];
+  for (const faction of FACTION_KEYS) {
+    const value = stats[faction] ?? 55;
+    const ladder = FACTION_DEBUFF_LADDER[faction];
+    // Находим САМЫЙ ГЛУБОКИЙ применимый уровень — его effects уже включают эффекты предыдущих
+    // уровней в усиленном виде (лестница написана как кумулятивные снапшоты, не приросты).
+    let applicable = null;
+    for (const tier of ladder) {
+      if (value < tier.below) applicable = tier;
+    }
+    if (!applicable) continue;
+    const tierIndex = ladder.indexOf(applicable) + 1;
+    for (const [stat, delta] of Object.entries(applicable.effects)) {
+      deltas[stat] = (deltas[stat] ?? 0) + delta;
+    }
+    notes.push({ faction, tier: tierIndex, label: FACTION_DEBUFF_LABELS[faction], value });
+  }
+  return { deltas, notes };
+}
+
 // Диапазоны [min, max] для каждой категории x показателя.
 // Субметрики: elite_satisfaction (0=элиты против, 100=за), corruption (0=чисто, 100=коррупция),
 //             middle_class (0=нет среднего класса, 100=большой и довольный),
@@ -1162,4 +1228,5 @@ module.exports = {
   checkFactionDilemmaTrigger,
   resolveFactionDilemma,
   COALITION_STABILITY_MAX,
+  computeFactionDebuffs,
 };

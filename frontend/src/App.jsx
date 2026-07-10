@@ -6996,31 +6996,54 @@ const FACTION_ORDER = ["faction_siloviki", "faction_konservatory", "faction_olig
 
 // Настроение башни — простая эвристика по абсолютному уровню (не дельта, дельта не всегда
 // доступна на фронте без истории); отражает то же деление на зоны, что и цвет полосы.
+// Пороги настроения ВЫРОВНЕНЫ с лестницей дебаффов (60/45/30/15) — иначе текст говорит "довольны"
+// одновременно с бейджем "давление 1/4" под ним (было замечено при живой проверке, поправлено).
 function factionMoodText(id, value) {
   const MOODS = {
     faction_siloviki: {
       high: "Довольны текущим курсом — силовой блок чувствует, что его слушают.",
-      mid: "Настороже, но пока не выступают открыто.",
+      mid: "Настороже, ждут более решительных действий.",
       low: "Раздражены — считают, что их роль и интересы игнорируют.",
+      critical: "В ярости — считают, что центр их предал. Разговоры о нелояльности уже идут.",
     },
     faction_konservatory: {
       high: "В целом довольны идеологической твёрдостью курса.",
       mid: "Смотрят настороженно, ждут сигналов о развороте.",
       low: "Обеспокоены — видят в курсе уступки и размывание линии.",
+      critical: "В отчаянии — считают, что курс окончательно предал их принципы.",
     },
     faction_oligarhi: {
       high: "Довольны — бизнес-климат и доступ к ресурсам их устраивают.",
       mid: "Ждут, куда качнётся политика — открытых претензий пока нет.",
       low: "Раздражены — санкции и/или давление на схемы бьют по карману.",
+      critical: "На грани разрыва — активно выводят капитал и сворачивают поддержку курса.",
     },
     faction_tehnokraty: {
       high: "Довольны — экономический курс выглядит рациональным.",
       mid: "Осторожно нейтральны, следят за цифрами.",
       low: "На грани — считают курс экономически безответственным.",
+      critical: "В панике — открыто называют курс путём к коллапсу.",
     },
   };
-  const bucket = value >= 55 ? "high" : value < 35 ? "low" : "mid";
+  const tier = factionDebuffTier(value);
+  const bucket = tier === 0 ? "high" : tier === 1 ? "mid" : tier === 2 ? "low" : "critical";
   return MOODS[id][bucket];
+}
+
+// Лестница дебаффов — зеркало FACTION_DEBUFF_LADDER в backend/src/rules/rules-engine.js (числа и
+// пороги должны совпадать 1:1, это только для отображения игроку "что именно сейчас происходит").
+const FACTION_DEBUFF_TIER_TEXT = {
+  faction_siloviki: ["Готовность −1", "Готовность −2, боевой дух −1", "Готовность −3, боевой дух −2, армия −1", "Готовность −4, боевой дух −3, армия −2, стабильность −2"],
+  faction_tehnokraty: ["Рост ВВП −1", "Рост ВВП −2, инфляция +1", "Рост ВВП −3, инфляция +2, экономика −1", "Рост ВВП −4, инфляция +3, экономика −2, резервы −2"],
+  faction_oligarhi: ["Казна −1/мес", "Казна −2/мес, коррупция +1", "Казна −3/мес, коррупция +2, экономика −1", "Казна −4/мес, коррупция +3, экономика −2, изоляция +1"],
+  faction_konservatory: ["Одобрение −1", "Одобрение −2, стабильность −1", "Одобрение −3, стабильность −2, элиты −1", "Одобрение −4, стабильность −3, элиты −2"],
+};
+function factionDebuffTier(value) {
+  if (value < 15) return 4;
+  if (value < 30) return 3;
+  if (value < 45) return 2;
+  if (value < 60) return 1;
+  return 0;
 }
 
 function FactionsTab({ state, gameId, onStateRefresh }) {
@@ -7063,6 +7086,7 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
           const meta = FACTION_META[id];
           const value = stats[id] ?? 55;
           const color = value >= 55 ? "#6ec894" : value < 35 ? "#e08080" : "#c8a857";
+          const tier = factionDebuffTier(value);
           return (
             <div key={id} style={{ background: "#1c2230", border: "1px solid #2a3040", borderLeft: `4px solid ${meta.color}`, borderRadius: 6, padding: "13px 14px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
@@ -7077,23 +7101,24 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
               <div style={{ background: "#141a24", borderRadius: 3, height: 6, marginBottom: 10, overflow: "hidden" }}>
                 <div style={{ height: "100%", borderRadius: 3, width: `${value}%`, background: color, transition: "width 0.4s" }} />
               </div>
-              <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.45, color: "#d8dce4" }}>{factionMoodText(id, value)}</div>
+              <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.45, color: "#d8dce4", marginBottom: tier > 0 ? 8 : 0 }}>{factionMoodText(id, value)}</div>
+              {tier > 0 && (
+                <div style={{ background: "#241a12", border: "1px solid #5a4020", borderRadius: 4, padding: "6px 9px" }}>
+                  <div className="mono-font" style={{ fontSize: 8.5, color: "#d99a4e", letterSpacing: "0.06em", marginBottom: 2, textTransform: "uppercase" }}>⚠ Давление уровня {tier}/4 — помесячно</div>
+                  <div className="mono-font" style={{ fontSize: 9.5, color: "#e8d4b8" }}>{FACTION_DEBUFF_TIER_TEXT[id][tier - 1]}</div>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Риски коалиций — силовой блок vs экономический блок дают РАЗНЫЕ последствия */}
+      {/* Риск мятежа — отдельный, более редкий механизм поверх обычной лестницы дебаффов
+          (см. модуляцию elite_satisfaction-мятежа в turns.js по faction_siloviki < 30). */}
       {(stats.faction_siloviki ?? 55) < 30 && (
         <div style={{ background: "#241a12", border: "1px solid #5a4020", borderLeft: "4px solid #d99a4e", borderRadius: 6, padding: "11px 14px", marginBottom: 10 }}>
-          <div className="mono-font" style={{ fontSize: 9, color: "#d99a4e", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>⚠ Силовой блок недоволен</div>
-          <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#e8d4b8" }}>Риск мятежа растёт — если это продлится, силовая часть элит может выступить против центра.</div>
-        </div>
-      )}
-      {(stats.faction_tehnokraty ?? 55) < 35 && (stats.faction_oligarhi ?? 55) < 35 && (
-        <div style={{ background: "#241a12", border: "1px solid #5a4020", borderLeft: "4px solid #d99a4e", borderRadius: 6, padding: "11px 14px", marginBottom: 10 }}>
-          <div className="mono-font" style={{ fontSize: 9, color: "#d99a4e", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>⚠ Экономический блок на грани</div>
-          <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#e8d4b8" }}>Технократы и Олигархи одновременно недовольны — не переворот, а тихий саботаж: утечка капитала, минус к экономике каждый месяц.</div>
+          <div className="mono-font" style={{ fontSize: 9, color: "#d99a4e", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>⚠ Риск мятежа силовиков</div>
+          <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#e8d4b8" }}>Помимо ежемесячного давления, растёт и вероятность прямого выступления силовой части элит против центра.</div>
         </div>
       )}
 
