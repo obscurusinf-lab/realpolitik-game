@@ -1785,16 +1785,29 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
       )}
       <div style={{ background: "#1f2733", borderRadius: 4, padding: "8px 12px", marginBottom: 12 }}>
         <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 6 }}>ПРОГНОЗ ИЗМЕНЕНИЙ</div>
-        {econNotes.total && (
-          <div style={{ background: "#161b26", border: `1px solid ${econNotes.total.after < 0 ? "#4a2a2a" : econNotes.total.after > 0 ? "#2a4a30" : "#2a3040"}`, borderRadius: 4, padding: "7px 10px", marginBottom: 10 }}>
-            <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: econNotes.total.after < 0 ? "#c47a7a" : econNotes.total.after > 0 ? "#7fae93" : "#8a8fa0" }}>
-              Экономика: {fmtEcoNote(econNotes.total)}
-            </span>
-            <div className="mono-font" style={{ fontSize: 9, color: "#8a8fa0", marginTop: 2 }}>
-              ⤷ это не прямой эффект указа — экономика отреагирует с лагом через ВВП, занятость, армию и инфляцию (детали ниже)
+        {econNotes.total && (() => {
+          // Петя, 2026-07-10 (скриншот с разведкой: "непонятно чьи это изменения, и почему
+          // экономика+4?") — эта плашка не про ЭТОТ указ, а про фоновый месячный дрейф
+          // экономики от УЖЕ ТЕКУЩИХ уровней ВВП/занятости/армии/инфляции/казны. Раньше формулировка
+          // была одинаковой независимо от того, сдвигает ли указ этот прогноз или нет — для
+          // указа, вообще не трогающего эти каналы (разведка), было неясно, откуда взялась
+          // цифра и чья она. Явно разделяем два случая.
+          const staticForecast = econNotes.total.before === econNotes.total.after;
+          return (
+            <div style={{ background: "#161b26", border: `1px solid ${econNotes.total.after < 0 ? "#4a2a2a" : econNotes.total.after > 0 ? "#2a4a30" : "#2a3040"}`, borderRadius: 4, padding: "7px 10px", marginBottom: 10 }}>
+              <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: econNotes.total.after < 0 ? "#c47a7a" : econNotes.total.after > 0 ? "#7fae93" : "#8a8fa0" }}>
+                {staticForecast
+                  ? `Экономика (общий фон, не от этого указа): ${fmtEcoEffect(econNotes.total.after)}/мес`
+                  : `Экономика: ${fmtEcoNote(econNotes.total)}`}
+              </span>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a8fa0", marginTop: 2 }}>
+                {staticForecast
+                  ? "⤷ уже так из-за текущих уровней ВВП/занятости/армии/инфляции/казны — этот указ их не меняет, поэтому и на прогноз не влияет"
+                  : "⤷ это не прямой эффект указа — экономика отреагирует с лагом через ВВП, занятость, армию и инфляцию (детали ниже)"}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
         {/* Пояснение про лаг ("на экономику подействует не сразу...") сказано один раз выше
             (econNotes.total) — не повторяется под каждым статом ниже, это и было главным
             источником "перегруженности" (Петя, 2026-07-07). */}
@@ -1894,7 +1907,11 @@ function MissionPanel({ stats, turn, maxTurns = 24 }) {
     <div style={{ background: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 6, padding: "10px 14px", fontSize: 11.5, color: "#bbb", fontFamily: "'PT Serif',serif" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <span style={{ color: "#c9aa71", fontWeight: 700, fontSize: 12, letterSpacing: 1 }}>МИССИЯ · РОССИЯ 2026</span>
-        <span style={{ color: turnsLeft <= 4 ? "#ef5350" : "#888", fontSize: 11 }}>ХОД {turn}/{maxTurns} · осталось {turnsLeft}</span>
+        {/* turn — "сколько месяцев уже завершено" (совпадает с расчётом turnsLeft/progressPct
+            ниже, не трогаем), но ярлык должен показывать ТЕКУЩИЙ идущий ход — то же число, что и
+            в шапке ("Ход №{state.turn+1}"). Петя, 2026-07-10: шапка "Ход №3", тут "ХОД 2/24" —
+            расхождение было только в ярлыке, не в счётчике "осталось". */}
+        <span style={{ color: turnsLeft <= 4 ? "#ef5350" : "#888", fontSize: 11 }}>ХОД {turn + 1}/{maxTurns} · осталось {turnsLeft}</span>
       </div>
 
       {/* Timeline bar */}

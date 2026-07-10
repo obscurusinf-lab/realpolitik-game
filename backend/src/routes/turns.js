@@ -1267,7 +1267,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           await client.query("ROLLBACK");
           return reply.code(409).send({ error: "Войска на отдыхе после двойного наступления — военные операции недоступны до следующего месяца." });
         }
-        if (game.stats?.military_used_this_month && !game.stats?.regroup_bonus_attack) {
+        // Разведка исключена и здесь (Петя, 2026-07-10: "игра посчитала разведку военной
+        // операцией") — по дизайну (см. Ликбез) разведка не расходует лимит "1 операция/мес",
+        // доступна независимо от того, был ли уже бой в этом месяце.
+        if (game.stats?.military_used_this_month && !game.stats?.regroup_bonus_attack && confirmAt !== "mil_recon") {
           await client.query("ROLLBACK");
           return reply.code(409).send({ error: "В этом месяце уже проводилась военная операция. Используйте перегруппировку для второго удара." });
         }
@@ -1299,8 +1302,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const CHANGELOG_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
       const statsAfterDecree = Object.fromEntries(CHANGELOG_KEYS.map(k => [k, newStats[k] ?? 50]));
 
-      // Отслеживаем военные операции (лимит 1/мес, 2-я требует перегруппировки)
-      if (isConfirmMilitary) {
+      // Отслеживаем военные операции (лимит 1/мес, 2-я требует перегруппировки) — ТОЛЬКО боевые
+      // категории (military_combat), НЕ разведка (Петя, 2026-07-10: "игра посчитала разведку
+      // военной операцией — хотя это не так"). isConfirmMilitary шире (military_operations,
+      // включает mil_recon) и нужен выше для проверок блокировок/передышки — но именно ЭТОТ флаг,
+      // расходующий лимит "1 операция/мес", должен смотреть только на реальный бой.
+      if (CATEGORY_GROUP.military_combat.has(confirmAt)) {
         if (newStats.regroup_bonus_attack && newStats.military_used_this_month) {
           // Второй удар благодаря перегруппировке — блок следующего месяца
           delete newStats.regroup_bonus_attack;
