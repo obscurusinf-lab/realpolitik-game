@@ -8782,13 +8782,17 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           const investOnCooldown = investTurnsLeft > 0;
           const initiative = stats.initiative ?? 100;
           const investCanAfford = investAvailable && !investOnCooldown && initiative >= 25;
-          if (!investAvailable && !investOnCooldown) return null; // не мозолит глаза, пока казна не в профиците
+          // Петя, 2026-07-11: "чет не вижу где можно инвестировать казну в резервы" — раньше ЭТОТ
+          // блок (и bank-surplus ниже) полностью пропадал из DOM, пока казна < порога, из-за чего
+          // фича выглядела как ОТСУТСТВУЮЩАЯ, а не как временно недоступная. Теперь блок всегда
+          // виден — при казне ниже порога кнопка задизейблена с явной подписью требования, вместо
+          // того чтобы бесследно исчезать.
           return (
-            <div style={{ background: "#0f1a12", border: "1px solid #204a2a", borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: "#7ac08a", marginBottom: 6 }}>
+            <div style={{ background: investAvailable ? "#0f1a12" : "#14181f", border: `1px solid ${investAvailable ? "#204a2a" : "#2a3040"}`, borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: investAvailable ? "#7ac08a" : "#5a6070", marginBottom: 6 }}>
                 {t("treasury.invest_label")}
               </div>
-              <div className="doc-font" style={{ fontSize: 11.5, color: "#94a894", lineHeight: 1.4, marginBottom: 8 }}>
+              <div className="doc-font" style={{ fontSize: 11.5, color: investAvailable ? "#94a894" : "#7a8090", lineHeight: 1.4, marginBottom: 8 }}>
                 {t("treasury.invest_desc")}
               </div>
               <button
@@ -8805,6 +8809,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               >
                 {loading === "invest_surplus"
                   ? t("treasury.invest_running")
+                  : !investAvailable
+                  ? t("treasury.invest_locked", { threshold: investThreshold, treasury })
                   : investOnCooldown
                   ? t("treasury.invest_cooldown", { n: investTurnsLeft })
                   : t("treasury.invest_btn")}
@@ -8817,20 +8823,21 @@ function TreasuryTab({ state, gameId, onRefresh }) {
             в резервы" (invest-surplus выше — это трата профицита НА РОСТ, а тут — обратное:
             консервативное решение не тратить, а отложить на будущее, зеркало уже существующей
             /convert-reserves, только в обратную сторону — казна → резервы). Помесячный лимит
-            (surplus_banked_this_month), не многоходовый кулдаун, как у invest-surplus/emergency. */}
+            (surplus_banked_this_month), не многоходовый кулдаун, как у invest-surplus/emergency.
+            Тот же блок ВСЕГДА виден (см. коммент у invest-surplus выше — то же "не вижу" от Пети
+            относилось и к этой кнопке: она пропадала из DOM при казне < 70). */}
         {(() => {
           const bankThreshold = 70;
           const bankAvailable = treasury >= bankThreshold;
           const bankUsedThisMonth = !!stats.surplus_banked_this_month;
           const initiative = stats.initiative ?? 100;
           const bankCanAfford = bankAvailable && !bankUsedThisMonth && initiative >= 20;
-          if (!bankAvailable && !bankUsedThisMonth) return null; // не мозолит глаза, пока казна не в профиците
           return (
-            <div style={{ background: "#0f1522", border: "1px solid "+"#204060", borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: "#7aa8c0", marginBottom: 6 }}>
+            <div style={{ background: bankAvailable ? "#0f1522" : "#14181f", border: `1px solid ${bankAvailable ? "#204060" : "#2a3040"}`, borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: bankAvailable ? "#7aa8c0" : "#5a6070", marginBottom: 6 }}>
                 {t("treasury.bank_label")}
               </div>
-              <div className="doc-font" style={{ fontSize: 11.5, color: "#94a4b0", lineHeight: 1.4, marginBottom: 8 }}>
+              <div className="doc-font" style={{ fontSize: 11.5, color: bankAvailable ? "#94a4b0" : "#7a8090", lineHeight: 1.4, marginBottom: 8 }}>
                 {t("treasury.bank_desc")}
               </div>
               <button
@@ -8847,6 +8854,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               >
                 {loading === "bank_surplus"
                   ? t("treasury.bank_running")
+                  : !bankAvailable
+                  ? t("treasury.bank_locked", { threshold: bankThreshold, treasury })
                   : bankUsedThisMonth
                   ? t("treasury.bank_used")
                   : t("treasury.bank_btn")}
