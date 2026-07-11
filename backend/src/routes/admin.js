@@ -390,6 +390,44 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     return reply.send({ ok: true });
   });
 
+  // Глобальные тумблеры (2026-07-11, Петя: "перенести тумблер ИИ-противника в админку, без
+  // редеплоя") — app_settings, см. lib/app-settings.js. Список тумблеров зашит здесь явно
+  // (не произвольный key-value через body), чтобы из фронта нельзя было выставить случайный
+  // ключ мимо продуманного списка.
+  const KNOWN_SETTINGS = {
+    ukraine_ai_counterattack_enabled: {
+      label: "ИИ решает контратаку ВСУ (эксперимент)",
+      description: "Вместо детерминированной формулы Claude решает, куда и как сильно контратакует ВСУ после наступления игрока.",
+    },
+  };
+
+  fastify.get("/admin/settings", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const res = await db.query(`SELECT key, value, updated_at FROM app_settings`);
+    const stored = Object.fromEntries(res.rows.map(r => [r.key, r]));
+    const settings = Object.entries(KNOWN_SETTINGS).map(([key, meta]) => ({
+      key,
+      ...meta,
+      enabled: stored[key]?.value === "true",
+      updatedAt: stored[key]?.updated_at || null,
+    }));
+    return reply.send({ settings });
+  });
+
+  fastify.post("/admin/settings/:key", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const { key } = request.params;
+    const { enabled } = request.body || {};
+    if (!KNOWN_SETTINGS[key]) return reply.code(404).send({ error: "Unknown setting" });
+    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled (boolean) required" });
+    await db.query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now()`,
+      [key, String(enabled)]
+    );
+    return reply.send({ ok: true, key, enabled });
+  });
+
   // GET /admin/users/:userId — полное досье: все партии + ходы каждой
   fastify.get("/admin/users/:userId", async (request, reply) => {
     if (!checkAuth(request, reply)) return;
