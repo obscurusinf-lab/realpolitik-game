@@ -747,14 +747,18 @@ function PublicGamesPage({ onBack, onOpen }) {
 // Read-only просмотр одной публичной партии — намеренно НЕ переиспользует основной App.jsx
 // (там завязано на владение партией: подпись указов, советники, казна и т.д.) — упрощённая
 // витрина: обстановка, статы, лента новостей, ходы. Никаких действий, только просмотр.
-function SpectatorView({ gameId, onBack }) {
+// fetchFn — переопределяемый источник данных (Петя, 2026-07-11: "хотел бы видеть всё, что видит
+// другой игрок — отдельная вкладка в админ-панели"): по умолчанию — обычный зрительский путь
+// (fetchPublicView, работает только для is_public партий), админ-панель передаёт свой вариант,
+// читающий /admin/games/:id/view-as-player (тот же формат ответа, любая партия, без is_public).
+function SpectatorView({ gameId, onBack, fetchFn = fetchPublicView }) {
   useLang();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchPublicView(gameId)
+    fetchFn(gameId)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -895,6 +899,12 @@ function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stat
   const [advisorNote, setAdvisorNote] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null); const [error, setError] = useState(null);
+  // Петя, 2026-07-11: "нужно чтоб вылезало окно с моим действием, а не просто новость в ленте —
+  // так даже непонятно, что что-то произошло". Раньше единственная обратная связь — мелкая
+  // зелёная строка `result` под формой, легко пропустить; сама новость уходит в ленту ИГРОКА,
+  // а не на экран администратора. Новое поле — полноэкранная модалка-подтверждение с деталями
+  // применённого действия, показывается СРАЗУ после успешной отправки.
+  const [confirmModal, setConfirmModal] = useState(null);
 
   const inp = { width: "100%", background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "7px 10px", color: "#ece7d8", fontFamily: "'PT Serif',serif", fontSize: 13, outline: "none", marginBottom: 7, boxSizing: "border-box" };
   const numInp = { width: 56, background: "#0d1118", border: "1px solid #2a3040", borderRadius: 4, padding: "4px 6px", color: "#ece7d8", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, outline: "none", textAlign: "center" };
@@ -911,24 +921,54 @@ function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stat
       if (mode === "event") {
         const deltas = Object.fromEntries(Object.entries(statDeltas).filter(([, v]) => v !== 0));
         await adm(pwd, `/games/${gameId}/event`, { method: "POST", body: JSON.stringify({ text, source: source || "Внешний источник", statDeltas: deltas, secret, immediate }) });
-        setResult(immediate ? "Применено немедленно." : "В очереди — сработает при следующем ходе."); setText(""); setSource("");
+        setResult(immediate ? "Применено немедленно." : "В очереди — сработает при следующем ходе.");
+        setConfirmModal({ mode, title: "Событие", lines: [
+          ["Источник", source || "Внешний источник"],
+          ["Текст", text],
+          ["Дельты статов", Object.keys(deltas).length ? Object.entries(deltas).map(([k,v]) => `${STAT_NAMES_RU[k]||k} ${v>0?"+":""}${v}`).join(", ") : "—"],
+          ["Скрытое (не в ленту)", secret ? "да" : "нет"],
+          ["Применение", immediate ? "немедленно" : "в очереди на следующий ход"],
+        ] });
+        setText(""); setSource("");
       } else if (mode === "foreign") {
         const r = await adm(pwd, `/games/${gameId}/foreign-action`, { method: "POST", body: JSON.stringify({ country, action, secret, immediate }) });
         const d = await r.json();
-        setResult(`ИИ: "${(d.preview?.narrative || "").slice(0, 120)}…"`); setCountry(""); setAction("");
+        setResult(`ИИ: "${(d.preview?.narrative || "").slice(0, 120)}…"`);
+        setConfirmModal({ mode, title: "Ход страны", lines: [
+          ["Страна-агент", country],
+          ["Действие", action],
+          ["Реакция ИИ", d.preview?.narrative || "—"],
+          ["Скрытое (не в ленту)", secret ? "да" : "нет"],
+          ["Применение", immediate ? "немедленно" : "в очереди на следующий ход"],
+        ] });
+        setCountry(""); setAction("");
       } else if (mode === "stats") {
         await adm(pwd, `/games/${gameId}/set-stats`, { method: "POST", body: JSON.stringify({ stats: statsAbs }) });
         setResult("Показатели обновлены.");
+        setConfirmModal({ mode, title: "Показатели", lines: STAT_KEYS.map(k => [STAT_NAMES_RU[k] || k, statsAbs[k]]) });
       } else if (mode === "initiative") {
         await adm(pwd, `/games/${gameId}/set-initiative`, { method: "POST", body: JSON.stringify({ initiative: initVal }) });
         setResult(`Инициатива: ${initVal}`);
+        setConfirmModal({ mode, title: "Инициатива", lines: [["Новое значение", initVal]] });
       } else if (mode === "ukraine") {
         const deltas = Object.fromEntries(Object.entries(uaDeltas).filter(([, v]) => v !== 0));
         await adm(pwd, `/games/${gameId}/ukraine-action`, { method: "POST", body: JSON.stringify({ action_type: uaActionType, title: uaTitle, text: uaText, deltas }) });
-        setResult("В очереди — сработает как ход Украины на следующем ходу игрока."); setUaTitle(""); setUaText("");
+        setResult("В очереди — сработает как ход Украины на следующем ходу игрока.");
+        setConfirmModal({ mode, title: "Действие Украины", lines: [
+          ["Тип", UA_ACTION_TYPE_LABEL[uaActionType] || uaActionType],
+          ["Заголовок", uaTitle],
+          ["Текст", uaText],
+          ["Дельты", Object.keys(deltas).length ? Object.entries(deltas).map(([k,v]) => `${UA_DELTA_LABEL[k]||k} ${v>0?"+":""}${v}`).join(", ") : "—"],
+          ["Применение", "в очереди — сработает как ход Украины на следующем ходу игрока"],
+        ] });
+        setUaTitle(""); setUaText("");
       } else if (mode === "advisor") {
         await adm(pwd, `/games/${gameId}/advisor-note`, { method: "POST", body: JSON.stringify({ advisorId, text: advisorNote }) });
         setResult(advisorNote.trim() ? `Заметка для «${ADVISOR_LABEL[advisorId]}» сохранена.` : `Заметка для «${ADVISOR_LABEL[advisorId]}» очищена.`);
+        setConfirmModal({ mode, title: "Заметка советника", lines: [
+          ["Советник", ADVISOR_LABEL[advisorId]],
+          ["Текст", advisorNote.trim() || "(очищена)"],
+        ] });
       }
       onRefresh?.();
     } catch (e) { setError(e.message); } finally { setSending(false); }
@@ -1025,6 +1065,32 @@ function InterventionPanel({ pwd, gameId, gameName, countryId, currentTurn, stat
         style={{ background: "#a8313a", color: "#ece7d8", border: "none", borderRadius: 4, padding: "8px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: (!canSend || sending) ? 0.5 : 1 }}>
         {sending ? "Отправка…" : "Применить →"}
       </button>
+
+      {/* Модалка-подтверждение (Петя, 2026-07-11) — полноэкранная, не пропустить случайно,
+          с полной раскладкой того, что именно применилось к чужой партии. */}
+      {confirmModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,13,18,0.85)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          onClick={() => setConfirmModal(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#161b26", border: "1px solid #3a8a5a", borderRadius: 8, width: "min(92vw,480px)", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+            <div style={{ background: "#12241a", padding: "14px 18px", borderBottom: "1px solid #2a5a3a" }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.08em", marginBottom: 4 }}>✅ ПРИМЕНЕНО · {gameName} ({countryId}) · ХОД {currentTurn}</div>
+              <div className="doc-font" style={{ fontSize: 16, fontWeight: 700, color: "#ece7d8" }}>{confirmModal.title}</div>
+            </div>
+            <div style={{ padding: "14px 18px" }}>
+              {confirmModal.lines.map(([label, value], i) => (
+                <div key={i} style={{ marginBottom: i < confirmModal.lines.length - 1 ? 10 : 0 }}>
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.06em", marginBottom: 2, textTransform: "uppercase" }}>{label}</div>
+                  <div className="doc-font" style={{ fontSize: 13, color: "#cdd3e0", lineHeight: 1.4, wordBreak: "break-word" }}>{String(value)}</div>
+                </div>
+              ))}
+              <button onClick={() => setConfirmModal(null)}
+                style={{ marginTop: 16, width: "100%", background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 5, padding: "9px 16px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1370,6 +1436,72 @@ function AdminTabGames({ pwd }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Вкладка «Смотреть как игрок» ─────────────────────────────────────────────
+// Петя, 2026-07-11: "я бы хотел, чтоб я видел всё, что видит другой игрок — это была бы отдельная
+// вкладка в админ-панели". Переиспользует SpectatorView (тот же компонент, что зрительский режим
+// для публичных партий) с другим источником данных — /admin/games/:id/view-as-player работает
+// для ЛЮБОЙ партии (не только is_public), т.к. защищён admin-паролем вместо проверки видимости.
+function AdminTabViewAs({ pwd }) {
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [viewingGameId, setViewingGameId] = useState(null);
+
+  function load() {
+    setLoading(true);
+    adm(pwd, "/games").then(r => r.json()).then(d => setGames(d.games || [])).catch(e => setError(e.message)).finally(() => setLoading(false));
+  }
+  useEffect(load, []);
+
+  if (viewingGameId) {
+    return (
+      <SpectatorView
+        gameId={viewingGameId}
+        onBack={() => setViewingGameId(null)}
+        fetchFn={(id) => adm(pwd, `/games/${id}/view-as-player`).then(async r => {
+          const body = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(body.error || `view-as-player failed: ${r.status}`);
+          return body;
+        })}
+      />
+    );
+  }
+
+  if (loading) return <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", padding: 20 }}>Загрузка…</div>;
+  if (error) return <div style={{ color: "#e09090", padding: 20 }}>{error}</div>;
+
+  return (
+    <div style={{ padding: "12px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>СМОТРЕТЬ КАК ИГРОК · {games.length} активных партий</div>
+        <button onClick={load} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "4px 10px", fontFamily: "monospace", fontSize: 9, cursor: "pointer" }}>↻</button>
+      </div>
+      <div className="doc-font" style={{ fontSize: 12, color: "#5a6070", marginBottom: 14, lineHeight: 1.5 }}>
+        Ровно то же самое, что видит сам игрок на своём экране (обстановка, статы, лента, ходы) —
+        только для чтения, без действий.
+      </div>
+      {games.length === 0 && <div className="mono-font" style={{ fontSize: 11, color: "#3a4156" }}>Нет активных партий</div>}
+      {games.map(g => (
+        <div key={g.game_id} onClick={() => setViewingGameId(g.game_id)}
+          style={{ background: "#1a1f2c", border: "1px solid #2a3040", borderRadius: 6, padding: "10px 14px", marginBottom: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; }}>
+          <div style={{ fontSize: 18 }}>{COUNTRY_FLAG_MAP[g.country_id] || "🌐"}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span title={g.online ? "Онлайн сейчас" : "Не в сети"}
+                style={{ width: 7, height: 7, borderRadius: "50%", background: g.online ? "#5ac97f" : "#3a4156", flexShrink: 0 }} />
+              <div className="doc-font" style={{ fontSize: 13, fontWeight: 700 }}>{g.player_name}</div>
+            </div>
+            <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", marginTop: 2 }}>ход {g.current_turn}</div>
+          </div>
+          <div style={{ color: "#5a6070", fontSize: 16 }}>👁 →</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1728,8 +1860,8 @@ function AdminPanel({ onClose }) {
     } catch (e) { setAuthError(e.message); } finally { setAuthLoading(false); }
   }
 
-  const TABS = [["players","👥 Игроки"],["games","🎮 Партии"],["feedback","🐞 Репорты"],["stats","📊 Статистика"],["funnel","🔻 Воронка"],["retention","🔁 Ретеншен"],["settings","⚙ Тумблеры"]];
-  const TABS_MOBILE = [["players","👥"],["games","🎮"],["feedback","🐞"],["stats","📊"],["funnel","🔻"],["retention","🔁"],["settings","⚙"]];
+  const TABS = [["players","👥 Игроки"],["games","🎮 Партии"],["viewas","👁 Смотреть как игрок"],["feedback","🐞 Репорты"],["stats","📊 Статистика"],["funnel","🔻 Воронка"],["retention","🔁 Ретеншен"],["settings","⚙ Тумблеры"]];
+  const TABS_MOBILE = [["players","👥"],["games","🎮"],["viewas","👁"],["feedback","🐞"],["stats","📊"],["funnel","🔻"],["retention","🔁"],["settings","⚙"]];
 
   if (step === "auth") return (
     <div style={{ position: "fixed", inset: 0, background: "#1a1f2c", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',Georgia,serif" }}>
@@ -1775,6 +1907,7 @@ function AdminPanel({ onClose }) {
       <div style={{ flex: 1, overflowY: "auto", color: "#ece7d8" }}>
         {tab === "players"  && <AdminTabPlayers  pwd={password} />}
         {tab === "games"    && <AdminTabGames    pwd={password} />}
+        {tab === "viewas"   && <AdminTabViewAs   pwd={password} />}
         {tab === "feedback" && <AdminTabFeedback pwd={password} />}
         {tab === "stats"    && <AdminTabStats    pwd={password} />}
         {tab === "funnel"    && <AdminTabFunnel    pwd={password} />}

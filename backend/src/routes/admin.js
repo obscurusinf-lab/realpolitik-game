@@ -15,6 +15,7 @@
  * DELETE /admin/games/:gameId             — сбросить/деактивировать игру
  * GET  /admin/games/:gameId/detail
  * GET  /admin/games/:gameId/pending
+ * GET  /admin/games/:gameId/view-as-player — снимок партии в том же виде, что видит сам игрок
  * GET  /admin/funnel     — воронка registered → game_started → turn_submitted → game_completed
  * GET  /admin/retention  — недельные когорты по регистрации, вернулись ли через 1/7/30 дней
  */
@@ -335,6 +336,64 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     const { gameId } = request.params;
     const events = await adminEventStore.list(gameId);
     return reply.send({ events });
+  });
+
+  // GET /admin/games/:gameId/view-as-player — Петя, 2026-07-11: "я бы хотел видеть всё, что
+  // видит другой игрок — отдельная вкладка в админ-панели". Ровно та же форма ответа, что и
+  // GET /games/:gameId/public-view (games.js) — только без проверки is_public (admin-пароль
+  // вместо этого) — так фронт может переиспользовать готовый read-only компонент SpectatorView
+  // без изменений, просто с другим источником данных. Держать в синхроне с public-view, если
+  // тот формат поменяется.
+  fastify.get("/admin/games/:gameId/view-as-player", async (request, reply) => {
+    if (!checkAuth(request, reply)) return;
+    const { gameId } = request.params;
+    const gameRes = await db.query(
+      `SELECT g.id, g.current_turn, g.status, g.created_at, g.assist_mode,
+              COALESCE(g.president_name, u.display_name) AS president_name,
+              gs.stats, gs.overview,
+              c.name AS country_name
+       FROM games g
+       JOIN game_state gs ON gs.game_id = g.id
+       JOIN countries c ON c.id = g.country_id
+       LEFT JOIN users u ON u.id = g.owner_user_id
+       WHERE g.id = $1`,
+      [gameId]
+    );
+    if (gameRes.rowCount === 0) return reply.code(404).send({ error: "Партия не найдена" });
+    const game = gameRes.rows[0];
+
+    const [newsfeedRes, turnsRes] = await Promise.all([
+      db.query(`SELECT turn_n, item_type, source, text FROM newsfeed_items WHERE game_id = $1 ORDER BY turn_n ASC`, [gameId]),
+      db.query(
+        `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at
+         FROM turns WHERE game_id = $1 ORDER BY turn_n ASC`,
+        [gameId]
+      ),
+    ]);
+
+    // Дефолты для партий, созданных до соответствующих механик — тот же список, что в
+    // GET /games/:gameId/public-view (games.js), держать в синхроне.
+    const STAT_DEFAULTS_FOR_OLD_GAMES = {
+      donetsk_control: 78, luhansk_control: 96, zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
+      treasury: 52, oil_price: 68, usd_rub: 80,
+      faction_siloviki: 70, faction_tehnokraty: 40, faction_oligarhi: 42, faction_konservatory: 68, coalition_stability: 0,
+    };
+    const stats = { ...game.stats };
+    for (const [key, val] of Object.entries(STAT_DEFAULTS_FOR_OLD_GAMES)) {
+      if (stats[key] === undefined) stats[key] = val;
+    }
+
+    return reply.send({
+      countryName: game.country_name,
+      presidentName: game.president_name,
+      currentTurn: game.current_turn,
+      status: game.status,
+      assistMode: game.assist_mode,
+      stats,
+      overview: game.overview || {},
+      newsfeed: newsfeedRes.rows.map(r => ({ turn: r.turn_n, type: r.item_type, source: r.source, text: r.text })),
+      log: turnsRes.rows.map(r => ({ turn: r.turn_n, decree: r.player_input || null, actionMode: r.action_mode || null, body: r.narrative_text, statDeltas: r.stat_deltas || {}, createdAt: r.created_at })),
+    });
   });
 
   // GET /admin/users — все пользователи с агрегатами по партиям
