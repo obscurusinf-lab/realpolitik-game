@@ -436,6 +436,7 @@ const RU = {
   "treasury.emergency_btn": "💉 Экстренное стимулирование",
   "treasury.emergency_running": "Вводим…",
   "treasury.emergency_cooldown": "⚠ Ещё не восстановилось (через {n} х.)",
+  "treasury.emergency_locked": "🔒 Доступно при экономике < {threshold} (сейчас {economy})",
 
   "treasury.invest_label": "📈 ИНВЕСТИРОВАТЬ ПРОФИЦИТ · ⚡25, −30 казны · раз в 3 хода",
   "treasury.invest_desc": "Направить излишек казны в экономику — спокойное решение, не паника: без удара по инфляции и без «похмелья». Эффект растянут на 4 месяца (+2 к экономике каждый), не мгновенный.",
@@ -1082,6 +1083,7 @@ const EN = {
   "treasury.emergency_btn": "💉 Emergency stimulus",
   "treasury.emergency_running": "Injecting…",
   "treasury.emergency_cooldown": "⚠ Not ready yet (in {n} turns)",
+  "treasury.emergency_locked": "🔒 Available when economy < {threshold} (now {economy})",
 
   "treasury.invest_label": "📈 INVEST SURPLUS · ⚡25, −30 treasury · once per 3 turns",
   "treasury.invest_desc": "Put the treasury surplus to work — a calm decision, not a panic move: no inflation hit, no hangover. The effect is spread over 4 months (+2 to the economy each), not instant.",

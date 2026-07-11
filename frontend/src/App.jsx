@@ -8638,13 +8638,16 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           const initiative = stats.initiative ?? 100;
           const reservesNow = stats.reserves ?? 48;
           const canAfford = emergencyAvailable && !onCooldown && initiative >= 40 && reservesNow >= 15;
-          if (!emergencyAvailable && !onCooldown) return null; // не мозолит глаза, пока не нужна
+          // Петя, 2026-07-11: "где адреналиновый укол в экономику?" — тот же баг, что был у
+          // invest-surplus/bank-surplus: блок ПОЛНОСТЬЮ пропадал из DOM, пока экономика не в
+          // кризисе (>= 45), из-за чего кнопка выглядела как отсутствующая, а не как временно
+          // недоступная. Теперь всегда виден, с явной подписью условия вместо исчезновения.
           return (
-            <div style={{ background: "#1a1010", border: "1px solid #5a2020", borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: "#d97a7a", marginBottom: 6 }}>
+            <div style={{ background: emergencyAvailable ? "#1a1010" : "#14181f", border: `1px solid ${emergencyAvailable ? "#5a2020" : "#2a3040"}`, borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: emergencyAvailable ? "#d97a7a" : "#5a6070", marginBottom: 6 }}>
                 {t("treasury.emergency_label")}
               </div>
-              <div className="doc-font" style={{ fontSize: 11.5, color: "#a89494", lineHeight: 1.4, marginBottom: 8 }}>
+              <div className="doc-font" style={{ fontSize: 11.5, color: emergencyAvailable ? "#a89494" : "#7a8090", lineHeight: 1.4, marginBottom: 8 }}>
                 {t("treasury.emergency_desc")}
               </div>
               <button
@@ -8661,6 +8664,8 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               >
                 {loading === "emergency_stimulus"
                   ? t("treasury.emergency_running")
+                  : !emergencyAvailable
+                  ? t("treasury.emergency_locked", { threshold: emergencyThreshold, economy: eco })
                   : onCooldown
                   ? t("treasury.emergency_cooldown", { n: turnsLeft })
                   : t("treasury.emergency_btn")}
