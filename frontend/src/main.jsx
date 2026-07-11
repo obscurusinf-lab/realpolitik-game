@@ -184,7 +184,9 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
   const [selectedMode, setSelectedMode] = useState("advisor"); // "advisor" | "hardcore"
   const [presidentName, setPresidentName] = useState("");
   const [showInLeaderboard, setShowInLeaderboard] = useState(true);
-  const [isPublic, setIsPublic] = useState(false);
+  // Петя, 2026-07-11: "сделай чтоб опция сделать партию публичной была включена по дефолту,
+  // но с возможностью отключения" — было false, игрок должен был сам догадаться включить.
+  const [isPublic, setIsPublic] = useState(true);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(null);
 
