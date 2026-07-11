@@ -95,6 +95,13 @@ const SUBSTAT_DEFAULTS = {
   // который вызывается на каждое отдельное действие в мульти-режиме.
   perk_mil_initiative_discount_turns: 0,
   perk_corruption_audit_turns: 0,
+  // Эскалация "западное вооружение" (см. checkWesternArmsEscalation выше) — streak считает
+  // подряд идущие наступления с подавляющей армией и провальной контратакой ВСУ; shipments —
+  // сколько раз эскалация уже случилась в этой партии (для нарратива/будущего масштабирования);
+  // perk-счётчик тикает в /turns/end-month, эффект читается внутри computeTerritoryDelta.
+  ua_failed_counterattack_streak: 0,
+  ua_western_arms_shipments: 0,
+  perk_ua_western_arms_turns: 0,
 };
 
 // Стоимость действий ДЕНЬГАМИ (из казны), отдельно от инициативы.
@@ -574,7 +581,7 @@ const TERRITORY_HARDNESS = { donetsk: 1.0, luhansk: 0.6, zaporizhzhia: 1.2, kher
  * теперь preview и confirm с одинаковым сидом дают одинаковый результат. Не мутирует stats,
  * возвращает { deltas, moraleDelta }.
  */
-function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameId, turnNumber }) {
+function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameId, turnNumber, aiCounterattack }) {
   const seed = `${gameId}:${turnNumber}:${action_type}:territory`;
   const sev = severity || 2;
   const next = {}; // key -> уже посчитанное новое значение в рамках этого вызова
@@ -639,38 +646,64 @@ function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameI
     // Опытные части лучше держат удар при контратаке — тоже снижает интенсивность отката.
     const armyQuality = ((stats.army_morale ?? 50) + (stats.readiness ?? 50) + (stats.veterans ?? 50)) / 3;
     // Интенсивность ответа зависит от западной поддержки (diplomacy_vs_west прокси = relations с США/ЕС)
-    const resistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
+    const baseResistanceIntensity = Math.max(1, Math.round(3 - (armyQuality - 50) / 20));
+    // Эскалация "западное вооружение" (2026-07-11, Петя: "усложнить добычу военной победы" —
+    // см. checkWesternArmsEscalation) — пока действует perk_ua_western_arms_turns, ВСУ
+    // контратакует ощутимо жёстче поверх обычной формулы, а не просто "тем же слабым откатом
+    // на постоянно подавляющую армию". Отдельная переменная (не смешана с базовой формулой),
+    // чтобы MAX_RESISTANCE ниже мог явно показать игроку, что сейчас действует бафф.
+    const westernArmsBonus = (stats.perk_ua_western_arms_turns ?? 0) > 0 ? 1 : 0;
+    const maxResistanceIntensity = 3 + (westernArmsBonus > 0 ? 1 : 0);
+    const resistanceIntensity = Math.min(maxResistanceIntensity, baseResistanceIntensity + westernArmsBonus);
     // БАЛАНС (2026-07-04): раньше контратака могла зацепить только Харьков/Херсон/Запорожье —
     // Донецк и Луганск (основная ось наступления) не встречали сопротивления НИКОГДА, независимо
     // от интенсивности боёв, из-за чего наступление там ощущалось как беспрепятственное. Теперь
     // ВСУ может контратаковать на любом фронте.
     const contestedKeys = TERRITORY_KEYS;
-    const numContested = Math.min(contestedKeys.length, 1 + Math.floor(seededFraction(seed + ":count") * resistanceIntensity));
-    // Детерминированная "перетасовка": сортируем по сидованному скору вместо Math.random()+sort.
-    const shuffled = contestedKeys
-      .map(k => ({ k, score: seededFraction(seed + ":shuffle:" + k) }))
-      .sort((a, b) => a.score - b.score)
-      .slice(0, numContested)
-      .map(x => x.k);
+    // Экспериментальный ИИ-противник (2026-07-11, Петя: "хочу для теста посмотреть, как будет
+    // ощущаться живой противник" — см. ai/ukraine-counterattack-ai.js, тумблер
+    // UKRAINE_AI_COUNTERATTACK_ENABLED). aiCounterattack уже провалидирован/зажат вызывающим
+    // кодом (turns.js) ДО этого вызова — здесь просто используем готовые значения вместо
+    // детерминированной перетасовки. Если параметр не передан (тумблер выключен или ИИ-вызов не
+    // удался — трёхуровневый fallback тот же принцип, что у generateUkraineActionV2), поведение
+    // ПОЛНОСТЬЮ идентично прежнему детерминированному расчёту.
+    let shuffled, pushbackByKey;
+    if (aiCounterattack) {
+      shuffled = aiCounterattack.contestedKeys;
+      pushbackByKey = aiCounterattack.pushbackByKey;
+    } else {
+      const numContested = Math.min(contestedKeys.length, 1 + Math.floor(seededFraction(seed + ":count") * resistanceIntensity));
+      // Детерминированная "перетасовка": сортируем по сидованному скору вместо Math.random()+sort.
+      shuffled = contestedKeys
+        .map(k => ({ k, score: seededFraction(seed + ":shuffle:" + k) }))
+        .sort((a, b) => a.score - b.score)
+        .slice(0, numContested)
+        .map(x => x.k);
+      pushbackByKey = {};
+      for (const key of shuffled) {
+        pushbackByKey[key] = Math.round(1 + seededFraction(seed + ":pushback:" + key) * resistanceIntensity);
+      }
+    }
     // Пушбэк по каждому ключу считаем ДО того как он смешается с наступательным приростом того
     // же ключа в next[] — иначе игрок видит только НЕТТО-число (прирост минус откат) и не может
     // понять, что армия вообще отбивала контратаку (Петя, 2026-07-11: "должно быть окно о том,
     // что она контратакует, но вследствие моей мощной армии ВСУ обламываются — чтоб я получал
     // отдачу от укрепления армии").
-    const pushbackByKey = {};
     for (const key of shuffled) {
       const current = get(key, 0);
-      const pushback = Math.round(1 + seededFraction(seed + ":pushback:" + key) * resistanceIntensity);
-      pushbackByKey[key] = pushback;
-      next[key] = Math.max(0, current - pushback);
+      next[key] = Math.max(0, current - pushbackByKey[key]);
     }
     // Потери от боёв: армейский моральный откат
     moraleDelta = -Math.round(1 + seededFraction(seed + ":morale") * 3);
     counterattack = {
       armyQuality: Math.round(armyQuality),
       resistanceIntensity,
+      maxResistanceIntensity,
+      westernArmsActive: westernArmsBonus > 0,
       pushbackByKey,
       totalPushback: Object.values(pushbackByKey).reduce((a, b) => a + b, 0),
+      aiDriven: !!aiCounterattack,
+      aiNarrative: aiCounterattack?.narrative || null,
     };
   }
 
@@ -680,6 +713,37 @@ function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameI
     if (val !== before) deltas[key] = val - before;
   }
   return { deltas, moraleDelta, counterattack };
+}
+
+// Эскалация "западное вооружение" (2026-07-11, Петя: "усложнить добычу военной победы" — если
+// армия игрока подавляющая (~100) и контратака ВСУ раз за разом безуспешна, Запад поставляет
+// новое вооружение). Чисто детерминированная лестница-триггер — тот же принцип, что уже работает
+// для дебаффов Башен Кремля (FACTION_DEBUFF_LADDER), без ИИ-звонков.
+const WESTERN_ARMS_ARMY_QUALITY_THRESHOLD = 85; // та же armyQuality, что определяет resistanceIntensity выше
+const WESTERN_ARMS_WEAK_PUSHBACK_THRESHOLD = 2; // суммарный откат ≤ этого — контратака "провалилась"
+const WESTERN_ARMS_STREAK_TRIGGER = 2;          // столько подряд провальных контратак — триггер
+const WESTERN_ARMS_PERK_TURNS = 6;              // на сколько ходов усиливается контратака ВСУ
+const WESTERN_ARMS_ARMY_BOOST = 15;
+const WESTERN_ARMS_SUPPORT_BOOST = 10;
+
+// Вызывается ПОСЛЕ computeTerritoryDelta, только когда был offensive-ход (counterattack != null).
+// Чисто функция — читает streak из stats, возвращает решение, мутацию стата делает вызывающий
+// код (turns.js), как и везде в этом модуле.
+function checkWesternArmsEscalation(stats, counterattack) {
+  if (!counterattack) return null;
+  const dominant = counterattack.armyQuality >= WESTERN_ARMS_ARMY_QUALITY_THRESHOLD;
+  const weakPushback = counterattack.totalPushback <= WESTERN_ARMS_WEAK_PUSHBACK_THRESHOLD;
+  const prevStreak = stats.ua_failed_counterattack_streak ?? 0;
+  const newStreak = (dominant && weakPushback) ? prevStreak + 1 : 0;
+
+  if (newStreak < WESTERN_ARMS_STREAK_TRIGGER) {
+    return { newStreak, triggered: false };
+  }
+  return {
+    newStreak: 0, // сброс — эскалация может повториться позже, если давление продолжится
+    triggered: true,
+    shipmentNumber: (stats.ua_western_arms_shipments ?? 0) + 1,
+  };
 }
 
 /**
@@ -1231,6 +1295,11 @@ module.exports = {
   EXPOSURE_RISK_CHANCE,
   computePeaceProgressDelta,
   computeTerritoryDelta,
+  checkWesternArmsEscalation,
+  WESTERN_ARMS_ARMY_BOOST,
+  WESTERN_ARMS_SUPPORT_BOOST,
+  WESTERN_ARMS_PERK_TURNS,
+  TERRITORY_KEYS,
   resolveUkraineResponse,
   rollExposure,
   MAX_DELTA_PER_TURN,

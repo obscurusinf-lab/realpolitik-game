@@ -292,15 +292,16 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
             быть окно о том, что она контратакует, но вследствие моей мощной армии ВСУ
             обламываются — чтоб я получал отдачу от укрепления армии"). */}
         {phase >= 1 && turnResult?.territoryCounterattack && turnResult.territoryCounterattack.totalPushback > 0 && (() => {
-          const { armyQuality, resistanceIntensity, totalPushback } = turnResult.territoryCounterattack;
+          const { armyQuality, resistanceIntensity, maxResistanceIntensity, totalPushback, westernArmsActive } = turnResult.territoryCounterattack;
           const blunted = armyQuality >= 65;
           return (
             <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: `3px solid ${blunted ? "#5a9c6a" : "#8c4a2a"}`, borderRadius: 6, padding: "14px 18px", marginBottom: 14 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8, letterSpacing: "0.1em" }}>🇺🇦 КОНТРАТАКА ВСУ</div>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8, letterSpacing: "0.1em" }}>🇺🇦 КОНТРАТАКА ВСУ{westernArmsActive ? " · ЗАПАДНОЕ ВООРУЖЕНИЕ" : ""}</div>
               <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55, color: "#ece7d8" }}>
-                ВСУ попытались контратаковать (интенсивность {resistanceIntensity}/3) — {blunted
+                ВСУ попытались контратаковать (интенсивность {resistanceIntensity}/{maxResistanceIntensity ?? 3}) — {blunted
                   ? <>подготовка вашей армии (боеготовность {armyQuality}) <b style={{ color: "#7fae93" }}>сдержала удар</b>, суммарный откат фронта всего −{totalPushback}%.</>
                   : <>слабая подготовка армии (боеготовность {armyQuality}) <b style={{ color: "#e09090" }}>не сдержала удар</b>, фронт отступил на −{totalPushback}% суммарно.</>}
+                {westernArmsActive && <> <b style={{ color: "#c8a857" }}>Новые западные поставки усиливают контрудары ВСУ.</b></>}
               </div>
             </div>
           );
@@ -1890,12 +1891,12 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
         {/* Контратака ВСУ — та же плашка, что в EndTurnScreen, но уже в превью (значения
             детерминированы тем же сидом, что и confirm — см. computeTerritoryDelta). */}
         {preview.territoryCounterattack && preview.territoryCounterattack.totalPushback > 0 && (() => {
-          const { armyQuality, resistanceIntensity, totalPushback } = preview.territoryCounterattack;
+          const { armyQuality, resistanceIntensity, maxResistanceIntensity, totalPushback, westernArmsActive } = preview.territoryCounterattack;
           const blunted = armyQuality >= 65;
           return (
             <div style={{ marginTop: 10, background: "#161b26", border: `1px solid ${blunted ? "#2a4a30" : "#4a2a2a"}`, borderRadius: 4, padding: "8px 10px" }}>
               <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: blunted ? "#7fae93" : "#c47a7a" }}>
-                🇺🇦 ВСУ контратакует (интенсивность {resistanceIntensity}/3)
+                🇺🇦 ВСУ контратакует (интенсивность {resistanceIntensity}/{maxResistanceIntensity ?? 3}){westernArmsActive ? " · западное вооружение" : ""}
               </span>
               <div className="doc-font" style={{ fontSize: 11.5, color: "#a8adba", marginTop: 2 }}>
                 {blunted
@@ -1905,6 +1906,24 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
             </div>
           );
         })()}
+        {/* Эскалация "западное вооружение" (2026-07-11) — предупреждение ДО подтверждения, если
+            этот ход запускает поставку нового вооружения ВСУ (см. checkWesternArmsEscalation,
+            детерминировано тем же сидом, что и confirm). */}
+        {preview.westernArmsEscalation?.triggered && (
+          <div style={{ marginTop: 10, background: "#241a10", border: "1px solid #6a4a20", borderRadius: 4, padding: "8px 10px" }}>
+            <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: "#e0a857" }}>
+              ⚠ Запад поставляет новое вооружение ВСУ
+            </span>
+            <div className="doc-font" style={{ fontSize: 11.5, color: "#a8adba", marginTop: 2 }}>
+              Серия безуспешных контратак ВСУ при подавляющем перевесе вашей армии — партнёры Украины усиливают её обороноспособность. Следующие контратаки будут ощутимо жёстче.
+            </div>
+          </div>
+        )}
+        {!preview.westernArmsEscalation?.triggered && (preview.westernArmsEscalation?.newStreak ?? 0) > 0 && (
+          <div className="mono-font" style={{ marginTop: 6, fontSize: 9.5, color: "#8a7a5a", letterSpacing: "0.04em" }}>
+            🇺🇦 ВСУ на грани получения нового вооружения от Запада ({preview.westernArmsEscalation.newStreak}/2 провальных контратак подряд)
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
