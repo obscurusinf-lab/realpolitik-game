@@ -223,8 +223,9 @@ function computeGameScore(stats, outcome) {
   };
 }
 
-const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP, UKRAINE_FULL_SYMMETRY, rollExposure } = require("../rules/rules-engine");
+const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, checkWesternArmsEscalation, WESTERN_ARMS_ARMY_BOOST, WESTERN_ARMS_SUPPORT_BOOST, WESTERN_ARMS_PERK_TURNS, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP, UKRAINE_FULL_SYMMETRY, rollExposure } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
+const { decideAiCounterattack, isEnabled: isEnabledUkraineAi } = require("../ai/ukraine-counterattack-ai");
 
 // Варианты ответа на "реакцию мира" (Петя: "варианты ответа однотипные... пусть будут
 // вариативными") — раньше фронт брал 3 фиксированных шаблона из статичной таблицы
@@ -260,7 +261,13 @@ const TERRITORY_REGION_ADJ = {
 // вследствие моей мощной армии ВСУ обламываются — чтоб я получал отдачу от укрепления армии".
 function describeCounterattack(counterattack) {
   if (!counterattack || !counterattack.totalPushback) return null;
-  const { armyQuality, resistanceIntensity, totalPushback } = counterattack;
+  const { armyQuality, resistanceIntensity, maxResistanceIntensity, totalPushback, westernArmsActive, aiDriven, aiNarrative } = counterattack;
+  // Экспериментальный ИИ-противник (см. ukraine-counterattack-ai.js) — если решение принял ИИ,
+  // показываем его собственное объяснение вместо формульного "tier"-текста ниже. Fallback на
+  // обычный текст, если narrative почему-то пуст (не должно случаться, но не блокирует показ).
+  if (aiDriven && aiNarrative) {
+    return `${aiNarrative} (суммарный откат фронта −${totalPushback}%.)`;
+  }
   const tier = armyQuality >= 80
     ? "элитная подготовка армии почти полностью гасит контратаки"
     : armyQuality >= 65
@@ -268,7 +275,8 @@ function describeCounterattack(counterattack) {
     : armyQuality >= 50
     ? "средняя подготовка армии частично сдерживает контратаки"
     : "слабая подготовка армии не сдерживает контратаки";
-  return `ВСУ пытались контратаковать (интенсивность ${resistanceIntensity}/3, боеготовность войск ${armyQuality}) — ${tier}: суммарный откат фронта −${totalPushback}%.`;
+  const armsNote = westernArmsActive ? " Западное вооружение усиливает удар ВСУ." : "";
+  return `ВСУ пытались контратаковать (интенсивность ${resistanceIntensity}/${maxResistanceIntensity ?? 3}, боеготовность войск ${armyQuality}) — ${tier}: суммарный откат фронта −${totalPushback}%.${armsNote}`;
 }
 
 // Вычисляет новую дату игры (+1 месяц в обычном режиме, +2 недели в кризисном)
@@ -1279,6 +1287,29 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       regenInitiative: !previewMultiAction,
     });
 
+    // Экспериментальный ИИ-противник (см. ai/ukraine-counterattack-ai.js, тумблер
+    // UKRAINE_AI_COUNTERATTACK_ENABLED) — решение принимается ОДИН раз здесь, в preview, и
+    // кешируется в pendingTurnStore ниже, чтобы /turns/confirm переиспользовал ТОТ ЖЕ ответ
+    // вместо повторного (и неизбежно другого) вызова модели — иначе превью разошлось бы с
+    // итогом хода. Выключено по умолчанию — тогда aiCounterattackDecision всегда null и
+    // computeTerritoryDelta ведёт себя ровно как раньше.
+    let aiCounterattackDecision = null;
+    if (isEnabledUkraineAi() && CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type)) {
+      const armyQualityForAi = Math.round(((previewNewStats.army_morale ?? 50) + (previewNewStats.readiness ?? 50) + (previewNewStats.veterans ?? 50)) / 3);
+      const resistanceIntensityForAi = Math.max(1, Math.round(3 - (armyQualityForAi - 50) / 20)) + ((previewNewStats.perk_ua_western_arms_turns ?? 0) > 0 ? 1 : 0);
+      aiCounterattackDecision = await decideAiCounterattack({
+        ruStats: previewNewStats,
+        uaStats: previewNewStats,
+        armyQuality: armyQualityForAi,
+        resistanceIntensity: resistanceIntensityForAi,
+        recentMoves: [],
+        gameId, turnNumber: nextTurnNumber,
+        callClaudeApi,
+        meta: { gameId, playerId: payload.userId, purpose: "ukraine_counterattack_ai" },
+        language: game.language,
+      });
+    }
+
     // Территориальный прогноз — тот же computeTerritoryDelta, что и /turns/confirm, с тем же
     // сидом (gameId:turnNumber:action_type) и от ТЕХ ЖЕ статов после applyTurn (army_morale/
     // readiness/equipment/veterans могли уже сдвинуться от самого указа) — поэтому цифры здесь
@@ -1289,6 +1320,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       severity: gmClassification.severity,
       actionMode,
       gameId, turnNumber: nextTurnNumber,
+      aiCounterattack: aiCounterattackDecision,
     });
     for (const [key, d] of Object.entries(territoryDeltasPreview)) {
       statDeltas[key] = (statDeltas[key] ?? 0) + d;
@@ -1297,12 +1329,18 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       statDeltas.army_morale = (statDeltas.army_morale ?? 0) + territoryMoraleDeltaPreview;
     }
 
+    // Эскалация "западное вооружение" (см. rules-engine.js) — превью только ПОКАЗЫВАЕТ игроку,
+    // что этот ход приближает/запускает эскалацию, ничего не пишет в БД (как и весь остальной
+    // preview). Детерминировано тем же сидом, что и confirm, поэтому цифры совпадут 1:1.
+    const westernArmsEscalationPreview = checkWesternArmsEscalation(previewNewStats, territoryCounterattackPreview);
+
     await pendingTurnStore.save(gameId, {
       gmClassification,
       turnNumber: nextTurnNumber,
       statsAfterDelayed,
       remainingEffects,
       actionMode,
+      aiCounterattackDecision,
     });
 
     return reply.send({
@@ -1313,6 +1351,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       statDeltasPreview: statDeltas,
       relationDeltasPreview: relationDeltas,
       territoryCounterattack: territoryCounterattackPreview || null,
+      westernArmsEscalation: westernArmsEscalationPreview,
       gmActionType: gmClassification.action_type,
       corruptionLeak: statDeltas._corruption_leak || 0,
       militaryStreak: typeof statDeltas.military_streak === "number" ? statDeltas.military_streak : null,
@@ -1420,12 +1459,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // сид, что использует /turns/preview, поэтому цифры совпадают 1:1 с превью).
       let confirmedTerritoryCounterattack = null;
       {
+        // aiCounterattackDecision — переиспользуем РЕШЕНИЕ, принятое (или не принятое, если
+        // тумблер выключен/не offensive) один раз в /turns/preview, а не вызываем ИИ повторно
+        // (см. комментарий в preview-роуте и ai/ukraine-counterattack-ai.js).
         const { deltas: territoryDeltas, moraleDelta: territoryMoraleDelta, counterattack: territoryCounterattack } = computeTerritoryDelta({
           stats: newStats,
           action_type: gmClassification.action_type,
           severity: gmClassification.severity,
           actionMode: pendingActionMode,
           gameId, turnNumber,
+          aiCounterattack: pending.aiCounterattackDecision || null,
         });
         for (const [key, d] of Object.entries(territoryDeltas)) {
           newStats[key] = Math.max(0, Math.min(100, (newStats[key] ?? 50) + d));
@@ -1459,6 +1502,27 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           }
         }
         confirmedTerritoryCounterattack = territoryCounterattack || null;
+
+        // Эскалация "западное вооружение" (2026-07-11, Петя: "усложнить добычу военной победы") —
+        // см. checkWesternArmsEscalation в rules-engine.js. Стрик пишется ТОЛЬКО на боевых ходах
+        // (territoryCounterattack != null для не-offensive), иначе прогресс streak не трогаем —
+        // дипломатия/экономика между наступлениями не должны сбрасывать давление на Украину.
+        if (territoryCounterattack) {
+          const escalation = checkWesternArmsEscalation(newStats, territoryCounterattack);
+          newStats.ua_failed_counterattack_streak = escalation.newStreak;
+          if (escalation.triggered) {
+            newStats.ua_army = Math.min(100, (newStats.ua_army ?? 65) + WESTERN_ARMS_ARMY_BOOST);
+            newStats.ua_west_support = Math.min(100, (newStats.ua_west_support ?? 75) + WESTERN_ARMS_SUPPORT_BOOST);
+            newStats.perk_ua_western_arms_turns = WESTERN_ARMS_PERK_TURNS;
+            newStats.ua_western_arms_shipments = escalation.shipmentNumber;
+            await client.query(
+              `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+              [gameId, turnNumber, "news", "Разведка",
+                `Западные партнёры Украины объявили о поставке новой партии вооружения (пакет №${escalation.shipmentNumber}) — после серии безуспешных контратак ВСУ получает существенное усиление обороноспособности. Ожидайте более жёсткого сопротивления на фронте.`,
+                JSON.stringify([{ tone: "neg", user: "Военный аналитик", text: "Затяжная война снова получает новый виток — лёгкой прогулки не будет." }])]
+            );
+          }
+        }
       }
       // --- конец территорий ---
 
@@ -2494,6 +2558,12 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.economy = Math.min(100, (newStats.economy ?? 50) + 2);
         economyAutoEffects.push({ label: "Инвестиция профицита казны", delta: 2 });
         newStats.perk_investment_boost_turns -= 1;
+      }
+      // Западное вооружение для ВСУ (см. checkWesternArmsEscalation, rules-engine.js) — сам эффект
+      // (усиленная контратака) читается внутри computeTerritoryDelta по факту наступления игрока,
+      // здесь только тикает счётчик оставшихся ходов, как у остальных perk_*_turns.
+      if ((newStats.perk_ua_western_arms_turns ?? 0) > 0) {
+        newStats.perk_ua_western_arms_turns -= 1;
       }
 
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.
