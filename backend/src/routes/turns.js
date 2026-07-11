@@ -253,6 +253,24 @@ const TERRITORY_REGION_ADJ = {
   kharkiv_control: "Харьковское",
 };
 
+// Описание контратаки ВСУ для "сводки с фронта" — раньше пушбэк ВСУ смешивался с наступательным
+// приростом в ОДНО неттo-число (см. computeTerritoryDelta/counterattack в rules-engine.js), из-за
+// чего игрок с сильной армией вообще не видел, что противник пытался контратаковать — просто
+// видел чуть меньший плюс. Петя, 2026-07-11: "должно быть окно о том, что она контратакует, но
+// вследствие моей мощной армии ВСУ обламываются — чтоб я получал отдачу от укрепления армии".
+function describeCounterattack(counterattack) {
+  if (!counterattack || !counterattack.totalPushback) return null;
+  const { armyQuality, resistanceIntensity, totalPushback } = counterattack;
+  const tier = armyQuality >= 80
+    ? "элитная подготовка армии почти полностью гасит контратаки"
+    : armyQuality >= 65
+    ? "хорошая подготовка армии ослабляет контратаки"
+    : armyQuality >= 50
+    ? "средняя подготовка армии частично сдерживает контратаки"
+    : "слабая подготовка армии не сдерживает контратаки";
+  return `ВСУ пытались контратаковать (интенсивность ${resistanceIntensity}/3, боеготовность войск ${armyQuality}) — ${tier}: суммарный откат фронта −${totalPushback}%.`;
+}
+
 // Вычисляет новую дату игры (+1 месяц в обычном режиме, +2 недели в кризисном)
 function advanceGameDate(currentDateStr, crisisMode) {
   try {
@@ -1265,7 +1283,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // сидом (gameId:turnNumber:action_type) и от ТЕХ ЖЕ статов после applyTurn (army_morale/
     // readiness/equipment/veterans могли уже сдвинуться от самого указа) — поэтому цифры здесь
     // 1:1 совпадут с тем, что реально применится при подтверждении.
-    const { deltas: territoryDeltasPreview, moraleDelta: territoryMoraleDeltaPreview } = computeTerritoryDelta({
+    const { deltas: territoryDeltasPreview, moraleDelta: territoryMoraleDeltaPreview, counterattack: territoryCounterattackPreview } = computeTerritoryDelta({
       stats: previewNewStats,
       action_type: gmClassification.action_type,
       severity: gmClassification.severity,
@@ -1294,6 +1312,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       advisorObjection: gmClassification.advisor_objection,
       statDeltasPreview: statDeltas,
       relationDeltasPreview: relationDeltas,
+      territoryCounterattack: territoryCounterattackPreview || null,
       gmActionType: gmClassification.action_type,
       corruptionLeak: statDeltas._corruption_leak || 0,
       militaryStreak: typeof statDeltas.military_streak === "number" ? statDeltas.military_streak : null,
@@ -1399,8 +1418,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       // Наступательные операции продвигают фронт, peace/diplomacy могут фиксировать или уступать
       // территории. Логика вынесена в rules-engine.js (computeTerritoryDelta, seeded — тот же
       // сид, что использует /turns/preview, поэтому цифры совпадают 1:1 с превью).
+      let confirmedTerritoryCounterattack = null;
       {
-        const { deltas: territoryDeltas, moraleDelta: territoryMoraleDelta } = computeTerritoryDelta({
+        const { deltas: territoryDeltas, moraleDelta: territoryMoraleDelta, counterattack: territoryCounterattack } = computeTerritoryDelta({
           stats: newStats,
           action_type: gmClassification.action_type,
           severity: gmClassification.severity,
@@ -1417,20 +1437,28 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         }
         // Сводка с фронта — что взято, что отдано контратакой. Только для боевых категорий
         // (Петя попросил видеть исход наступлений/обороны в ленте, а не только в цифрах статов).
+        // Плюс отдельная строка про саму попытку контратаки ВСУ (см. describeCounterattack) —
+        // раньше пушбэк был виден только если он делал НЕТТО по конкретному ключу отрицательным,
+        // при сильной армии игрок вообще не видел, что противник пытался ответить.
         if (CATEGORY_GROUP.military_combat.has(gmClassification.action_type)) {
           const nonZero = Object.entries(territoryDeltas).filter(([, d]) => d);
-          if (nonZero.length > 0) {
+          const counterattackNote = describeCounterattack(territoryCounterattack);
+          if (nonZero.length > 0 || counterattackNote) {
             const parts = nonZero.map(([key, d]) => {
               const adj = TERRITORY_REGION_ADJ[key] || key;
               return d > 0 ? `${adj} направление: +${d}%` : `${adj} направление: ${d}% (контратака ВСУ)`;
             });
+            const text = counterattackNote
+              ? `Сводка с фронта: ${parts.join("; ")}. ${counterattackNote}`
+              : `Сводка с фронта: ${parts.join("; ")}.`;
             await client.query(
               `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
-              [gameId, turnNumber, "news", "Генштаб", `Сводка с фронта: ${parts.join("; ")}.`,
+              [gameId, turnNumber, "news", "Генштаб", text,
                 JSON.stringify([{ stat_delta: Object.fromEntries(nonZero) }])]
             );
           }
         }
+        confirmedTerritoryCounterattack = territoryCounterattack || null;
       }
       // --- конец территорий ---
 
@@ -1831,6 +1859,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         narrative: gmClassification.narrative,
         statDeltas,
         relationDeltas,
+        territoryCounterattack: confirmedTerritoryCounterattack,
         newStats,
         newRelations,
         gameOutcome: gameOutcome || null,

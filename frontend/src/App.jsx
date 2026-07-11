@@ -36,6 +36,16 @@ function mergeRelationDeltas(actionsWithDeltas) {
   return Object.values(merged);
 }
 
+// Месяц может содержать несколько указов, но военный лимит — 1 боевая операция/мес (см.
+// military_used_this_month в turns.js), поэтому в actionsWithDeltas максимум один элемент
+// реально несёт territoryCounterattack — берём первый непустой.
+function pickTerritoryCounterattack(actionsWithDeltas) {
+  for (const action of actionsWithDeltas) {
+    if (action.territoryCounterattack) return action.territoryCounterattack;
+  }
+  return null;
+}
+
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   const [phase, setPhase] = useState(0); // 0=action, 1=stats, 2=world, 3=done
@@ -271,6 +281,26 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
                     <CountryFlag name={r.country} size={12} />{r.country} {r.delta > 0 ? "+" : ""}{r.delta}
                   </span>
                 ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Контратака ВСУ на наступление — раньше пушбэк ВСУ смешивался с наступательным
+            приростом в одно неттo-число по каждому направлению, из-за чего при сильной армии
+            игрок вообще не видел, что противник пытался ответить (Петя, 2026-07-11: "должно
+            быть окно о том, что она контратакует, но вследствие моей мощной армии ВСУ
+            обламываются — чтоб я получал отдачу от укрепления армии"). */}
+        {phase >= 1 && turnResult?.territoryCounterattack && turnResult.territoryCounterattack.totalPushback > 0 && (() => {
+          const { armyQuality, resistanceIntensity, totalPushback } = turnResult.territoryCounterattack;
+          const blunted = armyQuality >= 65;
+          return (
+            <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: `3px solid ${blunted ? "#5a9c6a" : "#8c4a2a"}`, borderRadius: 6, padding: "14px 18px", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8, letterSpacing: "0.1em" }}>🇺🇦 КОНТРАТАКА ВСУ</div>
+              <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55, color: "#ece7d8" }}>
+                ВСУ попытались контратаковать (интенсивность {resistanceIntensity}/3) — {blunted
+                  ? <>подготовка вашей армии (боеготовность {armyQuality}) <b style={{ color: "#7fae93" }}>сдержала удар</b>, суммарный откат фронта всего −{totalPushback}%.</>
+                  : <>слабая подготовка армии (боеготовность {armyQuality}) <b style={{ color: "#e09090" }}>не сдержала удар</b>, фронт отступил на −{totalPushback}% суммарно.</>}
               </div>
             </div>
           );
@@ -1857,6 +1887,24 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
             (econNotes.total) — не повторяется под каждым статом ниже, это и было главным
             источником "перегруженности" (Петя, 2026-07-07). */}
         <PrimarySecondaryDeltas deltas={deltas} current={currentStats} showSecondary={showSecondary} toggleSecondary={() => setShowSecondary(v => !v)} />
+        {/* Контратака ВСУ — та же плашка, что в EndTurnScreen, но уже в превью (значения
+            детерминированы тем же сидом, что и confirm — см. computeTerritoryDelta). */}
+        {preview.territoryCounterattack && preview.territoryCounterattack.totalPushback > 0 && (() => {
+          const { armyQuality, resistanceIntensity, totalPushback } = preview.territoryCounterattack;
+          const blunted = armyQuality >= 65;
+          return (
+            <div style={{ marginTop: 10, background: "#161b26", border: `1px solid ${blunted ? "#2a4a30" : "#4a2a2a"}`, borderRadius: 4, padding: "8px 10px" }}>
+              <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: blunted ? "#7fae93" : "#c47a7a" }}>
+                🇺🇦 ВСУ контратакует (интенсивность {resistanceIntensity}/3)
+              </span>
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#a8adba", marginTop: 2 }}>
+                {blunted
+                  ? `Боеготовность вашей армии (${armyQuality}) сдержит удар — суммарный откат фронта всего −${totalPushback}%.`
+                  : `Слабая подготовка армии (${armyQuality}) не сдержит удар — фронт отступит на −${totalPushback}%.`}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
@@ -2647,6 +2695,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         // фронте не читалась — игрок видел "ничего не произошло" в статах, хотя отношения с
         // несколькими странами реально рушились (Петя: "сделай результат более заметным").
         relationDeltas: confirmResult?.relationDeltas || [],
+        // Контратака ВСУ на наступление — null для не-военных категорий (см. describeCounterattack
+        // в turns.js / counterattack в computeTerritoryDelta rules-engine.js).
+        territoryCounterattack: confirmResult?.territoryCounterattack || null,
       };
       setLastActionResult(confirmedActionResult);
       if (state?.multiActionTurns) setMonthActions(prev => [...prev, confirmedActionResult]);
@@ -2834,6 +2885,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           actualPrevStats: monthActions[0]?.actualPrevStats,
           statChangelog: null,
           relationDeltas: mergeRelationDeltas(monthActions),
+          territoryCounterattack: pickTerritoryCounterattack(monthActions),
         });
         setLastActionResult(null);
         setMonthActions([]);

@@ -634,6 +634,7 @@ function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameI
   // --- Украинское сопротивление при наступлении ---
   // Каждый offensive — ВСУ и союзники контратакуют: случайный откат 1-3 территорий
   let moraleDelta = 0;
+  let counterattack = null;
   if (isOffensiveLike) {
     // Опытные части лучше держат удар при контратаке — тоже снижает интенсивность отката.
     const armyQuality = ((stats.army_morale ?? 50) + (stats.readiness ?? 50) + (stats.veterans ?? 50)) / 3;
@@ -651,13 +652,26 @@ function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameI
       .sort((a, b) => a.score - b.score)
       .slice(0, numContested)
       .map(x => x.k);
+    // Пушбэк по каждому ключу считаем ДО того как он смешается с наступательным приростом того
+    // же ключа в next[] — иначе игрок видит только НЕТТО-число (прирост минус откат) и не может
+    // понять, что армия вообще отбивала контратаку (Петя, 2026-07-11: "должно быть окно о том,
+    // что она контратакует, но вследствие моей мощной армии ВСУ обламываются — чтоб я получал
+    // отдачу от укрепления армии").
+    const pushbackByKey = {};
     for (const key of shuffled) {
       const current = get(key, 0);
       const pushback = Math.round(1 + seededFraction(seed + ":pushback:" + key) * resistanceIntensity);
+      pushbackByKey[key] = pushback;
       next[key] = Math.max(0, current - pushback);
     }
     // Потери от боёв: армейский моральный откат
     moraleDelta = -Math.round(1 + seededFraction(seed + ":morale") * 3);
+    counterattack = {
+      armyQuality: Math.round(armyQuality),
+      resistanceIntensity,
+      pushbackByKey,
+      totalPushback: Object.values(pushbackByKey).reduce((a, b) => a + b, 0),
+    };
   }
 
   const deltas = {};
@@ -665,7 +679,7 @@ function computeTerritoryDelta({ stats, action_type, severity, actionMode, gameI
     const before = stats[key] ?? 50;
     if (val !== before) deltas[key] = val - before;
   }
-  return { deltas, moraleDelta };
+  return { deltas, moraleDelta, counterattack };
 }
 
 /**
