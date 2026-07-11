@@ -20,6 +20,22 @@ function KremlinStarIcon({ size = 24 }) {
   );
 }
 
+// Сводит relationDeltas НЕСКОЛЬКИХ указов месяца в одну запись на страну (сумма дельт, before
+// первого появления, after последнего) — для агрегированной "Сводки хода" в конце месяца.
+function mergeRelationDeltas(actionsWithDeltas) {
+  const merged = {};
+  for (const action of actionsWithDeltas) {
+    for (const rd of action.relationDeltas || []) {
+      if (!merged[rd.country]) merged[rd.country] = { country: rd.country, before: rd.before, after: rd.after, delta: rd.delta };
+      else {
+        merged[rd.country].delta += rd.delta;
+        merged[rd.country].after = rd.after;
+      }
+    }
+  }
+  return Object.values(merged);
+}
+
 // ---------- EndTurnScreen ----------
 function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
   const [phase, setPhase] = useState(0); // 0=action, 1=stats, 2=world, 3=done
@@ -237,6 +253,28 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
             })()}
           </div>
         )}
+
+        {/* Реакция других стран — раньше relationDeltas приходили с бэкенда, но нигде во фронте
+            не читались: игрок видел, что 4 основных стата почти не сдвинулись (типично для
+            diplo_*-указов), и решал, что указ "ничего не сделал", хотя отношения с несколькими
+            странами реально рушились. Компактная сводка сразу под статами — детали по-прежнему
+            во вкладке «Отношения», это не замена, а быстрый анонс (Петя: "сделай результат
+            более заметным"). */}
+        {phase >= 1 && Array.isArray(turnResult?.relationDeltas) && turnResult.relationDeltas.filter(r => r.delta !== 0).length > 0 && (() => {
+          const changed = [...turnResult.relationDeltas.filter(r => r.delta !== 0)].sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+          return (
+            <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 18px", marginBottom: 14 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 10, letterSpacing: "0.1em" }}>РЕАКЦИЯ ДРУГИХ СТРАН · {changed.length}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {changed.map((r, i) => (
+                  <span key={i} className="mono-font" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, padding: "4px 8px", borderRadius: 4, background: "#1f2733", color: r.delta > 0 ? "#7fae93" : "#e09090" }}>
+                    <CountryFlag name={r.country} size={12} />{r.country} {r.delta > 0 ? "+" : ""}{r.delta}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Фаза 3: мировые события */}
         {phase >= 2 && (
@@ -2591,6 +2629,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         // Исход раскрытия тайной операции — известен ТОЛЬКО сейчас, после confirm
         // (см. revealCovertOutcome в rules-engine.js). undefined для не-шпионских категорий.
         covertExposed: confirmResult?.covertExposed,
+        // Реакция других стран (relationDeltas) раньше уходила в /turns/confirm, но нигде во
+        // фронте не читалась — игрок видел "ничего не произошло" в статах, хотя отношения с
+        // несколькими странами реально рушились (Петя: "сделай результат более заметным").
+        relationDeltas: confirmResult?.relationDeltas || [],
       };
       setLastActionResult(confirmedActionResult);
       if (state?.multiActionTurns) setMonthActions(prev => [...prev, confirmedActionResult]);
@@ -2777,6 +2819,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           gmActionType: monthActions.length > 0 ? monthActions[monthActions.length - 1].gmActionType : undefined,
           actualPrevStats: monthActions[0]?.actualPrevStats,
           statChangelog: null,
+          relationDeltas: mergeRelationDeltas(monthActions),
         });
         setLastActionResult(null);
         setMonthActions([]);

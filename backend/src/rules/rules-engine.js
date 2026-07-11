@@ -790,6 +790,26 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
     }
   }
 
+  // ВТОРИЧНАЯ КАТЕГОРИЯ: ИИ иногда распознаёт, что ход несёт доп. характер сверх основной
+  // категории (напр. дипломатический ультиматум Украине с реальной военной угрозой —
+  // action_type=diplo_pressure, secondary_category=mil_strategic_offensive), но раньше это
+  // поле нигде не влияло на статы — только на текст нарратива (Петя: "усиль эффект"). Теперь
+  // накладываем ослабленную (35%) дельту вторичной категории поверх основной — независимый
+  // детерминированный бросок (свой сид), без штрафов усталости/коррупции основного цикла
+  // (это лёгкий довесок, не полноценное второе действие).
+  const secondaryCategory = gmClassification.secondary_category;
+  if (secondaryCategory && secondaryCategory !== action_type && action_type !== "nuclear_strike" && RULES_TABLE[secondaryCategory]) {
+    const SECONDARY_WEIGHT = 0.35;
+    const secondarySeed = `${seed}:secondary`;
+    for (const stat of Object.keys(MAX_DELTA_PER_TURN)) {
+      if (stat === "peace_progress") continue;
+      const secDelta = Math.round(computeStatDelta({ category: secondaryCategory, stat, severity, seed: secondarySeed }) * SECONDARY_WEIGHT);
+      if (!secDelta) continue;
+      statDeltas[stat] = (statDeltas[stat] ?? 0) + secDelta;
+      newStats[stat] = applyClamped(newStats[stat], secDelta);
+    }
+  }
+
   // ШПИОНАЖ: exposure_risk — раскрытие тайной операции (covert_*). Обычные дельты выше
   // уже применены как «операция состоялась» — здесь добавляется ШТРАФ ПОВЕРХ них,
   // если бросок (seeded) попал в диапазон риска, заявленного ИИ.
