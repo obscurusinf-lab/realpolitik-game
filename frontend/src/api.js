@@ -370,6 +370,19 @@ export async function convertReserves(gameId) {
   return res.json();
 }
 
+export async function bankSurplus(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/bank-surplus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: "{}",
+  }, 10000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Ошибка отложения профицита в резервы");
+  }
+  return res.json();
+}
+
 export async function toggleFxRegime(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/toggle-fx-regime`, {
     method: "POST",
