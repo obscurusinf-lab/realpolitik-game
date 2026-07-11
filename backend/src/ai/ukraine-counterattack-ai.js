@@ -2,9 +2,11 @@
  * ukraine-counterattack-ai.js
  *
  * ЭКСПЕРИМЕНТАЛЬНАЯ фича (2026-07-11, Петя: "хочу для теста посмотреть, каково это — живой
- * противник с ИИ, с возможностью отключить"). Тумблер: UKRAINE_AI_COUNTERATTACK_ENABLED=true
- * в .env — по умолчанию ВЫКЛЮЧЕНО, поведение полностью совпадает с прежним детерминированным
- * расчётом (computeTerritoryDelta без aiCounterattack).
+ * противник с ИИ, с возможностью отключить"). Тумблер живёт в БД (app_settings, ключ
+ * 'ukraine_ai_counterattack_enabled') — переключается из админки БЕЗ редеплоя (не env-переменная,
+ * та использовалась в первой версии этой фичи, потом заменена по просьбе Пети). По умолчанию
+ * (нет строки в app_settings) — ВЫКЛЮЧЕНО, поведение полностью совпадает с прежним
+ * детерминированным расчётом (computeTerritoryDelta без aiCounterattack).
  *
  * Что решает: КУДА и НАСКОЛЬКО СИЛЬНО контратакует ВСУ после наступления игрока — раньше это
  * была чистая формула от armyQuality (см. rules-engine.js). Теперь, если включено, Haiku
@@ -23,7 +25,9 @@
  */
 
 const { TERRITORY_KEYS } = require("../rules/rules-engine");
+const { getBoolSetting } = require("../lib/app-settings");
 
+const SETTING_KEY = "ukraine_ai_counterattack_enabled";
 const MAX_PUSHBACK_PER_KEY = 6;   // разумный потолок — не сильно выше детерминированного максимума (resistanceIntensity+1, обычно ≤4)
 const MAX_TOTAL_PUSHBACK = 15;    // защита от одного катастрофического хода, даже если ИИ разошёлся
 const MAX_CONTESTED_KEYS = 4;     // из 5 фронтов — не может задеть все сразу
@@ -48,12 +52,12 @@ function extractJsonObject(text) {
   throw new Error("Unbalanced JSON object in response");
 }
 
-function isEnabled() {
-  return process.env.UKRAINE_AI_COUNTERATTACK_ENABLED === "true";
+async function isEnabled(db) {
+  return getBoolSetting(db, SETTING_KEY, false);
 }
 
-async function decideAiCounterattack({ ruStats, uaStats, armyQuality, resistanceIntensity, recentMoves, gameId, turnNumber, callClaudeApi, meta, language }) {
-  if (!isEnabled()) return null;
+async function decideAiCounterattack({ db, ruStats, uaStats, armyQuality, resistanceIntensity, recentMoves, gameId, turnNumber, callClaudeApi, meta, language }) {
+  if (!(await isEnabled(db))) return null;
 
   try {
     const movesText = (recentMoves || []).length > 0
@@ -123,4 +127,4 @@ ${movesText}
   }
 }
 
-module.exports = { decideAiCounterattack, isEnabled: isEnabled };
+module.exports = { decideAiCounterattack, isEnabled, SETTING_KEY };

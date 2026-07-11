@@ -1487,6 +1487,63 @@ function AdminTabRetention({ pwd }) {
   );
 }
 
+// Глобальные тумблеры (2026-07-11, Петя: "перенести тумблер ИИ-противника в админку, без
+// редеплоя") — app_settings в БД, список тумблеров задан на бэкенде (KNOWN_SETTINGS в
+// admin.js), фронт просто рендерит то, что вернул /admin/settings, не хардкодит список сам.
+function AdminTabSettings({ pwd }) {
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [toggling, setToggling] = useState(null); // key текущего переключаемого тумблера
+
+  function load() {
+    setLoading(true);
+    adm(pwd, "/settings").then(r => r.json()).then(d => setSettings(d.settings || [])).catch(e => setError(e.message)).finally(() => setLoading(false));
+  }
+  useEffect(load, []);
+
+  async function toggle(key, nextEnabled) {
+    setToggling(key);
+    try {
+      await adm(pwd, `/settings/${key}`, { method: "POST", body: JSON.stringify({ enabled: nextEnabled }) });
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setToggling(null);
+    }
+  }
+
+  if (loading) return <div className="mono-font" style={{ fontSize: 11, color: "#5a6070", padding: 20 }}>Загрузка…</div>;
+  if (error) return <div style={{ color: "#e09090", fontSize: 13, padding: 20 }}>{error}</div>;
+
+  return (
+    <div style={{ padding: "16px 20px", maxWidth: 640 }}>
+      <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 16, letterSpacing: "0.08em" }}>
+        ГЛОБАЛЬНЫЕ ТУМБЛЕРЫ · ДЕЙСТВУЮТ СРАЗУ, БЕЗ РЕДЕПЛОЯ
+      </div>
+      {(!settings || settings.length === 0) && <div className="mono-font" style={{ fontSize: 11, color: "#3a4156" }}>Тумблеров пока нет</div>}
+      {settings?.map(s => (
+        <div key={s.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, padding: "14px 16px", background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, marginBottom: 10 }}>
+          <div>
+            <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: "#ece7d8" }}>{s.label}</div>
+            <div className="doc-font" style={{ fontSize: 12, color: "#5a6070", marginTop: 3 }}>{s.description}</div>
+            {s.updatedAt && (
+              <div className="mono-font" style={{ fontSize: 9, color: "#3a4156", marginTop: 4 }}>
+                Изменено: {new Date(s.updatedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+              </div>
+            )}
+          </div>
+          <button onClick={() => toggle(s.key, !s.enabled)} disabled={toggling === s.key}
+            style={{ flexShrink: 0, width: 52, height: 28, borderRadius: 14, border: "none", cursor: toggling === s.key ? "default" : "pointer", position: "relative", background: s.enabled ? "#5a9c6a" : "#2a3040", opacity: toggling === s.key ? 0.6 : 1, transition: "background 0.15s" }}>
+            <div style={{ position: "absolute", top: 3, left: s.enabled ? 27 : 3, width: 22, height: 22, borderRadius: "50%", background: "#ece7d8", transition: "left 0.15s" }} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Главная админ-панель (полноэкранная страница) ────────────────────────────
 function AdminPanel({ onClose }) {
   const [step, setStep] = useState("auth");
@@ -1505,8 +1562,8 @@ function AdminPanel({ onClose }) {
     } catch (e) { setAuthError(e.message); } finally { setAuthLoading(false); }
   }
 
-  const TABS = [["players","👥 Игроки"],["games","🎮 Партии"],["feedback","🐞 Репорты"],["stats","📊 Статистика"],["funnel","🔻 Воронка"],["retention","🔁 Ретеншен"]];
-  const TABS_MOBILE = [["players","👥"],["games","🎮"],["feedback","🐞"],["stats","📊"],["funnel","🔻"],["retention","🔁"]];
+  const TABS = [["players","👥 Игроки"],["games","🎮 Партии"],["feedback","🐞 Репорты"],["stats","📊 Статистика"],["funnel","🔻 Воронка"],["retention","🔁 Ретеншен"],["settings","⚙ Тумблеры"]];
+  const TABS_MOBILE = [["players","👥"],["games","🎮"],["feedback","🐞"],["stats","📊"],["funnel","🔻"],["retention","🔁"],["settings","⚙"]];
 
   if (step === "auth") return (
     <div style={{ position: "fixed", inset: 0, background: "#1a1f2c", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',Georgia,serif" }}>
@@ -1556,6 +1613,7 @@ function AdminPanel({ onClose }) {
         {tab === "stats"    && <AdminTabStats    pwd={password} />}
         {tab === "funnel"    && <AdminTabFunnel    pwd={password} />}
         {tab === "retention" && <AdminTabRetention pwd={password} />}
+        {tab === "settings" && <AdminTabSettings pwd={password} />}
       </div>
     </div>
   );

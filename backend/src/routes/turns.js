@@ -1294,10 +1294,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // итогом хода. Выключено по умолчанию — тогда aiCounterattackDecision всегда null и
     // computeTerritoryDelta ведёт себя ровно как раньше.
     let aiCounterattackDecision = null;
-    if (isEnabledUkraineAi() && CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type)) {
+    if (CATEGORY_GROUP.military_offensive_like.has(gmClassification.action_type) && await isEnabledUkraineAi(db)) {
       const armyQualityForAi = Math.round(((previewNewStats.army_morale ?? 50) + (previewNewStats.readiness ?? 50) + (previewNewStats.veterans ?? 50)) / 3);
       const resistanceIntensityForAi = Math.max(1, Math.round(3 - (armyQualityForAi - 50) / 20)) + ((previewNewStats.perk_ua_western_arms_turns ?? 0) > 0 ? 1 : 0);
       aiCounterattackDecision = await decideAiCounterattack({
+        db,
         ruStats: previewNewStats,
         uaStats: previewNewStats,
         armyQuality: armyQualityForAi,
