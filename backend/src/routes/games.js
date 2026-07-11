@@ -101,8 +101,16 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const overviewSeed = seed.overview_seed || { headline: "Партия началась.", hotspots: [] };
     const initialPolicies = seed.initial_policies || [];
     const initialNewsfeed = seed.initial_newsfeed || [];
-    // Субметрики из сида перекрывают базовые стат
-    const baseStats = { ...(seed.base_stats || country.base_stats) };
+    // Башни Кремля явно проставляются ПРИ СОЗДАНИИ (Петя, 2026-07-11: "начал новую игру — башни
+    // все счастливы" — ни сид, ни country.base_stats не задают faction_*, а SUBSTAT_DEFAULTS из
+    // rules-engine.js применяется только ВНУТРИ applyTurn, т.е. до первого хода игрока
+    // game_state.stats.faction_* были буквально undefined — фронтенд до первого хода показывал
+    // свой собственный устаревший фолбэк вместо реального стартового значения). FACTION_STARTING_STATS
+    // — асимметричный старт по тому же запросу ("силовики на подъёме, охранители тоже, олигархат
+    // и технократы приуныли"), не равномерный. seed.base_stats/country.base_stats всё ещё могут
+    // переопределить их явно, если когда-нибудь понадобится другой старт для другой страны.
+    const { FACTION_STARTING_STATS } = require("../rules/rules-engine");
+    const baseStats = { ...FACTION_STARTING_STATS, ...(seed.base_stats || country.base_stats) };
 
     const client = await db.connect();
     try {

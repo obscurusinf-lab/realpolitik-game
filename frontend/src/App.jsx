@@ -5776,7 +5776,7 @@ function EndMonthForecastPanel({ stats, policies }) {
       // faction_siloviki, хотя реальная формула в backend/src/routes/turns.js (раздел МЯТЕЖ
       // ЭЛИТ) масштабирует оба числа при низкой лояльности силовиков — панель занижала риск
       // именно тогда, когда он выше всего. Дублируем ТУ ЖЕ формулу здесь для честного прогноза.
-      const silovikiNow = stats.faction_siloviki ?? 65;
+      const silovikiNow = stats.faction_siloviki ?? FACTION_STAT_FALLBACK.faction_siloviki;
       const mutinyChancePct = Math.round((silovikiNow < 30 ? Math.min(0.35, 0.15 + (30 - silovikiNow) * 0.01) : 0.15) * 100);
       const escalatePct = Math.round((silovikiNow < 25 ? 0.75 : 0.55) * 100);
       mechanisms.push({
@@ -7280,6 +7280,11 @@ const FACTION_META = {
   faction_tehnokraty:   { label: "Технократы",   role: "системные либералы, ЦБ",             color: "#5b8ab0", icon: "🕊" },
 };
 const FACTION_ORDER = ["faction_siloviki", "faction_konservatory", "faction_oligarhi", "faction_tehnokraty"];
+// Зеркало FACTION_STARTING_STATS в backend/src/rules/rules-engine.js — используется ТОЛЬКО как
+// защитный фолбэк для очень старых партий, у которых в БД реально нет ключа faction_* (созданных
+// до 2026-07-11). Для новых партий games.js теперь явно проставляет эти же числа при создании,
+// так что фолбэк почти никогда не сработает — но должен совпадать 1:1 с бэкендом, если сработает.
+const FACTION_STAT_FALLBACK = { faction_siloviki: 70, faction_konservatory: 68, faction_oligarhi: 42, faction_tehnokraty: 40 };
 
 // Настроение башни — простая эвристика по абсолютному уровню (не дельта, дельта не всегда
 // доступна на фронте без истории); отражает то же деление на зоны, что и цвет полосы.
@@ -7351,7 +7356,7 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
       <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
         {FACTION_ORDER.map((id) => {
           const meta = FACTION_META[id];
-          const value = stats[id] ?? 65;
+          const value = stats[id] ?? FACTION_STAT_FALLBACK[id];
           const color = value >= 60 ? "#6ec894" : value < 45 ? "#e08080" : "#c8a857";
           const tier = factionDebuffTier(value);
           return (
@@ -7382,7 +7387,7 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
 
       {/* Риск мятежа — отдельный, более редкий механизм поверх обычной лестницы дебаффов
           (см. модуляцию elite_satisfaction-мятежа в turns.js по faction_siloviki < 30). */}
-      {(stats.faction_siloviki ?? 65) < 30 && (
+      {(stats.faction_siloviki ?? FACTION_STAT_FALLBACK.faction_siloviki) < 30 && (
         <div style={{ background: "#241a12", border: "1px solid #5a4020", borderLeft: "4px solid #d99a4e", borderRadius: 6, padding: "11px 14px", marginBottom: 10 }}>
           <div className="mono-font" style={{ fontSize: 9, color: "#d99a4e", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>⚠ Риск мятежа силовиков</div>
           <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#e8d4b8" }}>Помимо ежемесячного давления, растёт и вероятность прямого выступления силовой части элит против центра.</div>
