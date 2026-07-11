@@ -160,7 +160,7 @@ function NewsVideoPanel() {
 
 const GAME_SLOT_LIMIT = 5;
 
-function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onAdminOpen, onLogout, onLeaderboard, onSpectate }) {
+function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onAdminOpen, onLogout, onLeaderboard, onSpectate, initialAuthError = null }) {
   useLang(); // ре-рендер экрана при переключении RU/EN (сам t() — не хук, читает currentLang напрямую)
   const forceDesktop = useForceDesktop(); // "Обычная версия" — форсирует показ .news-panel ниже 900px
   const [rawMobile, setRawMobile] = useState(() => window.innerWidth < 600);
@@ -177,7 +177,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
   const [displayName, setDisplayName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState(null);
+  const [authError, setAuthError] = useState(initialAuthError);
 
   // game start state (shown after auth)
   const [selectedCountry, setSelectedCountry] = useState("RU");
@@ -1805,6 +1805,15 @@ function Root() {
   const [authChecked, setAuthChecked] = useState(false);
   const [myGames, setMyGames] = useState([]);
   const [myGamesLoading, setMyGamesLoading] = useState(false);
+  // "Зомби-сессия" (Петя, 2026-07-11: попытался нанести ядерный удар, получил "Авторизация
+  // требуется" при уже открытой партии со статами на экране) — `game` восстанавливается из
+  // localStorage СИНХРОННО при монтировании (useState(loadActiveGame) выше), а проверка токена
+  // ниже асинхронна и раньше при истёкшем/недействительном токене делала ТОЛЬКО setToken(null),
+  // не трогая ни authUser, ни game — партия продолжала полноценно рендериться, но КАЖДЫЙ следующий
+  // запрос падал с 401, т.к. токена в localStorage уже нет. Игрок видел рабочий экран, который
+  // молча отказывался выполнять любое действие. Новое поле — сообщение для экрана логина, чтобы
+  // объяснить, ПОЧЕМУ его выкинуло, а не просто немой сброс к форме входа.
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(null);
 
   // Verify existing token on mount
   useEffect(() => {
@@ -1817,7 +1826,15 @@ function Root() {
           setAuthUser({ userId: data.id, username: data.username, displayName: data.display_name });
           loadMyGames();
         } else {
+          // Токен недействителен/истёк — полный сброс (не только токен), иначе уже отрисованная
+          // партия (game восстановлен из localStorage синхронно выше) продолжает висеть на
+          // экране в "зомби"-состоянии: выглядит рабочей, но любое действие тут же падает с 401.
           setToken(null);
+          setAuthUser(null);
+          setMyGames([]);
+          saveActiveGame(null);
+          setGame(null);
+          setSessionExpiredNotice(t("start.session_expired"));
         }
       })
       .catch(() => {})
@@ -1901,7 +1918,7 @@ function Root() {
   else if (spectatingGameId) screen = <SpectatorView gameId={spectatingGameId} onBack={() => setSpectatingGameId(null)} />;
   else if (showSpectate) screen = <PublicGamesPage onBack={() => setShowSpectate(false)} onOpen={(id) => setSpectatingGameId(id)} />;
   else if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} showWelcome={game.isNew === true} />;
-  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onNameChanged={handleNameChanged} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} onLeaderboard={() => setShowLeaderboard(true)} onSpectate={() => setShowSpectate(true)} />;
+  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onNameChanged={handleNameChanged} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} onLeaderboard={() => setShowLeaderboard(true)} onSpectate={() => setShowSpectate(true)} initialAuthError={sessionExpiredNotice} />;
 
   return (
     <>
