@@ -296,12 +296,12 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
           const blunted = armyQuality >= 65;
           return (
             <div className="et-fade" style={{ background: "#14181f", border: "1px solid #2a3040", borderLeft: `3px solid ${blunted ? "#5a9c6a" : "#8c4a2a"}`, borderRadius: 6, padding: "14px 18px", marginBottom: 14 }}>
-              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8, letterSpacing: "0.1em" }}>🇺🇦 КОНТРАТАКА ВСУ{westernArmsActive ? " · ЗАПАДНОЕ ВООРУЖЕНИЕ" : ""}</div>
+              <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginBottom: 8, letterSpacing: "0.1em" }}>{t("endturn.counterattack_header")}{westernArmsActive ? ` · ${t("endturn.counterattack_western_arms_tag")}` : ""}</div>
               <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.55, color: "#ece7d8" }}>
-                ВСУ попытались контратаковать (интенсивность {resistanceIntensity}/{maxResistanceIntensity ?? 3}) — {blunted
-                  ? <>подготовка вашей армии (боеготовность {armyQuality}) <b style={{ color: "#7fae93" }}>сдержала удар</b>, суммарный откат фронта всего −{totalPushback}%.</>
-                  : <>слабая подготовка армии (боеготовность {armyQuality}) <b style={{ color: "#e09090" }}>не сдержала удар</b>, фронт отступил на −{totalPushback}% суммарно.</>}
-                {westernArmsActive && <> <b style={{ color: "#c8a857" }}>Новые западные поставки усиливают контрудары ВСУ.</b></>}
+                {t("endturn.counterattack_intro", { n: resistanceIntensity, max: maxResistanceIntensity ?? 3 })} {blunted
+                  ? <>{t("endturn.counterattack_blunted_pre", { q: armyQuality })} <b style={{ color: "#7fae93" }}>{t("endturn.counterattack_blunted_bold")}</b>{t("endturn.counterattack_blunted_post", { n: totalPushback })}</>
+                  : <>{t("endturn.counterattack_weak_pre", { q: armyQuality })} <b style={{ color: "#e09090" }}>{t("endturn.counterattack_weak_bold")}</b>{t("endturn.counterattack_weak_post", { n: totalPushback })}</>}
+                {westernArmsActive && <> <b style={{ color: "#c8a857" }}>{t("endturn.counterattack_western_arms_note")}</b></>}
               </div>
             </div>
           );
@@ -1896,12 +1896,12 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
           return (
             <div style={{ marginTop: 10, background: "#161b26", border: `1px solid ${blunted ? "#2a4a30" : "#4a2a2a"}`, borderRadius: 4, padding: "8px 10px" }}>
               <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: blunted ? "#7fae93" : "#c47a7a" }}>
-                🇺🇦 ВСУ контратакует (интенсивность {resistanceIntensity}/{maxResistanceIntensity ?? 3}){westernArmsActive ? " · западное вооружение" : ""}
+                {t("preview.counterattack_label", { n: resistanceIntensity, max: maxResistanceIntensity ?? 3 })}{westernArmsActive ? ` · ${t("endturn.counterattack_western_arms_tag")}` : ""}
               </span>
               <div className="doc-font" style={{ fontSize: 11.5, color: "#a8adba", marginTop: 2 }}>
                 {blunted
-                  ? `Боеготовность вашей армии (${armyQuality}) сдержит удар — суммарный откат фронта всего −${totalPushback}%.`
-                  : `Слабая подготовка армии (${armyQuality}) не сдержит удар — фронт отступит на −${totalPushback}%.`}
+                  ? t("preview.counterattack_blunted", { q: armyQuality, n: totalPushback })
+                  : t("preview.counterattack_weak", { q: armyQuality, n: totalPushback })}
               </div>
             </div>
           );
@@ -1912,16 +1912,16 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
         {preview.westernArmsEscalation?.triggered && (
           <div style={{ marginTop: 10, background: "#241a10", border: "1px solid #6a4a20", borderRadius: 4, padding: "8px 10px" }}>
             <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: "#e0a857" }}>
-              ⚠ Запад поставляет новое вооружение ВСУ
+              {t("preview.western_arms_triggered_label")}
             </span>
             <div className="doc-font" style={{ fontSize: 11.5, color: "#a8adba", marginTop: 2 }}>
-              Серия безуспешных контратак ВСУ при подавляющем перевесе вашей армии — партнёры Украины усиливают её обороноспособность. Следующие контратаки будут ощутимо жёстче.
+              {t("preview.western_arms_triggered_desc")}
             </div>
           </div>
         )}
         {!preview.westernArmsEscalation?.triggered && (preview.westernArmsEscalation?.newStreak ?? 0) > 0 && (
           <div className="mono-font" style={{ marginTop: 6, fontSize: 9.5, color: "#8a7a5a", letterSpacing: "0.04em" }}>
-            🇺🇦 ВСУ на грани получения нового вооружения от Запада ({preview.westernArmsEscalation.newStreak}/2 провальных контратак подряд)
+            {t("preview.western_arms_streak_note", { n: preview.westernArmsEscalation.newStreak })}
           </div>
         )}
       </div>
@@ -7391,7 +7391,7 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
 
       {/* Коалиционная стабильность */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#141a24", border: "1px solid #2a3040", borderRadius: 5, padding: "8px 12px", marginBottom: 16 }}>
-        <span className="mono-font" style={{ fontSize: 8.5, color: "#7a8294", letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Коалиционная стабильность</span>
+        <span className="mono-font" style={{ fontSize: 8.5, color: "#7a8294", letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("kremlin.coalition_stability_label")}</span>
         <div style={{ display: "flex", gap: 4 }}>
           {[0, 1, 2, 3, 4].map(i => (
             <div key={i} style={{ width: 14, height: 6, borderRadius: 2, background: i < coalition ? "#c8a857" : "#2a3040" }} />
@@ -7557,23 +7557,23 @@ function FactionDilemmaScreen({ dilemma, gameId, onDone }) {
   return (
     <div style={overlayStyle}>
       <div style={{ maxWidth: 560, width: "100%" }}>
-        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#c8a857", marginBottom: 16, textAlign: "center" }}>🏛 КРЕМЛЁВСКИЕ БАШНИ ТРЕБУЮТ РЕШЕНИЯ</div>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#c8a857", marginBottom: 16, textAlign: "center" }}>{t("kremlin.dilemma_screen_header")}</div>
         {!resolveResult ? (
           <FactionDilemmaCard dilemmaId={dilemma.id} onChoose={handleChoice} resolving={resolving} error={resolveError} />
         ) : (
           <div style={{ background: "#12241a", border: "1px solid #2a5a3a", borderRadius: 6, padding: "14px 16px" }}>
-            <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>Решение принято</div>
+            <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>{t("kremlin.dilemma_resolved")}</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
               {Object.entries(resolveResult.statDeltas)
                 .filter(([k, v]) => v && !k.startsWith("perk_") && k !== "coalition_milestone_reached")
                 .map(([k, v]) => (
                   <span key={k} className="mono-font" style={{ fontSize: 11, color: v > 0 ? "#7fae93" : "#e09090" }}>
-                    {FACTION_META[k]?.label || ALL_STAT_LABELS[k] || (k === "coalition_stability" ? "Коалиционная стабильность" : k)}: {v > 0 ? "+" : ""}{v}
+                    {FACTION_META[k]?.label || ALL_STAT_LABELS[k] || (k === "coalition_stability" ? t("kremlin.coalition_stability_label") : k)}: {v > 0 ? "+" : ""}{v}
                   </span>
                 ))}
             </div>
             <button onClick={onDone} style={{ background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 5, padding: "9px 20px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              Продолжить →
+              {t("kremlin.dilemma_continue")}
             </button>
           </div>
         )}
