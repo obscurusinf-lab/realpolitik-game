@@ -2947,7 +2947,27 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const rawMobile = useRawIsMobile();
 
   if (!loaded) return <CenteredMessage text="Загрузка партии…" />;
-  if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
+  if (loadError || !state) {
+    // Раньше этот экран был тупиком без единой кнопки — если partiya не грузилась (например,
+    // токен истёк/стал невалиден: 401), а сохранённый activeGame в localStorage переживал
+    // релогин, игрок при каждом заходе снова падал сюда без способа выбраться (Петя, 2026-07-11:
+    // "игра вообще не запускается"). Кнопка возврата на старт очищает сохранённую партию через
+    // тот же onNewGame, что и обычная кнопка "Новая партия" в шапке.
+    const friendlyError = loadError?.includes("401")
+      ? "Сессия истекла или недействительна. Войдите заново."
+      : `Не удалось загрузить партию: ${loadError || "нет данных"}`;
+    return (
+      <div style={{ minHeight: "100vh", background: "#1a1f2c", color: "#e09090", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',serif", fontSize: 14, padding: 20, textAlign: "center", gap: 20 }}>
+        <div>{friendlyError}</div>
+        <button
+          onClick={() => onNewGame?.()}
+          style={{ background: "#2a3040", border: "1px solid #4a5060", color: "#ece7d8", borderRadius: 4, padding: "10px 20px", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, cursor: "pointer", letterSpacing: "0.06em" }}
+        >
+          ← Назад к началу
+        </button>
+      </div>
+    );
+  }
 
   if (gameOutcome) {
     return <EndGameScreen
