@@ -45,6 +45,124 @@ const OUTCOME_TITLES = {
 
 const GAME_SLOT_LIMIT = 5;
 
+// Полный формат состояния партии, совместимый с App.jsx — единственный источник правды для
+// ТРЁХ роутов: владельческий GET /games/:gameId, зрительский GET /games/:gameId/public-view и
+// админский GET /admin/games/:gameId/view-as-player (admin.js). Раньше public-view и
+// view-as-player дублировали эту сборку вручную ("держать в синхроне, если формат поменяется" —
+// комментарий, оставленный именно потому, что синхронизация руками ненадёжна) — теперь один
+// код, три места вызова, синхронизация невозможна не забыть (2026-07-12, Петя: "нужно чтоб я
+// видел те же вкладки, и всё, что видит игрок" — зрительский режим и админский "смотреть как
+// игрок" переиспользуют весь обычный App.jsx в read-only режиме, а не отдельный урезанный
+// компонент, поэтому им обоим нужна ПОЛНАЯ форма ответа, не только статы/лента).
+function buildFullGameState({ gameId, game, newsfeedRows, turnsRows }) {
+  const newsfeed = newsfeedRows.map((r) => ({
+    turn: r.turn_n,
+    type: r.item_type,
+    source: r.source,
+    text: r.text,
+    reactions: r.reactions || [],
+  }));
+
+  const log = [
+    {
+      turn: 0,
+      title: `Старт партии — ${game.country_name}`,
+      body: game.overview?.headline || "Вы приступаете к управлению страной.",
+    },
+    ...turnsRows.map((r) => ({
+      turn: r.turn_n,
+      title: `Ход ${r.turn_n}`,
+      body: r.narrative_text,
+      decree: r.player_input || null,
+      actionMode: r.action_mode || null,
+      statDeltas: r.stat_deltas || null,
+    })),
+  ];
+
+  let date = game.overview?.date || null;
+  if (date) {
+    try {
+      date = new Date(date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+    } catch { /* оставить строкой */ }
+  } else {
+    const startDate = new Date(game.created_at);
+    startDate.setMonth(startDate.getMonth() + game.current_turn);
+    date = startDate.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  }
+
+  const TERRITORY_DEFAULTS = {
+    donetsk_control: 78, luhansk_control: 96,
+    zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
+  };
+  const statsWithTerritories = { ...game.stats };
+  for (const [key, val] of Object.entries(TERRITORY_DEFAULTS)) {
+    if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
+  }
+  if (statsWithTerritories.treasury === undefined) statsWithTerritories.treasury = 52;
+  if (statsWithTerritories.oil_price === undefined) statsWithTerritories.oil_price = 68;
+  if (statsWithTerritories.usd_rub === undefined) statsWithTerritories.usd_rub = 80;
+  const FACTION_DEFAULTS_FOR_OLD_GAMES = { faction_siloviki: 65, faction_tehnokraty: 65, faction_oligarhi: 65, faction_konservatory: 65, coalition_stability: 0 };
+  for (const [key, val] of Object.entries(FACTION_DEFAULTS_FOR_OLD_GAMES)) {
+    if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
+  }
+
+  let pendingFactionDilemma = null;
+  if (statsWithTerritories.faction_dilemma_resolved_turn !== game.current_turn) {
+    const { checkFactionDilemmaTrigger, FACTION_DILEMMAS } = require("../rules/rules-engine");
+    const dilemmaId = checkFactionDilemmaTrigger(statsWithTerritories, gameId, game.current_turn);
+    if (dilemmaId) {
+      pendingFactionDilemma = { id: dilemmaId, factions: FACTION_DILEMMAS[dilemmaId].factions };
+    }
+  }
+
+  const FULL_RELATIONS = [
+    { name: "США",            value: 38, trend: "flat" },
+    { name: "Украина",        value: 8,  trend: "down" },
+    { name: "Китай",          value: 84, trend: "up"   },
+    { name: "ЕС",             value: 14, trend: "down" },
+    { name: "Турция",         value: 58, trend: "flat" },
+    { name: "Индия",          value: 72, trend: "up"   },
+    { name: "Германия",       value: 12, trend: "down" },
+    { name: "Франция",        value: 16, trend: "flat" },
+    { name: "Израиль",        value: 44, trend: "down" },
+    { name: "Иран",           value: 62, trend: "up"   },
+    { name: "Саудовская Аравия", value: 38, trend: "flat" },
+    { name: "Беларусь",       value: 88, trend: "flat" },
+    { name: "Польша",         value: 6,  trend: "down" },
+    { name: "Великобритания", value: 8,  trend: "down" },
+    { name: "Япония",         value: 18, trend: "down" },
+    { name: "КНДР",           value: 52, trend: "up"   },
+    { name: "Венгрия",        value: 64, trend: "flat" },
+    { name: "ОАЭ",            value: 46, trend: "flat" },
+  ];
+  const existingRelations = Array.isArray(game.relations) ? game.relations : [];
+  const existingNames = new Set(existingRelations.map(r => r.name));
+  const mergedRelations = [
+    ...existingRelations,
+    ...FULL_RELATIONS.filter(r => !existingNames.has(r.name)),
+  ];
+
+  return {
+    id: game.id,
+    status: game.status,
+    assistMode: game.assist_mode || "advisor",
+    language: game.language || "ru",
+    multiActionTurns: require("../rules/rules-engine").MULTI_ACTION_TURNS,
+    countryName: game.country_name,
+    turn: game.current_turn,
+    date,
+    stats: statsWithTerritories,
+    relations: mergedRelations,
+    policies: game.policies || [],
+    overview: game.overview || {},
+    contextSummary: game.context_summary || null,
+    countryProfile: game.country_profile || null,
+    newsfeed,
+    log,
+    pendingFactionDilemma,
+  };
+}
+
 async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
   // ---------- POST /games ----------
   fastify.post("/games", async (request, reply) => {
@@ -272,124 +390,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       [gameId]
     );
 
-    const newsfeed = newsfeedRes.rows.map((r) => ({
-      turn: r.turn_n,
-      type: r.item_type,
-      source: r.source,
-      text: r.text,
-      reactions: r.reactions || [],
-    }));
-
-    const log = [
-      {
-        turn: 0,
-        title: `Старт партии — ${game.country_name}`,
-        body: game.overview?.headline || "Вы приступаете к управлению страной.",
-      },
-      // player_input/action_mode/stat_deltas — уже были в turnsRes (запрос выше), просто не
-      // попадали в log; игрок не мог посмотреть свои прошлые решения и их эффект, только
-      // пересказ-нарратив (Петя, 2026-07-07: "чтоб можно было посмотреть все свои действия").
-      ...turnsRes.rows.map((r) => ({
-        turn: r.turn_n,
-        title: `Ход ${r.turn_n}`,
-        body: r.narrative_text,
-        decree: r.player_input || null,
-        actionMode: r.action_mode || null,
-        statDeltas: r.stat_deltas || null,
-      })),
-    ];
-
-    // Дата из overview (продвигается в turns.js при каждом ходе)
-    let date = game.overview?.date || null;
-    if (date) {
-      try {
-        date = new Date(date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
-      } catch { /* оставить строкой */ }
-    } else {
-      // Фоллбэк для старых партий без даты в overview
-      const startDate = new Date(game.created_at);
-      startDate.setMonth(startDate.getMonth() + game.current_turn);
-      date = startDate.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
-    }
-
-    // Inject territory defaults for games created before the territory mechanic
-    const TERRITORY_DEFAULTS = {
-      donetsk_control: 78, luhansk_control: 96,
-      zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
-    };
-    const statsWithTerritories = { ...game.stats };
-    for (const [key, val] of Object.entries(TERRITORY_DEFAULTS)) {
-      if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
-    }
-    // Казна — дефолт для партий, созданных до бюджетной механики
-    if (statsWithTerritories.treasury === undefined) statsWithTerritories.treasury = 52;
-    // Нефть и валюта — дефолт для партий, созданных до этой механики
-    if (statsWithTerritories.oil_price === undefined) statsWithTerritories.oil_price = 68;
-    if (statsWithTerritories.usd_rub === undefined) statsWithTerritories.usd_rub = 80;
-    // Башни Кремля — дефолт для партий, созданных до этой механики
-    const FACTION_DEFAULTS_FOR_OLD_GAMES = { faction_siloviki: 65, faction_tehnokraty: 65, faction_oligarhi: 65, faction_konservatory: 65, coalition_stability: 0 };
-    for (const [key, val] of Object.entries(FACTION_DEFAULTS_FOR_OLD_GAMES)) {
-      if (statsWithTerritories[key] === undefined) statsWithTerritories[key] = val;
-    }
-
-    // Карточка-дилемма Башен Кремля — детерминированная проверка (см. checkFactionDilemmaTrigger),
-    // не чаще одной за ход и не повторно в уже разрешённый ход.
-    let pendingFactionDilemma = null;
-    if (statsWithTerritories.faction_dilemma_resolved_turn !== game.current_turn) {
-      const { checkFactionDilemmaTrigger, FACTION_DILEMMAS } = require("../rules/rules-engine");
-      const dilemmaId = checkFactionDilemmaTrigger(statsWithTerritories, gameId, game.current_turn);
-      if (dilemmaId) {
-        pendingFactionDilemma = { id: dilemmaId, factions: FACTION_DILEMMAS[dilemmaId].factions };
-      }
-    }
-
-    // Merge full relations list for games created before extra countries were added
-    const FULL_RELATIONS = [
-      { name: "США",            value: 38, trend: "flat" },
-      { name: "Украина",        value: 8,  trend: "down" },
-      { name: "Китай",          value: 84, trend: "up"   },
-      { name: "ЕС",             value: 14, trend: "down" },
-      { name: "Турция",         value: 58, trend: "flat" },
-      { name: "Индия",          value: 72, trend: "up"   },
-      { name: "Германия",       value: 12, trend: "down" },
-      { name: "Франция",        value: 16, trend: "flat" },
-      { name: "Израиль",        value: 44, trend: "down" },
-      { name: "Иран",           value: 62, trend: "up"   },
-      { name: "Саудовская Аравия", value: 38, trend: "flat" },
-      { name: "Беларусь",       value: 88, trend: "flat" },
-      { name: "Польша",         value: 6,  trend: "down" },
-      { name: "Великобритания", value: 8,  trend: "down" },
-      { name: "Япония",         value: 18, trend: "down" },
-      { name: "КНДР",           value: 52, trend: "up"   },
-      { name: "Венгрия",        value: 64, trend: "flat" },
-      { name: "ОАЭ",            value: 46, trend: "flat" },
-    ];
-    const existingRelations = Array.isArray(game.relations) ? game.relations : [];
-    const existingNames = new Set(existingRelations.map(r => r.name));
-    const mergedRelations = [
-      ...existingRelations,
-      ...FULL_RELATIONS.filter(r => !existingNames.has(r.name)),
-    ];
-
-    return reply.send({
-      id: game.id,
-      status: game.status,
-      assistMode: game.assist_mode || "advisor",
-      language: game.language || "ru",
-      multiActionTurns: require("../rules/rules-engine").MULTI_ACTION_TURNS,
-      countryName: game.country_name,
-      turn: game.current_turn,
-      date,
-      stats: statsWithTerritories,
-      relations: mergedRelations,
-      policies: game.policies || [],
-      overview: game.overview || {},
-      contextSummary: game.context_summary || null,
-      countryProfile: game.country_profile || null,
-      newsfeed,
-      log,
-      pendingFactionDilemma,
-    });
+    return reply.send(buildFullGameState({ gameId, game, newsfeedRows: newsfeedRes.rows, turnsRows: turnsRes.rows }));
   });
 
   // ---------- Зрительский режим (2026-07-11) ----------
@@ -413,16 +414,18 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     return reply.send({ games: res.rows });
   });
 
-  // GET /games/:gameId/public-view — read-only снимок публичной партии: статы, лента, ходы.
-  // Намеренно НЕ переиспользует полный /games/:gameId (там дилеммы/контекст владельца — лишнее
-  // для стороннего зрителя) — упрощённая параллельная версия тех же данных.
+  // GET /games/:gameId/public-view — read-only снимок публичной партии, в ТОЧНО ТОМ ЖЕ формате,
+  // что владельческий GET /games/:gameId (см. buildFullGameState выше) — 2026-07-12, Петя: "нужно
+  // чтоб я видел те же вкладки, и всё что видит игрок" (изначально просил и про зрительский режим
+  // тоже, не только про админку). Фронт монтирует ВЕСЬ обычный App.jsx в readOnly-режиме поверх
+  // этого ответа, а не отдельный урезанный компонент — значит нужна полная форма, не подмножество.
   fastify.get("/games/:gameId/public-view", async (request, reply) => {
     const { gameId } = request.params;
     const gameRes = await db.query(
-      `SELECT g.id, g.current_turn, g.status, g.created_at, g.is_public, g.assist_mode,
+      `SELECT g.id, g.current_turn, g.status, g.created_at, g.is_public, g.assist_mode, g.language,
               COALESCE(g.president_name, u.display_name) AS president_name,
-              gs.stats, gs.overview,
-              c.name AS country_name
+              gs.stats, gs.relations, gs.policies, gs.overview,
+              c.name AS country_name, c.context_summary, c.country_profile
        FROM games g
        JOIN game_state gs ON gs.game_id = g.id
        JOIN countries c ON c.id = g.country_id
@@ -436,7 +439,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const game = gameRes.rows[0];
 
     const newsfeedRes = await db.query(
-      `SELECT turn_n, item_type, source, text FROM newsfeed_items WHERE game_id = $1 ORDER BY turn_n ASC`,
+      `SELECT turn_n, item_type, source, text, reactions FROM newsfeed_items WHERE game_id = $1 ORDER BY turn_n ASC`,
       [gameId]
     );
     const turnsRes = await db.query(
@@ -445,31 +448,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       [gameId]
     );
 
-    // Дефолты для территорий/казны/башен у партий, созданных до соответствующих механик —
-    // тот же список, что в /games/:gameId выше (держать в синхроне, если список поменяется там).
-    const STAT_DEFAULTS_FOR_OLD_GAMES = {
-      donetsk_control: 78, luhansk_control: 96, zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
-      treasury: 52, oil_price: 68, usd_rub: 80,
-      faction_siloviki: 65, faction_tehnokraty: 65, faction_oligarhi: 65, faction_konservatory: 65, coalition_stability: 0,
-    };
-    const stats = { ...game.stats };
-    for (const [key, val] of Object.entries(STAT_DEFAULTS_FOR_OLD_GAMES)) {
-      if (stats[key] === undefined) stats[key] = val;
-    }
-
     return reply.send({
-      countryName: game.country_name,
+      ...buildFullGameState({ gameId, game, newsfeedRows: newsfeedRes.rows, turnsRows: turnsRes.rows }),
       presidentName: game.president_name,
-      currentTurn: game.current_turn,
-      status: game.status,
-      assistMode: game.assist_mode,
-      stats,
-      overview: game.overview || {},
-      newsfeed: newsfeedRes.rows.map(r => ({ turn: r.turn_n, type: r.item_type, source: r.source, text: r.text })),
-      // statDeltas добавлено 2026-07-11 (слияние Ленты/Журнала/Мира в одну вкладку) — раньше
-      // ЭТО ПОЛЕ НЕ ОТДАВАЛОСЬ ВООБЩЕ, хотя LogTab на фронте уже читал entry.statDeltas (реальный,
-      // ранее незамеченный баг: "изменения статов за ход" в Журнале молча всегда были пустыми).
-      log: turnsRes.rows.map(r => ({ turn: r.turn_n, decree: r.player_input || null, actionMode: r.action_mode || null, body: r.narrative_text, statDeltas: r.stat_deltas || {}, createdAt: r.created_at })),
     });
   });
 
@@ -883,4 +864,4 @@ ${historyLines || "(история пуста)"}
 
 }
 
-module.exports = { registerGameRoutes };
+module.exports = { registerGameRoutes, buildFullGameState };

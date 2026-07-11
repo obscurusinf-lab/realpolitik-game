@@ -226,6 +226,7 @@ function computeGameScore(stats, outcome) {
 const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, checkWesternArmsEscalation, WESTERN_ARMS_ARMY_BOOST, WESTERN_ARMS_SUPPORT_BOOST, WESTERN_ARMS_PERK_TURNS, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP, UKRAINE_FULL_SYMMETRY, rollExposure } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 const { decideAiCounterattack, isEnabled: isEnabledUkraineAi } = require("../ai/ukraine-counterattack-ai");
+const { getBoolSetting } = require("../lib/app-settings");
 
 // Варианты ответа на "реакцию мира" (Петя: "варианты ответа однотипные... пусть будут
 // вариативными") — раньше фронт брал 3 фиксированных шаблона из статичной таблицы
@@ -1211,6 +1212,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       ? "military"
       : actionMode;
 
+    // Аварийный выключатель защиты от абсурдных указов для гостевых аккаунтов (админ-панель,
+    // см. admin.js KNOWN_SETTINGS.guest_full_engagement_enabled) — по умолчанию false, защита
+    // работает как раньше.
+    const disableGuestProtection = await getBoolSetting(db, "guest_full_engagement_enabled", false);
+
     const gmClassification = await classifyTurn({
       params: {
         countryName: game.country_name,
@@ -1224,6 +1230,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         actionMode: effectiveActionMode,
         language: game.language,
         accountTier: game.account_tier,
+        disableGuestProtection,
       },
       callClaudeApi,
       meta: { gameId, playerId: payload.userId, purpose: "classify_turn" },

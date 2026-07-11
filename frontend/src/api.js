@@ -14,8 +14,24 @@ export function setToken(token) {
   try { if (token) localStorage.setItem("authToken", token); else localStorage.removeItem("authToken"); } catch {}
 }
 
+// Режим просмотра (2026-07-12, зрительский режим / "Смотреть как игрок" в админке) — App.jsx
+// включает это на весь срок жизни своего инстанса, если смонтирован с readOnly=true (см.
+// setReadOnlyMode в App.jsx). Централизованный гвард ЗДЕСЬ, а не в каждой из ~40 мутирующих
+// функций по отдельности — так гарантированно перехватываются ВСЕ POST/PATCH/DELETE (казна,
+// советники, дилеммы башен, подпись указа и т.д.), включая будущие, без риска забыть добавить
+// проверку в новую функцию. Это ещё и защита от реальной уязвимости: часть мутирующих роутов
+// (например treasury.js) проверяет только "есть валидный токен", но НЕ владельца партии — если
+// зритель одновременно залогинен в СВОЮ игру в этой же вкладке браузера, его собственный токен
+// технически прошёл бы такой запрос на ЧУЖУЮ партию. GET-запросы не трогаем — они безопасны.
+let READ_ONLY_MODE = false;
+export function setReadOnlyMode(v) { READ_ONLY_MODE = !!v; }
+
 // Fetch с таймаутом + автоматический Authorization header
 async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
+  const method = (options.method || "GET").toUpperCase();
+  if (READ_ONLY_MODE && method !== "GET") {
+    return new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const token = getToken();

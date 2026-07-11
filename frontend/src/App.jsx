@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, Send, AlertTriangle, Users, FileText } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, bankSurplus, convertReserves, setReservesYieldTarget, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, bankSurplus, convertReserves, setReservesYieldTarget, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma, setReadOnlyMode } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
@@ -2503,7 +2503,20 @@ function FinanceMinisterWarningModal({ summary, onClose }) {
   );
 }
 
-export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false }) {
+export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false, readOnly = false, fetchStateFn = fetchGameState }) {
+  // Режим просмотра (2026-07-12) — переиспользует ВЕСЬ обычный игровой интерфейс (те же вкладки,
+  // те же карточки), а не отдельный упрощённый компонент, как раньше (SpectatorView). Два пропа:
+  // fetchStateFn — откуда брать состояние (fetchPublicView для зрителей, /admin/.../view-as-player
+  // для админки — оба зеркалят полный формат fetchGameState, см. games.js buildFullGameState);
+  // readOnly — прячет форму указа целиком (см. ниже) и переводит api.js в READ_ONLY_MODE, где
+  // ЛЮБОЙ мутирующий вызов (казна/советники/дилеммы башен и т.д.) молча no-op — так остальные
+  // кнопки могут оставаться на экране "как есть" (Петя: "кнопки без проводов"), не тратя время на
+  // ручное disabled-состояние в каждом из полусотни мест.
+  useEffect(() => {
+    setReadOnlyMode(readOnly);
+    return () => setReadOnlyMode(false);
+  }, [readOnly]);
+
   const lang = useLang(); // ре-рендер шапки/таб-бара при переключении RU/EN
   // Баг (2026-07-08, Петя: "переключился на английский, но все новости на русском остались") —
   // переключатель языка в шапке меняет только статичные UI-строки, не games.language (то, на
@@ -2588,7 +2601,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   const loadState = useCallback(async () => {
     try {
-      const data = await fetchGameState(gameId);
+      const data = await fetchStateFn(gameId);
       setState(data);
       if (data.assistMode) setAssistMode(data.assistMode);
       // БАЛАНС (2026-07-04): F5-баг — games.status ("defeat_..."/"victory_...", проставляется
@@ -2620,12 +2633,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // Heartbeat для индикатора "онлайн" в админке — пингуем, пока вкладка реально видима
   // (не просто открыта в фоне), раз в 25с + сразу при возврате фокуса на вкладку.
   useEffect(() => {
+    if (readOnly) return; // зритель не "онлайн" в этой партии — пинговать нечего
     function pingIfVisible() { if (document.visibilityState === "visible") pingGame(gameId); }
     pingIfVisible();
     const interval = setInterval(pingIfVisible, 25000);
     document.addEventListener("visibilitychange", pingIfVisible);
     return () => { clearInterval(interval); document.removeEventListener("visibilitychange", pingIfVisible); };
-  }, [gameId]);
+  }, [gameId, readOnly]);
 
   // Синхронизируем ref с actionMode чтобы handleConsultAdvisor всегда читал свежее значение,
   // и сбрасываем карточки советников на "не спрошено" — старый совет был под другой масштаб
@@ -3010,7 +3024,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // Дворцовая интрига — перехватывает ЛЮБУЮ вкладку, как только возникает (см. FactionDilemmaScreen),
   // но ПОСЛЕ end-turn/украина/дипломатия — сначала игрок доосмысливает итоги хода, затем решение
   // по башням. Раньше карточка ждала внутри вкладки "Башни Кремля" и терялась, если игрок туда не заходил.
-  if (state?.pendingFactionDilemma) {
+  // В режиме просмотра интеррапт не показываем — зритель не может его разрешить (см. api.js
+  // READ_ONLY_MODE), а полноэкранная блокировка без выхода заперла бы весь остальной интерфейс.
+  if (state?.pendingFactionDilemma && !readOnly) {
     return <FactionDilemmaScreen dilemma={state.pendingFactionDilemma} gameId={gameId} onDone={loadState} />;
   }
 
@@ -3224,11 +3240,14 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             </button>
             {onNewGame && (
               <button
-                onClick={() => { if (window.confirm(t("app.new_game_confirm"))) onNewGame(); }}
+                onClick={() => { if (readOnly || window.confirm(t("app.new_game_confirm"))) onNewGame(); }}
                 style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer" }}
               >
-                {t("app.new_game_button")}
+                {readOnly ? "← Назад" : t("app.new_game_button")}
               </button>
+            )}
+            {readOnly && (
+              <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>👁 ПРОСМОТР</span>
             )}
           </div>
         </div>
@@ -3325,7 +3344,17 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         <TerritoryPanel stats={state?.stats} />
       </div>
 
-      {preview ? (
+      {readOnly ? (
+        // Режим просмотра (зрительский режим / "Смотреть как игрок" в админке) — форма
+        // подписи указа убрана целиком, а не просто задизейблена (Петя, 2026-07-12: "нужно
+        // чтоб я видел те же вкладки, и всё что видит игрок"). Остальные кнопки на других
+        // вкладках (казна, советники, башни и т.д.) остаются на месте, но не работают — см.
+        // READ_ONLY_MODE в api.js, все мутирующие запросы там молча no-op.
+        <div style={{ background: NK.footerBg, borderTop: `2px solid ${NK.footerBorder}`, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <span style={{ fontSize: 14 }}>👁</span>
+          <span className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.1em" }}>РЕЖИМ ПРОСМОТРА · ДЕЙСТВИЯ НЕДОСТУПНЫ</span>
+        </div>
+      ) : preview ? (
         <PreviewCard preview={preview} currentStats={state?.stats} onConfirm={handleConfirmClick} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} />
       ) : (
         <div style={{ background: NK.footerBg, borderTop: `2px solid ${NK.footerBorder}`, padding: "14px 16px" }}>

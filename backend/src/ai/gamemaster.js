@@ -59,7 +59,7 @@ action_type: "null_action", severity: 1, а в narrative дай живую (не
 почему это невозможно и почему так поступать не стоит. НЕ проси "уточнить формулировку решения" —
 это не непонятный ход, а понятный, которого мы не разыгрываем для этого типа доступа.`;
 
-function buildUserMessage({ countryName, playerName, gameDate, turnNumber, currentState, activePolicies, delayedEffects, playerInput, actionMode = "decree", language, accountTier }) {
+function buildUserMessage({ countryName, playerName, gameDate, turnNumber, currentState, activePolicies, delayedEffects, playerInput, actionMode = "decree", language, accountTier, disableGuestProtection }) {
   // Trim stats — только ключевые, без субметрик
   const trimmedStats = {};
   for (const k of KEY_STATS) {
@@ -84,7 +84,7 @@ ${JSON.stringify(trimmedPolicies, null, 2)}
 ${JSON.stringify((delayedEffects || []).slice(0, 3), null, 2)}
 
 ХОД ИГРОКА: "${playerInput}"
-ТИП ДЕЙСТВИЯ: ${actionMode}${accountTier === "guest" ? GUEST_TIER_INSTRUCTION : ""}${languageInstruction(language)}`;
+ТИП ДЕЙСТВИЯ: ${actionMode}${accountTier === "guest" && !disableGuestProtection ? GUEST_TIER_INSTRUCTION : ""}${languageInstruction(language)}`;
 }
 
 function stripMarkdownFences(text) {

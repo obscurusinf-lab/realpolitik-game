@@ -744,86 +744,16 @@ function PublicGamesPage({ onBack, onOpen }) {
   );
 }
 
-// Read-only просмотр одной публичной партии — намеренно НЕ переиспользует основной App.jsx
-// (там завязано на владение партией: подпись указов, советники, казна и т.д.) — упрощённая
-// витрина: обстановка, статы, лента новостей, ходы. Никаких действий, только просмотр.
-// fetchFn — переопределяемый источник данных (Петя, 2026-07-11: "хотел бы видеть всё, что видит
-// другой игрок — отдельная вкладка в админ-панели"): по умолчанию — обычный зрительский путь
-// (fetchPublicView, работает только для is_public партий), админ-панель передаёт свой вариант,
-// читающий /admin/games/:id/view-as-player (тот же формат ответа, любая партия, без is_public).
+// Read-only просмотр одной партии — 2026-07-12, Петя: "нужно чтоб я видел те же вкладки, и всё,
+// что видит игрок" (раньше здесь была отдельная упрощённая витрина: только статы+лента, не
+// настоящий интерфейс — сознательно заменена). Теперь монтирует ВЕСЬ обычный App.jsx с readOnly
+// (форма указа убрана целиком, все прочие кнопки на месте, но не работают — см. api.js
+// READ_ONLY_MODE) — зритель видит ровно то же, что и сам игрок, кроме возможности действовать.
+// fetchFn — переопределяемый источник данных: по умолчанию fetchPublicView (только is_public
+// партии), админ-панель передаёт свой вариант на /admin/games/:id/view-as-player (та же форма
+// ответа — buildFullGameState в games.js, см. backend), работает для ЛЮБОЙ партии.
 function SpectatorView({ gameId, onBack, fetchFn = fetchPublicView }) {
-  useLang();
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchFn(gameId)
-      .then(setData)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [gameId]);
-
-  if (loading) return <div style={{ minHeight: "100vh", background: "#1a1f2c", display: "flex", alignItems: "center", justifyContent: "center" }}><div className="mono-font" style={{ color: "#5a6070", fontSize: 11 }}>{t("board.loading")}</div></div>;
-  if (error) return (
-    <div style={{ minHeight: "100vh", background: "#1a1f2c", padding: "24px 16px" }}>
-      <button onClick={onBack} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "6px 12px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", marginBottom: 20 }}>{t("board.back")}</button>
-      <div className="doc-font" style={{ color: "#e09090", fontSize: 13, textAlign: "center", padding: 40 }}>{error}</div>
-    </div>
-  );
-
-  const s = data.stats || {};
-  const KEY_STATS = [
-    ["economy", t("stat.economy")], ["military", t("stat.military")], ["stability", t("stat.stability")],
-    ["diplomacy", t("stat.diplomacy")], ["approval", t("stat.approval")], ["peace_progress", t("spectate.peace_track")],
-  ];
-
-  return (
-    <div style={{ minHeight: "100vh", background: "#1a1f2c", padding: "24px 16px" }}>
-      <div style={{ maxWidth: 640, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
-          <button onClick={onBack} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "6px 12px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer" }}>{t("board.back")}</button>
-          <div style={{ fontSize: 9, background: "#2a2a1a", color: "#c8a857", borderRadius: 3, padding: "2px 6px", fontFamily: "monospace", letterSpacing: "0.06em" }}>👁 {t("spectate.readonly_badge")}</div>
-        </div>
-        <div className="doc-font" style={{ fontSize: 22, fontWeight: 700, color: "#ece7d8", marginTop: 14, marginBottom: 2 }}>{data.presidentName}</div>
-        <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginBottom: 18 }}>
-          {data.countryName} · {t("board.turn_short")} {data.currentTurn} · {data.status === "active" ? t("spectate.status_active") : data.status}
-        </div>
-
-        {data.overview?.headline && (
-          <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 4, padding: "12px 14px", marginBottom: 18 }}>
-            <div className="doc-font" style={{ fontSize: 13, color: "#ece7d8", lineHeight: 1.5, fontStyle: "italic" }}>{data.overview.headline}</div>
-          </div>
-        )}
-
-        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>{t("spectate.stats_header")}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 20 }}>
-          {KEY_STATS.map(([key, label]) => {
-            const v = Math.round(s[key] ?? 0);
-            const color = v > 60 ? "#7fae93" : v > 35 ? "#9c8347" : "#e09090";
-            return (
-              <div key={key} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 10px" }}>
-                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{label}</div>
-                <div className="mono-font" style={{ fontSize: 16, color, fontWeight: 700 }}>{v}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>{t("spectate.log_header")}</div>
-        {(!data.log || data.log.length === 0) && (
-          <div className="doc-font" style={{ color: "#5a6070", fontSize: 12, padding: "20px 0" }}>{t("spectate.empty_log")}</div>
-        )}
-        {data.log?.slice().reverse().map((entry, i) => (
-          <div key={i} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "12px 14px", marginBottom: 10 }}>
-            <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 4 }}>{t("board.turn_short")} {entry.turn}</div>
-            {entry.decree && <div className="doc-font" style={{ fontSize: 12, color: "#a8a294", fontStyle: "italic", marginBottom: 6 }}>«{entry.decree}»</div>}
-            <div className="doc-font" style={{ fontSize: 13, color: "#ece7d8", lineHeight: 1.5 }}>{entry.body}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  return <App gameId={gameId} onNewGame={onBack} readOnly fetchStateFn={fetchFn} />;
 }
 
 function loadSessions() {
