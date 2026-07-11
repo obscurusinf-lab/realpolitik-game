@@ -1301,7 +1301,7 @@ const DELTA_GROUPS = [
 // простую схему взамен аккордеона по категориям: ОСНОВНЫЕ 5 статов всегда на виду с барами,
 // ВСЁ остальное (субметрики/территории/казна/инициатива/мирный трек) — за ОДНИМ переключателем
 // "Показать ещё N показателей", тоже барами (раньше часть рендерилась плоским текстом).
-const PRIMARY_STAT_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
+const PRIMARY_STAT_KEYS = ["economy", "military", "stability", "diplomacy", "approval", "treasury"];
 function partitionPrimarySecondary(deltas) {
   const primary = deltas.filter(([s]) => PRIMARY_STAT_KEYS.includes(s));
   const secondary = deltas.filter(([s]) => !PRIMARY_STAT_KEYS.includes(s) && !s.startsWith("_") && s !== "military_streak");
