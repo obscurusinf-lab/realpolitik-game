@@ -2151,6 +2151,24 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         newStats.inflation = Math.min(100, (newStats.inflation ?? 64) + 0.5);
       }
 
+      // --- ДОХОДНОСТЬ РЕЗЕРВОВ ФНБ (2026-07-11, задача от домашней сессии, решение по ставке
+      // и назначению — с Петей) --- Реальный ФНБ инвестируется (гособлигации, золото,
+      // инфраструктура) и даёт доходность — раньше её не было вообще, только пассивный дрейф
+      // от торгового баланса выше. Ставка выше "настоящих" 0.3-0.5% годовых намеренно: reserves —
+      // абстрактный 0-100 балл, не реальные деньги, на этом масштабе низкий % был бы незаметен
+      // рядом с дрейфом (±1-3/мес). Высокая изоляция режет доходность (санкции блокируют часть
+      // зарубежных активов ФНБ), выше 75 обход блокировок стоит дороже дохода — доходность уходит
+      // в минус. Игрок выбирает назначение (`reserves_yield_target`, по умолчанию "reserves" —
+      // реинвестировать и расти дальше) через POST /treasury/set-reserves-yield-target; если
+      // выбрана казна — доход учитывается НИЖЕ как часть monthlyNet (не отдельной мутацией),
+      // чтобы не разъезжаться с текстом "Бюджет за месяц" и порогами дефицита/профицита.
+      const reservesYieldRate = isolationVal > 75 ? -0.01 : isolationVal > 50 ? 0.01 : 0.03;
+      const reservesYieldToTreasury = newStats.reserves_yield_target === "treasury";
+      const reservesYieldAmount = Math.round(newStats.reserves * reservesYieldRate);
+      if (reservesYieldAmount && !reservesYieldToTreasury) {
+        newStats.reserves = Math.max(0, Math.min(100, newStats.reserves + reservesYieldAmount));
+      }
+
       // --- КАЗНА: месячный доход и расход ---
       const { TREASURY_MIN } = require("../rules/rules-engine");
       const { ofzTotalMonthlyCost } = require("./treasury");
@@ -2239,7 +2257,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         (s, [k, base]) => s + Math.max(0, (newStats[k] ?? base) - base), 0
       );
       const territoryUpkeep = Math.round(territoryGainPts / 15);
-      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome - corruptionDrain - territoryUpkeep;
+      const reservesYieldToTreasuryAmount = reservesYieldToTreasury ? reservesYieldAmount : 0;
+      const monthlyNet = economyIncome + taxIncome - programUpkeep - ofzDebtService + oilIncome + fxIncome - corruptionDrain - territoryUpkeep + reservesYieldToTreasuryAmount;
       const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
       let treasuryAfter = Math.max(TREASURY_MIN, treasuryBefore + monthlyNet);
       // ОФЗ инфляционное давление: +0.3 инфляции за каждый активный выпуск в месяц (было +1 —
@@ -2921,6 +2940,9 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         : "";
       const corruptionLine = corruptionDrain > 0 ? `, коррупционные потери −${corruptionDrain}` : "";
       const territoryUpkeepLine = territoryUpkeep > 0 ? `, содержание отвоёванных территорий −${territoryUpkeep}` : "";
+      const reservesYieldLine = reservesYieldToTreasuryAmount !== 0
+        ? `, доходность ФНБ ${reservesYieldToTreasuryAmount >= 0 ? "+" : ""}${reservesYieldToTreasuryAmount}`
+        : "";
       const inflationLine = inflationEconomyPenalty > 0
         ? ` Инфляционный шок (${inflationPercent(inflationNow).toFixed(1)}% г/г): экономика −${inflationEconomyPenalty}, одобрение −${inflationApprovalPenalty}.`
         : "";
@@ -2930,7 +2952,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       await client.query(
         `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,'[]')`,
         [gameId, completedMonth, "Минфин",
-         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}${oilFxLine}${corruptionLine}${territoryUpkeepLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
+         `Бюджет за месяц: доходы +${economyIncome + taxIncome} (экономика +${economyIncome}, налоги +${taxIncome}), содержание программ −${programUpkeep}${ofzLine}${oilFxLine}${corruptionLine}${territoryUpkeepLine}${reservesYieldLine}. Итог: ${flowSign}${monthlyNet} → казна ${(newStats.treasury * T).toFixed(1)} трлн ₽.` +
          (deficitHit ? " ДЕФИЦИТ: займы разгоняют инфляцию, экономика и стабильность падают." :
           economyEffect < 0 ? " Низкая казна вынуждает урезать расходы — экономика проседает." :
           economyEffect > 0 ? " Профицит позволяет инвестировать — экономика крепнет." : "") +
@@ -2981,7 +3003,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         statDeltas,
         gameOutcome: gameOutcome || null,
         maxTurns: MAX_TURNS,
-        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, oilIncome, fxIncome, corruptionDrain, net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow), oilPrice: newStats.oil_price, usdRub: newStats.usd_rub },
+        budget: { economyIncome, taxIncome, programUpkeep, ofzDebtService, oilIncome, fxIncome, corruptionDrain, reservesYield: reservesYieldAmount, reservesYieldTarget: reservesYieldToTreasury ? "treasury" : "reserves", net: monthlyNet, treasury: newStats.treasury, deficit: deficitHit, economyEffect, inflationPenalty: inflationEconomyPenalty, inflation: Math.round(inflationNow), oilPrice: newStats.oil_price, usdRub: newStats.usd_rub },
         // Прозрачная разбивка ВСЕХ автоматических эффектов на экономику за месяц (см. "ПОТОЛОК
         // МЕСЯЧНОЙ ЭРОЗИИ ЭКОНОМИКИ" выше) — фронт может показать это как единый список вместо
         // текста в ленте, чтобы игрок видел причину каждого пункта изменения.

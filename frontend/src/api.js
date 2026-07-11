@@ -397,6 +397,19 @@ export async function bankSurplus(gameId) {
   return res.json();
 }
 
+export async function setReservesYieldTarget(gameId, target) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/set-reserves-yield-target`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ target }),
+  }, 10000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Ошибка смены назначения доходности резервов");
+  }
+  return res.json();
+}
+
 export async function toggleFxRegime(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/toggle-fx-regime`, {
     method: "POST",

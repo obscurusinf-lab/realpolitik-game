@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, Send, AlertTriangle, Users, FileText } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, bankSurplus, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, bankSurplus, convertReserves, setReservesYieldTarget, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
@@ -2947,7 +2947,27 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const rawMobile = useRawIsMobile();
 
   if (!loaded) return <CenteredMessage text="Загрузка партии…" />;
-  if (loadError || !state) return <CenteredMessage text={`Не удалось загрузить партию: ${loadError || "нет данных"}`} isError />;
+  if (loadError || !state) {
+    // Раньше этот экран был тупиком без единой кнопки — если partiya не грузилась (например,
+    // токен истёк/стал невалиден: 401), а сохранённый activeGame в localStorage переживал
+    // релогин, игрок при каждом заходе снова падал сюда без способа выбраться (Петя, 2026-07-11:
+    // "игра вообще не запускается"). Кнопка возврата на старт очищает сохранённую партию через
+    // тот же onNewGame, что и обычная кнопка "Новая партия" в шапке.
+    const friendlyError = loadError?.includes("401")
+      ? "Сессия истекла или недействительна. Войдите заново."
+      : `Не удалось загрузить партию: ${loadError || "нет данных"}`;
+    return (
+      <div style={{ minHeight: "100vh", background: "#1a1f2c", color: "#e09090", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',serif", fontSize: 14, padding: 20, textAlign: "center", gap: 20 }}>
+        <div>{friendlyError}</div>
+        <button
+          onClick={() => onNewGame?.()}
+          style={{ background: "#2a3040", border: "1px solid #4a5060", color: "#ece7d8", borderRadius: 4, padding: "10px 20px", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, cursor: "pointer", letterSpacing: "0.06em" }}
+        >
+          ← Назад к началу
+        </button>
+      </div>
+    );
+  }
 
   if (gameOutcome) {
     return <EndGameScreen
@@ -8520,6 +8540,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     finally { setLoading(null); }
   }
 
+  async function handleSetReservesYieldTarget(target) {
+    setLoading("reserves_yield_target"); setError(null);
+    try { await setReservesYieldTarget(gameId, target); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
   const labelStyle = { fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.12em", color: "#8a8472" };
   const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #e0dac8" };
   function widgetCardProps(id) {
@@ -9130,6 +9157,11 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const convertRubT = reservesRubTrillion(RESERVES_CONVERT_AMOUNT_T);
         const floorRubT = reservesRubTrillion(RESERVES_CONVERT_MIN_LEFT_T);
         const headroomRubT = Math.max(0, reservesRubT - floorRubT);
+        // Доходность ФНБ (2026-07-11) — формула зеркалит backend/src/routes/turns.js
+        // (блок "ДОХОДНОСТЬ РЕЗЕРВОВ ФНБ"), только для превью в UI, саму доходность считает бэкенд.
+        const reservesYieldRate = isolationT > 75 ? -0.01 : isolationT > 50 ? 0.01 : 0.03;
+        const reservesYieldAmount = Math.round(reservesNow * reservesYieldRate);
+        const reservesYieldTarget = stats.reserves_yield_target === "treasury" ? "treasury" : "reserves";
         return (
           <React.Fragment>
           <WidgetCard {...widgetCardProps("reserves")} label={t("treasury.w.reserves_title")}>
@@ -9150,6 +9182,43 @@ function TreasuryTab({ state, gameId, onRefresh }) {
               </div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", marginBottom: 14 }}>
                 {t("treasury.reserves_headroom", { headroom: headroomRubT.toFixed(1), floor: floorRubT.toFixed(1) })}
+              </div>
+
+              <div style={{ borderTop: "1px solid #2a3040", paddingTop: 12, marginBottom: 12 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>
+                  {t("treasury.reserves_yield_label", { amount: (reservesYieldAmount >= 0 ? "+" : "") + reservesYieldAmount })}
+                </div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                  <button
+                    onClick={() => handleSetReservesYieldTarget("reserves")}
+                    disabled={loading === "reserves_yield_target" || reservesYieldTarget === "reserves"}
+                    style={{
+                      flex: 1, background: reservesYieldTarget === "reserves" ? "#1a1208" : "#1a2030",
+                      border: `1px solid ${reservesYieldTarget === "reserves" ? "#8a6020" : "#2a3040"}`,
+                      color: reservesYieldTarget === "reserves" ? "#c09050" : "#5a6070",
+                      borderRadius: 3, padding: "7px 10px", fontFamily: "'PT Serif',serif", fontSize: 11.5,
+                      cursor: reservesYieldTarget === "reserves" ? "default" : "pointer",
+                    }}
+                  >
+                    {t("treasury.reserves_yield_to_reserves")}
+                  </button>
+                  <button
+                    onClick={() => handleSetReservesYieldTarget("treasury")}
+                    disabled={loading === "reserves_yield_target" || reservesYieldTarget === "treasury"}
+                    style={{
+                      flex: 1, background: reservesYieldTarget === "treasury" ? "#1a1208" : "#1a2030",
+                      border: `1px solid ${reservesYieldTarget === "treasury" ? "#8a6020" : "#2a3040"}`,
+                      color: reservesYieldTarget === "treasury" ? "#c09050" : "#5a6070",
+                      borderRadius: 3, padding: "7px 10px", fontFamily: "'PT Serif',serif", fontSize: 11.5,
+                      cursor: reservesYieldTarget === "treasury" ? "default" : "pointer",
+                    }}
+                  >
+                    {t("treasury.reserves_yield_to_treasury")}
+                  </button>
+                </div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "#3a4050" }}>
+                  {t("treasury.reserves_yield_desc")}
+                </div>
               </div>
 
               <div style={{ borderTop: "1px solid #2a3040", paddingTop: 12 }}>

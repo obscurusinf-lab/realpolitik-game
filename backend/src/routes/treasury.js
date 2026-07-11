@@ -82,6 +82,15 @@
  *     convert-reserves (не накопительный лимит на партию, а помесячный)
  *   - Мгновенный эффект (в отличие от invest-surplus) — тут нет "роста", это просто перекладывание
  *     денег из одного резерва в другой, растягивать нечего
+ *
+ * POST /games/:gameId/treasury/set-reserves-yield-target — назначение доходности резервов ФНБ
+ *   (Петя, 2026-07-11, задача от домашней сессии "резервы должны давать какой-то процент же?" —
+ *   доходность считается помесячно в turns.js/end-month, см. комментарий там; этот роут только
+ *   переключает, КУДА она идёт — решение самого игрока, не разовое действие с ценой):
+ *   - Бесплатно (0 инициативы), переключать можно сколько угодно раз — это настройка стратегии,
+ *     а не указ/трата ресурса
+ *   - body: { target: "reserves" | "treasury" } — reserves (по умолчанию) реинвестирует доход,
+ *     наращивая резервы дальше; treasury отправляет доход в бюджет как обычный доход
  */
 
 const OFZ_TREASURY_GAIN = 20;        // немедленный прирост казны
@@ -106,6 +115,7 @@ const INVESTMENT_BOOST_TURNS = 4;       // месяцев растянутого
 const BANK_SURPLUS_THRESHOLD = 70;      // тот же порог профицита, что у invest-surplus
 const BANK_SURPLUS_AMOUNT = 10;         // казна -10 → резервы +10 (тот же курс, что у convert-reserves)
 const BANK_SURPLUS_INITIATIVE_COST = 20;
+const RESERVES_YIELD_TARGETS = ["reserves", "treasury"];
 
 // Компаундинг: стоимость обслуживания 1 выпуска ОФЗ растёт вместе с ключевой ставкой ЦБ.
 // При базовой ставке ~18.5% даёт те же −3/мес, что и раньше при фиксированной стоимости.
@@ -718,6 +728,36 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       await client.query("ROLLBACK");
       fastify.log.error(err);
       return reply.code(500).send({ error: "Ошибка экстренного стимулирования" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // ---------- НАЗНАЧЕНИЕ ДОХОДНОСТИ РЕЗЕРВОВ ФНБ (реинвест vs доход казны) ----------
+  fastify.post("/games/:gameId/treasury/set-reserves-yield-target", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+    const { target } = request.body || {};
+    if (!RESERVES_YIELD_TARGETS.includes(target)) {
+      return reply.code(400).send({ error: `target должен быть одним из: ${RESERVES_YIELD_TARGETS.join(", ")}` });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const newStats = { ...game.stats, reserves_yield_target: target };
+      await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+      await client.query("COMMIT");
+
+      return reply.send({ reservesYieldTarget: target });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Ошибка смены назначения доходности резервов" });
     } finally {
       client.release();
     }
