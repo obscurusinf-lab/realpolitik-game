@@ -6345,11 +6345,16 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
             </div>
           )}
 
-          {/* Условие выполнения */}
+          {/* Цель операции — ЧИСТО ОРИЕНТИР: completion_conditions нигде в бэкенде не парсится
+              и не проверяется, операция снимается по истечении duration_turns независимо от
+              того, достигнута ли эта цель. Раньше формулировка "УСЛОВИЕ ВЫПОЛНЕНИЯ" вводила в
+              заблуждение — выглядело так, будто операция ждёт выполнения условия, хотя на деле
+              это просто таймер. */}
           {policy.completion_conditions && (
             <div style={{ background: "#dce5dc", border: "1px solid #4a6b5c", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
               <div className="mono-font" style={{ fontSize: 8, color: "#4a6b5c", marginBottom: 3 }}>{t("policies.completion_condition_header")}</div>
-              <div className="doc-font" style={{ fontSize: 13, color: "#3a362e" }}>{policy.completion_conditions}</div>
+              <div className="doc-font" style={{ fontSize: 13, color: "#3a362e", marginBottom: 4 }}>{policy.completion_conditions}</div>
+              <div className="mono-font" style={{ fontSize: 8, color: "#6b7a6f", fontStyle: "italic" }}>{t("policies.completion_condition_note")}</div>
             </div>
           )}
 
@@ -9839,7 +9844,8 @@ function WikiTab({ dark = false }) {
       <WikiSection id="ukraine">
         {P("wiki.ukraine.p1")}
         {P("wiki.ukraine.p2")}
-        {P("wiki.ukraine.p3", { marginBottom: 0 })}
+        {P("wiki.ukraine.p3")}
+        {P("wiki.ukraine.p4", { marginBottom: 0 })}
       </WikiSection>
 
       <WikiSection id="econ">
