@@ -1784,6 +1784,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         params: {
           countryName: game.country_name,
           turnNumber,
+          gameDate: game.overview?.date || "—",
           actionType: gmClassification.action_type,
           playerInput: gmClassification.narrative,
           narrative: gmClassification.narrative,
@@ -3220,6 +3221,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             params: {
               countryName: game.country_name || "Россия",
               turnNumber,
+              gameDate: game.overview?.date || "—",
               playerInput: "[Перегруппировка войск — разведка противника фиксирует паузу]",
               narrative,
               statDeltas,

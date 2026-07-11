@@ -432,7 +432,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       [gameId]
     );
     const turnsRes = await db.query(
-      `SELECT turn_n, player_input, action_mode, narrative_text, created_at
+      `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at
        FROM turns WHERE game_id = $1 ORDER BY turn_n ASC`,
       [gameId]
     );
@@ -458,7 +458,10 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       stats,
       overview: game.overview || {},
       newsfeed: newsfeedRes.rows.map(r => ({ turn: r.turn_n, type: r.item_type, source: r.source, text: r.text })),
-      log: turnsRes.rows.map(r => ({ turn: r.turn_n, decree: r.player_input || null, actionMode: r.action_mode || null, body: r.narrative_text, createdAt: r.created_at })),
+      // statDeltas добавлено 2026-07-11 (слияние Ленты/Журнала/Мира в одну вкладку) — раньше
+      // ЭТО ПОЛЕ НЕ ОТДАВАЛОСЬ ВООБЩЕ, хотя LogTab на фронте уже читал entry.statDeltas (реальный,
+      // ранее незамеченный баг: "изменения статов за ход" в Журнале молча всегда были пустыми).
+      log: turnsRes.rows.map(r => ({ turn: r.turn_n, decree: r.player_input || null, actionMode: r.action_mode || null, body: r.narrative_text, statDeltas: r.stat_deltas || {}, createdAt: r.created_at })),
     });
   });
 

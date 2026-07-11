@@ -2997,6 +2997,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // Порядок по умолчанию (Петя, 2026-07-10): обстановка, башни, кабинет министров, казна, затем
   // остальные — только дефолт для НОВЫХ игроков, у кого ещё нет rp_tab_order в localStorage (см.
   // merge ниже); уже сохранённый пользователем порядок этим не переписывается.
+  // "world" и "log" слиты в "newsfeed" (Петя, 2026-07-11: "давай ленту журнал мир в одну вкладку
+  // попробуем" — аудит показал, что "Мир" был строгим подмножеством Ленты (только world_move),
+  // а Журнал показывал те же ходы, что и Лента, просто другим набором данных (state.log вместо
+  // state.newsfeed) — см. NewsfeedTab, теперь объединяющий оба источника с фильтрами и пометкой
+  // "важных" записей).
   const tabs = [
     { id: "overview", label: t("tab.overview"), icon: Globe2 },
     { id: "kremlin", label: t("tab.kremlin"), icon: KremlinStarIcon },
@@ -3004,11 +3009,9 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     { id: "treasury", label: t("tab.treasury"), icon: Landmark },
     { id: "map", label: t("tab.map"), icon: Globe2 },
     { id: "stats", label: t("tab.stats"), icon: Shield },
-    { id: "world", label: t("tab.world"), icon: Globe2 },
     { id: "policies", label: t("tab.policies"), icon: FileText },
     { id: "relations", label: t("tab.relations"), icon: Landmark },
     { id: "newsfeed", label: t("tab.newsfeed"), icon: ScrollText },
-    { id: "log", label: t("tab.log"), icon: ScrollText },
   ];
 
   // Применяем сохранённый порядок, но защищаемся от устаревшего списка id (новая вкладка
@@ -3262,7 +3265,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         )}
         {tab === "map" && <MapTab state={state} />}
         {tab === "stats" && <StatsTab state={state} gameId={gameId} />}
-        {tab === "world" && <WorldTab state={state} />}
         {tab === "advisors" && (
           <AdvisorsTab
             advisorState={advisorState}
@@ -3295,7 +3297,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         {tab === "relations" && <RelationsTab state={state} />}
         {tab === "treasury" && <TreasuryTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "newsfeed" && <NewsfeedTab state={state} gameId={gameId} onRefresh={loadState} />}
-        {tab === "log" && <LogTab state={state} />}
       </div>
 
       {/* Mission panel — always visible above action area */}
@@ -7933,131 +7934,6 @@ function RelationsTab({ state }) {
 const DIRECTION_COLOR = { hostile: "#a8313a", neutral: "#9c8347", cooperative: "#4a6b5c" };
 const STANCE_LABEL = { hostile: "враждебно", neutral: "нейтрально", cooperative: "дружественно" };
 
-function WorldTab({ state }) {
-  const [modal, setModal] = useState(null);
-  const worldMoves = (state.newsfeed || []).filter(i => i.type === "world_move");
-
-  // Строим словарь отношений: страна → значение
-  const relMap = {};
-  for (const r of (state.relations || [])) relMap[r.name] = r.value;
-
-  // Определяем статус страны по уровню отношений
-  function getStance(countryName) {
-    const val = relMap[countryName];
-    if (val === undefined) return "neutral";
-    if (val >= 60) return "cooperative";
-    if (val <= 30) return "hostile";
-    return "neutral";
-  }
-
-  // Карточки хода (STANCE_*) рендерятся на тёмной вкладке — цвета под тёмный фон. А вот
-  // <Modal> (открывается по клику на карточку) — общий на всё приложение компонент, у него
-  // ВСЕГДА светлое кремовое тело (#f5f1e6) независимо от вкладки — для содержимого модалки
-  // нужны отдельные, светлые по контексту цвета (MODAL_STANCE_COLOR/MODAL_STANCE_BG).
-  const STANCE_COLOR  = { cooperative: "#7fae93", neutral: "#c8a96a", hostile: "#e09090" };
-  const STANCE_BG     = { cooperative: "#12201a", neutral: "#161b26", hostile: "#20141a" };
-  const STANCE_BORDER = { cooperative: "#4a6b5c", neutral: "#9c8347", hostile: "#a8313a" };
-  const STANCE_BADGE  = { cooperative: t("world.stance.cooperative"), neutral: t("world.stance.neutral"), hostile: t("world.stance.hostile") };
-  const MODAL_STANCE_COLOR = { cooperative: "#4a6b5c", neutral: "#7a6a3a", hostile: "#a8313a" };
-  const MODAL_STANCE_BG    = { cooperative: "#f0f5f0", neutral: "#f5f1e6", hostile: "#f5f0ee" };
-
-  if (!worldMoves.length) {
-    return (
-      <div className="doc-font" style={{ fontSize: 13, color: "#a8a294", fontStyle: "italic" }}>
-        {t("world.empty")}
-      </div>
-    );
-  }
-
-  const byTurn = {};
-  for (const m of [...worldMoves].reverse()) {
-    if (!byTurn[m.turn]) byTurn[m.turn] = [];
-    byTurn[m.turn].push(m);
-  }
-
-  return (
-    <div>
-      {modal && (() => {
-        const stance = getStance(modal.source);
-        const col = MODAL_STANCE_COLOR[stance];
-        const relVal = relMap[modal.source];
-        return (
-          <Modal title={modal.source.toUpperCase() + " · " + t("world.turn_short") + " " + modal.turn} onClose={() => setModal(null)}>
-            {relVal !== undefined && (
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "7px 10px", background: MODAL_STANCE_BG[stance], borderRadius: 4, border: `1px solid ${col}33` }}>
-                <span className="mono-font" style={{ fontSize: 9, color: col, letterSpacing: "0.08em" }}>{STANCE_BADGE[stance]}</span>
-                <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: col }}>{relVal}/100</span>
-                <div style={{ flex: 1, height: 4, background: "#d8d2bf", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ width: `${relVal}%`, height: "100%", background: col }} />
-                </div>
-              </div>
-            )}
-            <div className="doc-font" style={{ fontSize: 15, lineHeight: 1.65, color: "#3a362e", marginBottom: 14 }}>
-              {modal.text}
-            </div>
-            {modal.reactions?.length > 0 && (
-              <div style={{ borderTop: "1px solid #d8d2bf", paddingTop: 12 }}>
-                <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 8, letterSpacing: "0.06em" }}>{t("world.analysts")}</div>
-                {modal.reactions.map((r, i) => (
-                  <div key={i} className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#5c5648", fontStyle: "italic" }}>«{r.text}»</div>
-                ))}
-              </div>
-            )}
-          </Modal>
-        );
-      })()}
-
-      <div style={{ display: "grid", gap: 20 }}>
-        {Object.entries(byTurn).map(([turn, moves]) => (
-          <div key={turn}>
-            <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8a294", marginBottom: 8, borderBottom: "1px solid #2a3040", paddingBottom: 4 }}>
-              {t("world.turn_header", { turn })}
-            </div>
-            <div style={{ display: "grid", gap: 8 }}>
-              {moves.map((move, i) => {
-                const stance = getStance(move.source);
-                const col = STANCE_COLOR[stance];
-                const bg  = STANCE_BG[stance];
-                const brd = STANCE_BORDER[stance];
-                const relVal = relMap[move.source];
-                return (
-                  <div
-                    key={i}
-                    onClick={() => setModal(move)}
-                    style={{ background: bg, border: `1px solid ${brd}44`, borderLeft: `4px solid ${brd}`, borderRadius: 4, padding: "10px 12px", cursor: "pointer", transition: "opacity 0.15s" }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
-                    onMouseLeave={e => e.currentTarget.style.opacity = "1"}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
-                          <span className="mono-font" style={{ fontSize: 11, color: col, fontWeight: 700, letterSpacing: "0.04em" }}>
-                            {move.source.toUpperCase()}
-                          </span>
-                          <span className="mono-font" style={{ fontSize: 8, color: col, background: `${col}18`, padding: "1px 5px", borderRadius: 2 }}>
-                            {STANCE_BADGE[stance]}
-                          </span>
-                          {relVal !== undefined && (
-                            <span className="mono-font" style={{ fontSize: 9, color: "#a8a294" }}>{relVal}</span>
-                          )}
-                        </div>
-                        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.4, color: "#cdd3e0" }}>
-                          {move.text.length > 110 ? move.text.slice(0, 110) + "…" : move.text}
-                        </div>
-                      </div>
-                      <span style={{ color: col, marginLeft: 10, flexShrink: 0, fontSize: 16 }}>›</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // .label переведён отдельно, лукапом по ключу в месте отображения (см. newsfeedTypeLabel/
 // worldMoveStanceLabel ниже) — та же причина, что и у statLabel(): это module-level const,
 // вычисляется один раз при загрузке модуля, а не при каждом рендере.
@@ -9653,8 +9529,26 @@ function MarketTicker({ stats }) {
   );
 }
 
+// Лента + Журнал + Мир слиты в одну вкладку (Петя, 2026-07-11: "давай ленту журнал мир в одну
+// вкладку попробуем" — аудит показал, что "Мир" был строгим подмножеством Ленты (только
+// world_move-записи), а Журнал показывал те же ходы другим набором данных (state.log вместо
+// state.newsfeed), просто без общего фильтра/подсветки). Помечаем и указы игрока (state.log,
+// синтетический _kind:"log"), и записи ленты (state.newsfeed, _kind:"feed") единым массивом,
+// сортируем по ходу, добавляем фильтр-чипы и подсветку "важных" (прямое влияние на статы).
+function isImportantLogEntry(deltaEntries) {
+  return deltaEntries.reduce((s, [, d]) => s + Math.abs(d), 0) >= 4;
+}
+function isImportantFeedItem(item, moveDelta, newsStatDelta) {
+  if (item.type === "ukraine_action") return true;
+  const delta = item.type === "world_move" ? moveDelta : newsStatDelta;
+  if (!delta) return false;
+  return Object.values(delta).reduce((s, d) => s + Math.abs(d), 0) >= 3;
+}
+const NEWSFEED_FILTERS = ["all", "important", "mine", "world"];
+
 function NewsfeedTab({ state, gameId, onRefresh }) {
   const [respondedMap, setRespondedMap] = useState(() => state.stats?.ukraine_responses || {});
+  const [filter, setFilter] = useState("all");
 
   // Синхронизируем при обновлении state
   useEffect(() => {
@@ -9669,24 +9563,93 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
   const stats = state.stats || {};
   const marketTicker = <MarketTicker stats={stats} />;
 
-  if (!state.newsfeed?.length) {
-    return (
-      <div>
-        {marketTicker}
-        <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>{t("newsfeed.empty")}</div>
-      </div>
-    );
-  }
   const relMap = {};
   for (const r of (state.relations || [])) relMap[r.name] = r.value;
+
+  const logItems = (state.log || []).map(entry => {
+    const deltaEntries = entry.statDeltas
+      ? Object.entries(entry.statDeltas).filter(([s, d]) => d !== 0 && !s.startsWith("_") && s !== "military_streak")
+      : [];
+    return { _kind: "log", turn: entry.turn, entry, deltaEntries, important: isImportantLogEntry(deltaEntries) };
+  });
+  const feedItems = (state.newsfeed || []).map(item => {
+    const isWorldMove = item.type === "world_move";
+    const analystNote = isWorldMove ? item.reactions?.[0] : null;
+    const moveDelta = analystNote?.stat_delta || {};
+    const newsStatDelta = (!isWorldMove && Array.isArray(item.reactions))
+      ? item.reactions.find(r => r.stat_delta)?.stat_delta
+      : null;
+    return { _kind: "feed", turn: item.turn, item, moveDelta, newsStatDelta, important: isImportantFeedItem(item, moveDelta, newsStatDelta) };
+  });
+  const combined = [...logItems, ...feedItems].sort((a, b) => a.turn - b.turn).reverse();
+
+  const filtered = combined.filter(x => {
+    if (filter === "important") return x.important;
+    if (filter === "mine") return x._kind === "log";
+    if (filter === "world") return x._kind === "feed" && x.item.type === "world_move";
+    return true;
+  });
+
   return (
     <div style={{ display: "grid", gap: 12 }}>
       {marketTicker}
-      {[...state.newsfeed].reverse().map((item, i) => {
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {NEWSFEED_FILTERS.map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className="mono-font"
+            style={{
+              background: filter === f ? "#3a3020" : "transparent",
+              border: `1px solid ${filter === f ? "#c8a857" : "#3a4156"}`,
+              color: filter === f ? "#e0c878" : "#8a94a6",
+              borderRadius: 4, padding: "5px 11px", fontSize: 11, cursor: "pointer",
+            }}
+          >
+            {t(`newsfeed.filter_${f}`)}
+          </button>
+        ))}
+      </div>
+      {combined.length === 0 && (
+        <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>{t("newsfeed.empty")}</div>
+      )}
+      {combined.length > 0 && filtered.length === 0 && (
+        <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>{t("newsfeed.filter_empty")}</div>
+      )}
+      {filtered.map((x, i) => {
+        if (x._kind === "log") {
+          const entry = x.entry;
+          const badge = entry.actionMode && ACTION_MODE_BADGE[entry.actionMode];
+          return (
+            <div key={`log-${i}`} style={{ position: "relative", paddingLeft: 18, background: "#161b26", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px 12px 26px" }}>
+              <div style={{ position: "absolute", left: 12, top: 16, width: 8, height: 8, borderRadius: "50%", background: entry.turn === 0 ? "#9c8347" : "#a8313a" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="mono-font" style={{ fontSize: 10, color: "#8a8472" }}>{t("world.turn_short")} {entry.turn}</span>
+                  {badge && (
+                    <span className="mono-font" style={{ fontSize: 9, color: badge.color, border: `1px solid ${badge.color}`, borderRadius: 3, padding: "1px 6px" }}>
+                      {actionModeLabel(entry.actionMode, badge.label)}
+                    </span>
+                  )}
+                </div>
+                {x.important && <span className="mono-font" style={{ fontSize: 9, color: "#e0c878" }}>{t("newsfeed.important_badge")}</span>}
+              </div>
+              {entry.decree && (
+                <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#a8a294", fontStyle: "italic", borderLeft: "2px solid #c8a857", paddingLeft: 8, marginBottom: 6 }}>
+                  «{entry.decree}»
+                </div>
+              )}
+              <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#cdd3e0" }}>{entry.body}</div>
+              <LogEntryDeltas deltaEntries={x.deltaEntries} />
+            </div>
+          );
+        }
+
+        const item = x.item;
         if (item.type === "ukraine_action") {
           return (
             <UkraineActionCard
-              key={i}
+              key={`feed-${i}`}
               item={item}
               gameId={gameId}
               respondedType={respondedMap[item.turn]}
@@ -9701,20 +9664,18 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
         const meta = isWorldMove ? WORLD_MOVE_STANCE_STYLE[stance] : (NEWSFEED_TYPE[item.type] || NEWSFEED_TYPE.news);
         const metaLabel = isWorldMove ? worldMoveStanceLabel(stance) : newsfeedTypeLabel(NEWSFEED_TYPE[item.type] ? item.type : "news");
         const analystNote = isWorldMove ? item.reactions?.[0] : null;
-        const moveDelta = analystNote?.stat_delta || {};
+        const moveDelta = x.moveDelta;
         // Обычные "news"-события (антикоррупция/ЦБ/ОФЗ и т.п.) тоже могут нести структурированный
         // stat_delta (Петя, 2026-07-08: "по идее когда разворачиваешь — должна быть инфа о влиянии
         // на статистику" — раньше числа были зашиты только в прозу, без чипов). Хранится как одна
         // запись {stat_delta} внутри массива reactions — отфильтровываем её из списка КОММЕНТАРИЕВ,
         // чтобы не рендерить как пустой комментарий без user/text.
-        const newsStatDelta = (!isWorldMove && Array.isArray(item.reactions))
-          ? item.reactions.find(r => r.stat_delta)?.stat_delta
-          : null;
+        const newsStatDelta = x.newsStatDelta;
         const comments = (!isWorldMove && Array.isArray(item.reactions))
           ? item.reactions.filter(r => !r.stat_delta)
           : [];
         return (
-          <div key={i} style={{
+          <div key={`feed-${i}`} style={{
             background: isWorldMove ? meta.bg : "#f5f1e6",
             border: `1px solid ${isWorldMove ? meta.border : "#d8d2bf"}`,
             borderRadius: 4, overflow: "hidden",
@@ -9724,7 +9685,10 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
                 <span className="mono-font" style={{ fontSize: 9, letterSpacing: "0.08em", color: meta.color }}>
                   {meta.icon} {item.source.toUpperCase()} · {metaLabel}
                 </span>
-                <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? meta.toggle : "#8a8472" }}>{t("world.turn_short")} {item.turn}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {x.important && <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? "#e0c878" : "#8a6f30" }}>{t("newsfeed.important_badge")}</span>}
+                  <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? meta.toggle : "#8a8472" }}>{t("world.turn_short")} {item.turn}</span>
+                </div>
               </div>
               <ExpandableText
                 text={item.text}
@@ -9835,44 +9799,6 @@ function LogEntryDeltas({ deltaEntries }) {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-// Журнал — раньше показывал только нарратив-пересказ хода, но не САМО решение игрока (что
-// именно было подписано) и не его цену/эффект в цифрах (Петя, 2026-07-07: "чтоб можно было
-// посмотреть все свои действия и решения"). Теперь под нарративом — исходный текст указа
-// (то, что игрок реально написал/выбрал) и компактная строка изменений статов за этот ход.
-function LogTab({ state }) {
-  return (
-    <div style={{ display: "grid", gap: 14 }}>
-      {[...state.log].reverse().map((entry, i) => {
-        const badge = entry.actionMode && ACTION_MODE_BADGE[entry.actionMode];
-        const deltaEntries = entry.statDeltas
-          ? Object.entries(entry.statDeltas).filter(([s, d]) => d !== 0 && !s.startsWith("_") && s !== "military_streak")
-          : [];
-        return (
-          <div key={i} style={{ position: "relative", paddingLeft: 18 }}>
-            <div style={{ position: "absolute", left: 0, top: 4, width: 8, height: 8, borderRadius: "50%", background: entry.turn === 0 ? "#9c8347" : "#a8313a" }} />
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-              <span className="mono-font" style={{ fontSize: 10, color: "#8a8472" }}>{t("world.turn_short")} {entry.turn}</span>
-              {badge && (
-                <span className="mono-font" style={{ fontSize: 9, color: badge.color, border: `1px solid ${badge.color}`, borderRadius: 3, padding: "1px 6px" }}>
-                  {actionModeLabel(entry.actionMode, badge.label)}
-                </span>
-              )}
-            </div>
-            <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{entry.title}</div>
-            {entry.decree && (
-              <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.5, color: "#a8a294", fontStyle: "italic", borderLeft: "2px solid #c8a857", paddingLeft: 8, marginBottom: 6 }}>
-                «{entry.decree}»
-              </div>
-            )}
-            <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#cdd3e0" }}>{entry.body}</div>
-            <LogEntryDeltas deltaEntries={deltaEntries} />
-          </div>
-        );
-      })}
     </div>
   );
 }

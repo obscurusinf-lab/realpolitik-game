@@ -322,8 +322,14 @@ const RU = {
   // ---- NewsfeedTab / MarketTicker ----
   "newsfeed.fx_floating": "⚙ курс в свободном плавании",
   "newsfeed.empty": "Лента пуста.",
+  "newsfeed.filter_empty": "Ничего не найдено по этому фильтру.",
   "newsfeed.comments": "КОММЕНТАРИИ",
   "newsfeed.analyst_note": "ОЦЕНКА АНАЛИТИКА",
+  "newsfeed.filter_all": "Всё",
+  "newsfeed.filter_important": "⭐ Важное",
+  "newsfeed.filter_mine": "Мои указы",
+  "newsfeed.filter_world": "Мир",
+  "newsfeed.important_badge": "⭐ ВАЖНО",
 
   // ---- AdvisorsTab ----
   "advisors.scale_label": "МАСШТАБ РЕШЕНИЯ:",
@@ -940,8 +946,14 @@ const EN = {
   // ---- NewsfeedTab / MarketTicker ----
   "newsfeed.fx_floating": "⚙ free-floating exchange rate",
   "newsfeed.empty": "The feed is empty.",
+  "newsfeed.filter_empty": "Nothing matches this filter.",
   "newsfeed.comments": "COMMENTS",
   "newsfeed.analyst_note": "ANALYST ASSESSMENT",
+  "newsfeed.filter_all": "All",
+  "newsfeed.filter_important": "⭐ Important",
+  "newsfeed.filter_mine": "My decrees",
+  "newsfeed.filter_world": "World",
+  "newsfeed.important_badge": "⭐ IMPORTANT",
 
   // ---- AdvisorsTab ----
   "advisors.scale_label": "DECISION SCALE:",

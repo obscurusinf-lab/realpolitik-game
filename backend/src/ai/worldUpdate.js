@@ -6,8 +6,11 @@
 
 const { languageInstruction } = require("./language-instruction");
 
-function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, narrative, language }) {
-  return `Ты — система мирового моделирования. Президент ${countryName} только что нанёс ядерный удар (ход ${turnNumber}).
+function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, narrative, language, gameDate }) {
+  return `Ты — система мирового моделирования. Президент ${countryName} только что нанёс ядерный удар (ход ${turnNumber}, дата в игре: ${gameDate || "—"}).
+ВАЖНО ПРО ДАТЫ: если упоминаешь конкретный день/ночь в тексте (например "в ночь на..."), он должен
+быть в пределах текущего месяца партии (${gameDate || "—"}) или 1-3 дня до него — НЕ выдумывай
+дату из другого месяца или сезона года, это ломает хронологию партии для игрока.
 
 Нарратив: "${narrative}"
 
@@ -68,7 +71,7 @@ function countryLine(name) {
   return `${name} (${COUNTRY_PROFILES[name] || "без особых деталей"})`;
 }
 
-function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrative, statDeltas, relationDeltas, currentRelations, prevOverview, language }) {
+function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrative, statDeltas, relationDeltas, currentRelations, prevOverview, language, gameDate }) {
   const deltaLines = Object.entries(statDeltas)
     .filter(([, d]) => d !== 0)
     .map(([k, v]) => `${k}:${v > 0 ? "+" : ""}${v}`)
@@ -78,10 +81,15 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
     .map(r => `${r.country}:${r.delta > 0 ? "+" : ""}${r.delta}`)
     .join(", ") || "—";
 
-  return `Геополитическая стратегия. ${countryName}, ход ${turnNumber}.
+  return `Геополитическая стратегия. ${countryName}, ход ${turnNumber}, дата в игре: ${gameDate || "—"}.
 Решение: "${playerInput}"
 Изменения статов: ${deltaLines} | Отношения: ${relLines}
 Контекст: ${prevOverview?.headline || "—"}
+ВАЖНО ПРО ДАТЫ: если в тексте hotspots/world_reactions/world_moves упоминается конкретный день
+или ночь (например "в ночь на..."), он должен быть в пределах текущего месяца партии (${gameDate || "—"})
+или 1-3 дня до него — НЕ выдумывай дату из другого месяца/сезона года, это ломает хронологию
+партии для игрока (баг, найденный в реальной игре: текст сослался на декабрь при дате в игре
+"11 августа").
 
 КАТЕГОРИИ СТРАН (строго соблюдай tone и direction). В скобках — конкретный интерес/рычаг этой
 страны в контексте войны: используй его, а не общие фразы "критика Запада"/"поддержка союзника" —
