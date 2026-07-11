@@ -436,6 +436,11 @@ const RU = {
   "treasury.invest_btn": "📈 Инвестировать профицит",
   "treasury.invest_running": "Вкладываем…",
   "treasury.invest_cooldown": "⚠ Ещё не восстановилось (через {n} х.)",
+  "treasury.bank_label": "🏦 ОТЛОЖИТЬ В РЕЗЕРВЫ · ⚡20, −10 казны → +10 резервов · раз в месяц",
+  "treasury.bank_desc": "Не тратить излишек, а отложить на будущее — резервы ФНБ потом можно вернуть в казну (см. «Распечатать ФНБ») или сжечь на экстренный стимул. Мгновенный эффект, лёгкое охлаждение инфляции.",
+  "treasury.bank_btn": "🏦 Отложить в резервы",
+  "treasury.bank_running": "Откладываем…",
+  "treasury.bank_used": "Уже отложено в этом месяце",
 
   "treasury.w.reserves_title": "РЕЗЕРВЫ (ФНБ)",
   "treasury.reserves_none": "ЦБ нечем защищать рубль",
@@ -1045,6 +1050,11 @@ const EN = {
   "treasury.invest_btn": "📈 Invest surplus",
   "treasury.invest_running": "Investing…",
   "treasury.invest_cooldown": "⚠ Not ready yet (in {n} turns)",
+  "treasury.bank_label": "🏦 BANK SURPLUS INTO RESERVES · ⚡20, −10 treasury → +10 reserves · once a month",
+  "treasury.bank_desc": "Don't spend the surplus — set it aside for later. Reserves can later be converted back into treasury (see \"Tap the reserve fund\") or burned on an emergency stimulus. Instant effect, mild inflation cooling.",
+  "treasury.bank_btn": "🏦 Bank surplus",
+  "treasury.bank_running": "Banking…",
+  "treasury.bank_used": "Already banked this month",
 
   "treasury.w.reserves_title": "RESERVES (NATIONAL WEALTH FUND)",
   "treasury.reserves_none": "the CB has nothing left to defend the ruble with",

@@ -79,14 +79,16 @@ const SUBSTAT_DEFAULTS = {
   ua_morale: 65,       // боевой дух (зависит от военного баланса)
   // Башни Кремля (см. FACTION_DEFAULTS/computeFactionReactions ниже) + счётчик коалиционной
   // стабильности за выбор компромисса в карточках-дилеммах.
-  // Старт 65, НЕ 55 (Петя, 2026-07-10: "все дают стабильный минус в башнях... по дефолту по
-  // нулям по негативу") — лестница дебаффов (computeFactionDebuffs) бьёт "ниже 60", а старт 55
-  // был УЖЕ ниже первого порога: все 4 башни получали дебафф с 1-го хода независимо от игрока.
-  // 65 даёт запас в 5 очков нейтралитета до первого уровня давления.
-  faction_siloviki: 65,
-  faction_tehnokraty: 65,
-  faction_oligarhi: 65,
-  faction_konservatory: 65,
+  // Старт 55 (Петя, 2026-07-11, разворот решения от 2026-07-10): тогда подняли с 55 до 65,
+  // потому что при 55 все 4 башни сразу получали дебафф с 1-го хода независимо от игрока
+  // (лестница дебаффов бьёт "ниже 60"). Теперь Петя явно попросил вернуть 55 обратно — "башни
+  // должны изначально быть не очень довольными" — но на этот раз это не голый штраф без выхода:
+  // одновременно добавлена FACTION_BUFF_LADDER (постоянный бафф выше 75/90), так что старт с
+  // лёгким дебаффом — это стартовая точка ПУТИ вверх к баффам, а не просто более суровый ноль.
+  faction_siloviki: 55,
+  faction_tehnokraty: 55,
+  faction_oligarhi: 55,
+  faction_konservatory: 55,
   coalition_stability: 0,
   coalition_milestone_reached: 0, // 0/1 — флаг, ставится один раз при coalition_stability достигшей 5
   // Временные бонусы от карточек-дилемм (см. FACTION_DILEMMAS ниже). Счётчик ходов декрементируется
@@ -363,7 +365,7 @@ function computeFactionDebuffs(stats) {
   const deltas = {};
   const notes = [];
   for (const faction of FACTION_KEYS) {
-    const value = stats[faction] ?? 65;
+    const value = stats[faction] ?? 55;
     const ladder = FACTION_DEBUFF_LADDER[faction];
     // Находим САМЫЙ ГЛУБОКИЙ применимый уровень — его effects уже включают эффекты предыдущих
     // уровней в усиленном виде (лестница написана как кумулятивные снапшоты, не приросты).
@@ -377,6 +379,60 @@ function computeFactionDebuffs(stats) {
       deltas[stat] = (deltas[stat] ?? 0) + delta;
     }
     notes.push({ faction, tier: tierIndex, label: FACTION_DEBUFF_LABELS[faction], value });
+  }
+  return { deltas, notes };
+}
+
+// ЛЕСТНИЦА БАФФОВ БАШЕН (Петя, 2026-07-11: "при большом плюсе давать постоянные бафы у башни" —
+// раньше высокое довольство было ЧИСТО отсутствием наказания, без награды, см. describeFactionBuffs
+// в advisors.js до этой правки). Зеркалит FACTION_DEBUFF_LADDER по структуре и тематике домена
+// (силовики → readiness/army_morale, технократы → gdp_growth/economy, олигархи → treasury/economy,
+// консерваторы → approval/stability), но с положительными эффектами выше 75/90. Применяется
+// ПОМЕСЯЧНО (turns.js end-month), тем же местом, что и computeFactionDebuffs.
+const FACTION_BUFF_LADDER = {
+  faction_siloviki: [
+    { above: 75, effects: { readiness: 1 } },
+    { above: 90, effects: { readiness: 2, army_morale: 1 } },
+  ],
+  faction_tehnokraty: [
+    { above: 75, effects: { gdp_growth: 1 } },
+    { above: 90, effects: { gdp_growth: 2, economy: 1 } },
+  ],
+  faction_oligarhi: [
+    { above: 75, effects: { treasury: 1 } },
+    { above: 90, effects: { treasury: 2, economy: 1 } },
+  ],
+  faction_konservatory: [
+    { above: 75, effects: { approval: 1 } },
+    { above: 90, effects: { approval: 2, stability: 1 } },
+  ],
+};
+const FACTION_BUFF_LABELS = {
+  faction_siloviki: "Силовики довольны", faction_tehnokraty: "Технократы довольны",
+  faction_oligarhi: "Олигархи довольны", faction_konservatory: "Консерваторы довольны",
+};
+
+/**
+ * Зеркало computeFactionDebuffs для положительной стороны — постоянный помесячный бафф, пока
+ * башня держится выше порога. Вызывать раз в месяц (end-month) рядом с computeFactionDebuffs.
+ */
+function computeFactionBuffs(stats) {
+  const deltas = {};
+  const notes = [];
+  for (const faction of FACTION_KEYS) {
+    const value = stats[faction] ?? 55;
+    const ladder = FACTION_BUFF_LADDER[faction];
+    // Как и в дебафф-лестнице — берём САМЫЙ ВЫСОКИЙ применимый уровень (кумулятивный снапшот).
+    let applicable = null;
+    for (const tier of ladder) {
+      if (value >= tier.above) applicable = tier;
+    }
+    if (!applicable) continue;
+    const tierIndex = ladder.indexOf(applicable) + 1;
+    for (const [stat, delta] of Object.entries(applicable.effects)) {
+      deltas[stat] = (deltas[stat] ?? 0) + delta;
+    }
+    notes.push({ faction, tier: tierIndex, label: FACTION_BUFF_LABELS[faction], value });
   }
   return { deltas, notes };
 }
@@ -1336,4 +1392,5 @@ module.exports = {
   resolveFactionDilemma,
   COALITION_STABILITY_MAX,
   computeFactionDebuffs,
+  computeFactionBuffs,
 };

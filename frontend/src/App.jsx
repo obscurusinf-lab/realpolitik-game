@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, Send, AlertTriangle, Users, FileText } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, bankSurplus, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
@@ -2985,6 +2985,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
 
   if (diplomaticReactions) {
     return <DiplomaticResponseScreen reactions={diplomaticReactions} onRespond={handleDiplomaticRespond} onSkip={handleDiplomaticDone} gameId={gameId} gameStats={state?.stats} />;
+  }
+
+  // Дворцовая интрига — перехватывает ЛЮБУЮ вкладку, как только возникает (см. FactionDilemmaScreen),
+  // но ПОСЛЕ end-turn/украина/дипломатия — сначала игрок доосмысливает итоги хода, затем решение
+  // по башням. Раньше карточка ждала внутри вкладки "Башни Кремля" и терялась, если игрок туда не заходил.
+  if (state?.pendingFactionDilemma) {
+    return <FactionDilemmaScreen dilemma={state.pendingFactionDilemma} gameId={gameId} onDone={loadState} />;
   }
 
   // Порядок по умолчанию (Петя, 2026-07-10): обстановка, башни, кабинет министров, казна, затем
@@ -7309,30 +7316,10 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
   const stats = state.stats || {};
   const coalition = stats.coalition_stability ?? 0;
   const milestone = !!stats.coalition_milestone_reached;
-  const pending = state.pendingFactionDilemma;
-
-  const [resolving, setResolving] = useState(false);
-  const [resolveResult, setResolveResult] = useState(null);
-  const [resolveError, setResolveError] = useState(null);
-
-  async function handleChoice(choice) {
-    if (resolving || !pending) return;
-    setResolving(true);
-    setResolveError(null);
-    try {
-      const result = await resolveFactionDilemma(gameId, pending.id, choice);
-      setResolveResult(result);
-    } catch (err) {
-      setResolveError(err.message);
-    } finally {
-      setResolving(false);
-    }
-  }
-
-  function handleDone() {
-    setResolveResult(null);
-    onStateRefresh?.();
-  }
+  // Карточка-дилемма (pendingFactionDilemma) больше НЕ рендерится здесь — теперь это отдельный
+  // полноэкранный интеррапт на уровне App (см. FactionDilemmaScreen), перехватывающий любую
+  // вкладку сразу же, а не только эту. Эта вкладка сюда не доходит, пока дилемма ждёт решения —
+  // App вернёт FactionDilemmaScreen раньше, чем дойдёт до рендера таб-бара.
 
   return (
     <div>
@@ -7393,28 +7380,6 @@ function FactionsTab({ state, gameId, onStateRefresh }) {
           {milestone ? "5/5 — риск случайного кризиса снижен" : `${coalition}/5 → −1% шанс случайного кризиса`}
         </span>
       </div>
-
-      {/* Карточка-дилемма */}
-      {pending && !resolveResult && (
-        <FactionDilemmaCard dilemmaId={pending.id} onChoose={handleChoice} resolving={resolving} error={resolveError} />
-      )}
-      {resolveResult && (
-        <div style={{ background: "#12241a", border: "1px solid #2a5a3a", borderRadius: 6, padding: "14px 16px" }}>
-          <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>Решение принято</div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-            {Object.entries(resolveResult.statDeltas)
-              .filter(([k, v]) => v && !k.startsWith("perk_") && k !== "coalition_milestone_reached")
-              .map(([k, v]) => (
-                <span key={k} className="mono-font" style={{ fontSize: 11, color: v > 0 ? "#7fae93" : "#e09090" }}>
-                  {FACTION_META[k]?.label || ALL_STAT_LABELS[k] || (k === "coalition_stability" ? "Коалиционная стабильность" : k)}: {v > 0 ? "+" : ""}{v}
-                </span>
-              ))}
-          </div>
-          <button onClick={handleDone} style={{ background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 5, padding: "9px 20px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-            Продолжить →
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -7532,6 +7497,65 @@ function FactionDilemmaCard({ dilemmaId, onChoose, resolving, error }) {
         {renderOption("optionA", optA, FACTION_META[optA.factionId]?.color || "#b2585a")}
         {renderOption("optionB", optB, FACTION_META[optB.factionId]?.color || "#5b8ab0")}
         {renderOption("compromise", optC, "#9c8347")}
+      </div>
+    </div>
+  );
+}
+
+// Дворцовая интрига — раньше показывалась ТОЛЬКО внутри вкладки "Башни Кремля", игрок мог легко
+// её пропустить, если не заходил туда именно в этот ход (Петя, 2026-07-11: "дворцовые интриги
+// должны появляться перед игроком сразу же как возникают, иначе я их не замечаю"). Теперь это
+// отдельный полноэкранный интеррапт на уровне App — тот же паттерн, что у DiplomaticResponseScreen/
+// UkraineResponseScreen (ранний return ДО обычного таб-бара, перехватывает ЛЮБУЮ текущую вкладку).
+function FactionDilemmaScreen({ dilemma, gameId, onDone }) {
+  const [resolving, setResolving] = useState(false);
+  const [resolveResult, setResolveResult] = useState(null);
+  const [resolveError, setResolveError] = useState(null);
+
+  async function handleChoice(choice) {
+    if (resolving) return;
+    setResolving(true);
+    setResolveError(null);
+    try {
+      const result = await resolveFactionDilemma(gameId, dilemma.id, choice);
+      setResolveResult(result);
+    } catch (err) {
+      setResolveError(err.message);
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  const overlayStyle = {
+    position: "fixed", inset: 0, background: "#0a0d12", zIndex: 8000,
+    fontFamily: "'PT Serif',Georgia,serif", color: "#ece7d8",
+    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+    overflowY: "auto", padding: "32px 16px 48px",
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ maxWidth: 560, width: "100%" }}>
+        <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#c8a857", marginBottom: 16, textAlign: "center" }}>🏛 КРЕМЛЁВСКИЕ БАШНИ ТРЕБУЮТ РЕШЕНИЯ</div>
+        {!resolveResult ? (
+          <FactionDilemmaCard dilemmaId={dilemma.id} onChoose={handleChoice} resolving={resolving} error={resolveError} />
+        ) : (
+          <div style={{ background: "#12241a", border: "1px solid #2a5a3a", borderRadius: 6, padding: "14px 16px" }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>Решение принято</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+              {Object.entries(resolveResult.statDeltas)
+                .filter(([k, v]) => v && !k.startsWith("perk_") && k !== "coalition_milestone_reached")
+                .map(([k, v]) => (
+                  <span key={k} className="mono-font" style={{ fontSize: 11, color: v > 0 ? "#7fae93" : "#e09090" }}>
+                    {FACTION_META[k]?.label || ALL_STAT_LABELS[k] || (k === "coalition_stability" ? "Коалиционная стабильность" : k)}: {v > 0 ? "+" : ""}{v}
+                  </span>
+                ))}
+            </div>
+            <button onClick={onDone} style={{ background: "#3a8a5a", color: "#fff", border: "none", borderRadius: 5, padding: "9px 20px", fontFamily: "'PT Serif',serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Продолжить →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -8574,6 +8598,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     finally { setLoading(null); }
   }
 
+  async function handleBankSurplus() {
+    setLoading("bank_surplus"); setError(null);
+    try { await bankSurplus(gameId); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
   async function handleConvertReserves() {
     setLoading("convert_reserves"); setError(null);
     try { await convertReserves(gameId); onRefresh?.(); }
@@ -8777,6 +8808,48 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                   : investOnCooldown
                   ? t("treasury.invest_cooldown", { n: investTurnsLeft })
                   : t("treasury.invest_btn")}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* Отложить профицит в резервы — Петя, 2026-07-11: "не вижу опции вложить излишек казны
+            в резервы" (invest-surplus выше — это трата профицита НА РОСТ, а тут — обратное:
+            консервативное решение не тратить, а отложить на будущее, зеркало уже существующей
+            /convert-reserves, только в обратную сторону — казна → резервы). Помесячный лимит
+            (surplus_banked_this_month), не многоходовый кулдаун, как у invest-surplus/emergency. */}
+        {(() => {
+          const bankThreshold = 70;
+          const bankAvailable = treasury >= bankThreshold;
+          const bankUsedThisMonth = !!stats.surplus_banked_this_month;
+          const initiative = stats.initiative ?? 100;
+          const bankCanAfford = bankAvailable && !bankUsedThisMonth && initiative >= 20;
+          if (!bankAvailable && !bankUsedThisMonth) return null; // не мозолит глаза, пока казна не в профиците
+          return (
+            <div style={{ background: "#0f1522", border: "1px solid "+"#204060", borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: "#7aa8c0", marginBottom: 6 }}>
+                {t("treasury.bank_label")}
+              </div>
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#94a4b0", lineHeight: 1.4, marginBottom: 8 }}>
+                {t("treasury.bank_desc")}
+              </div>
+              <button
+                onClick={handleBankSurplus}
+                disabled={!bankCanAfford || loading === "bank_surplus"}
+                style={{
+                  width: "100%", background: !bankCanAfford ? "#141a1e" : "#143246",
+                  border: `1px solid ${!bankCanAfford ? "#283238" : "#307a8a"}`,
+                  color: !bankCanAfford ? "#405058" : "#7fc0d0",
+                  borderRadius: 3, padding: "9px 12px",
+                  fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: !bankCanAfford ? "not-allowed" : "pointer",
+                  textAlign: "left", fontWeight: 700,
+                }}
+              >
+                {loading === "bank_surplus"
+                  ? t("treasury.bank_running")
+                  : bankUsedThisMonth
+                  ? t("treasury.bank_used")
+                  : t("treasury.bank_btn")}
               </button>
             </div>
           );

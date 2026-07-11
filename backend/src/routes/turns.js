@@ -2283,6 +2283,8 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       delete newStats.anticorruption_used;
       // Сбрасываем флаг конвертации резервов
       delete newStats.reserves_converted_this_month;
+      // Сбрасываем флаг вложения профицита казны в резервы (см. /treasury/bank-surplus)
+      delete newStats.surplus_banked_this_month;
       // Сбрасываем флаг действия Украины (см. комментарий у ukraine_action_this_month в /turns/confirm)
       delete newStats.ukraine_action_this_month;
 
@@ -2506,6 +2508,28 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           );
         }
         if (notes.length > 0) fastify.log.info({ gameId, notes }, "Faction debuff ladder applied (end-month)");
+      }
+
+      // Башни Кремля: лестница БАФФОВ (Петя, 2026-07-11: "при большом плюсе давать постоянные
+      // бафы у башни" — раньше высокое довольство было чистым отсутствием наказания без награды).
+      // Зеркало блока дебаффов выше, см. FACTION_BUFF_LADDER в rules-engine.js.
+      {
+        const { computeFactionBuffs } = require("../rules/rules-engine");
+        const { deltas, notes } = computeFactionBuffs(newStats);
+        for (const [stat, delta] of Object.entries(deltas)) {
+          newStats[stat] = Math.max(0, Math.min(100, (newStats[stat] ?? 50) + delta));
+        }
+        if (deltas.economy) economyAutoEffects.push({ label: "Поддержка элит", delta: deltas.economy });
+        const strongNotes = notes.filter(n => n.tier >= 2);
+        if (strongNotes.length > 0) {
+          const text = `${strongNotes.map(n => `${n.label} (уровень ${n.tier}/2)`).join("; ")} — элиты активно поддерживают курс: часть решений проходит быстрее и с меньшими потерями.`;
+          await client.query(
+            `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1, $2, $3, $4, $5, $6)`,
+            [gameId, completedMonth, "news", "РБК", text,
+             JSON.stringify([{ emoji: "🤝", label: "поддержка элит", count: Math.floor(Math.random() * 60) + 20 }])]
+          );
+        }
+        if (notes.length > 0) fastify.log.info({ gameId, notes }, "Faction buff ladder applied (end-month)");
       }
 
       // Декремент временных баффов от карточек-дилемм Башен Кремля (см. FACTION_DILEMMAS,

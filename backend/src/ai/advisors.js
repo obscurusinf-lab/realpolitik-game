@@ -5,7 +5,7 @@
  * Один вызов Claude → все пять мнений, чтобы не множить API-запросы.
  */
 
-const { TREASURY_PER_TRILLION, RULES_TABLE, CATEGORY_GROUP, FACTION_KEYS } = require("../rules/rules-engine");
+const { TREASURY_PER_TRILLION, RULES_TABLE, CATEGORY_GROUP, FACTION_KEYS, computeFactionBuffs } = require("../rules/rules-engine");
 const { languageInstruction } = require("./language-instruction");
 
 const ADVISORS = [
@@ -353,14 +353,14 @@ function describeFactionPressure(stats) {
 }
 
 // Активные бонусы от Башен Кремля (Петя, 2026-07-10: "если башня в хорошем расположении, она
-// даёт постоянный бонус к статам?" — нет: лестница дебаффов ниже 60 ОДНОСТОРОННЯЯ
-// (computeFactionDebuffs проверяет только value < tier.below — выше 60 ничего не применяется,
-// это отсутствие наказания, а не награда). Единственные реальные бонусы — разовые перки от
-// выбора стороны в карточке-дилемме (perk_mil_initiative_discount_turns/perk_corruption_audit_
-// turns) и накопленный coalition_stability от компромиссов (веха — постоянное снижение шанса
-// внутреннего кризиса). Раньше советник не знал ни о том, ни о другом.
+// даёт постоянный бонус к статам?" — тогда ответ был "нет, только отсутствие наказания". Петя,
+// 2026-07-11: "предлагаю при большом плюсе давать постоянные бафы у башни" — теперь это РЕАЛЬНЫЙ
+// помесячный бафф выше 75/90 (см. FACTION_BUFF_LADDER/computeFactionBuffs в rules-engine.js),
+// не только разовые перки от карточек-дилемм и coalition_stability, как раньше.
 function describeFactionBuffs(stats) {
   const notes = [];
+  const { notes: buffNotes } = computeFactionBuffs(stats);
+  for (const n of buffNotes) notes.push(`${n.label} (${n.value}/100) — постоянный бафф уровня ${n.tier}/2`);
   const milDiscount = stats.perk_mil_initiative_discount_turns ?? 0;
   if (milDiscount > 0) notes.push(`военные операции дешевле на 30% инициативы ещё ${milDiscount} х. (бонус силовиков)`);
   const auditPerk = stats.perk_corruption_audit_turns ?? 0;
@@ -595,7 +595,11 @@ function computeOptimalMove(stats, turnNumber = 1, statHistory = [], recentCateg
     return { advisorId: "finance", category: "econ_hold", mode: "decree_fast", direction: "null_action",
       title: "Дать реформе сработать",
       decree: null,
-      reason: `Острых угроз нет, экономическая реформа уже подписана в последних ходах — её эффект доходит до экономики с лагом 1-3 хода через рост ВВП, а не сразу. Подписывать ещё одну поверх непрошедшей — тратить инициативу и глушить сигнал: станет непонятно, что от чего сработало. Дайте текущей реформе отработать, в следующие ходы оцените результат по темпу роста ВВП.${describeFactionPressure(stats)}${describeFactionBuffs(stats)}` };
+      // Петя, 2026-07-11 (реальная партия): "советник посоветовал подождать — а что мне тогда
+      // вообще делать в этот ход? Пропускать?" — этот совет только про ЭКОНОМИЧЕСКИЙ рычаг,
+      // но раньше банер не говорил, что ход всё равно не пустой: месяц можно потратить на любую
+      // ДРУГУЮ область (дипломатия/армия/разведка/внутренняя политика) без конфликта с этим советом.
+      reason: `Острых угроз нет, экономическая реформа уже подписана в последних ходах — её эффект доходит до экономики с лагом 1-3 хода через рост ВВП, а не сразу. Подписывать ещё одну поверх непрошедшей — тратить инициативу и глушить сигнал: станет непонятно, что от чего сработало. Дайте текущей реформе отработать, в следующие ходы оцените результат по темпу роста ВВП. Это не значит бездействие месяца целиком — переключитесь на другую область (дипломатия, армия, разведка, внутренняя политика) во вкладках выше и действуйте там.${describeFactionPressure(stats)}${describeFactionBuffs(stats)}` };
   }
   return { advisorId: "finance", category: "econ_stimulus", mode: "decree_reform", direction: "economic_stimulus",
     title: "Укреплять экономику",
