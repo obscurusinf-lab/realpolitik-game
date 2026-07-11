@@ -28,8 +28,24 @@ const MAX_PUSHBACK_PER_KEY = 6;   // разумный потолок — не с
 const MAX_TOTAL_PUSHBACK = 15;    // защита от одного катастрофического хода, даже если ИИ разошёлся
 const MAX_CONTESTED_KEYS = 4;     // из 5 фронтов — не может задеть все сразу
 
-function stripMarkdownFences(text) {
-  return text.replace(/```json\s*|\s*```/g, "").trim();
+// БАГ, найден живым тестом на реальной модели (2026-07-11): Haiku регулярно дописывает
+// пояснение своей логики ПОСЛЕ json-блока (`**Логика решения:** ...`), несмотря на инструкцию
+// "верни строго JSON" — обычный stripMarkdownFences (снимает только ```-обёртку) на такой текст
+// падает, т.к. после закрывающей ``` остаётся посторонний текст. Извлекаем именно первый
+// сбалансированный {...} объект, игнорируя всё до и после него, а не доверяем всей строке целиком.
+function extractJsonObject(text) {
+  const stripped = text.replace(/```json\s*|\s*```/g, "");
+  const start = stripped.indexOf("{");
+  if (start === -1) throw new Error("No JSON object found in response");
+  let depth = 0;
+  for (let i = start; i < stripped.length; i++) {
+    if (stripped[i] === "{") depth++;
+    else if (stripped[i] === "}") {
+      depth--;
+      if (depth === 0) return JSON.parse(stripped.slice(start, i + 1));
+    }
+  }
+  throw new Error("Unbalanced JSON object in response");
 }
 
 function isEnabled() {
@@ -56,9 +72,9 @@ ${movesText}
 
 Выбери, на каких фронтах и насколько сильно ВСУ контратакует — реалистично, исходя из того, где у России сейчас растянуты силы, а не случайно. Слабая позиция ВСУ (низкая армия/поддержка Запада) — меньше и слабее контратака. Не будь предсказуемым, не повторяй одну и ту же схему каждый раз.
 
-Верни строго JSON:
+Верни ТОЛЬКО JSON, без пояснений до или после (никакого "Логика решения" и т.п. текста ни до, ни после — только сам объект):
 {"pushback": {"donetsk_control": 0, "luhansk_control": 0, "zaporizhzhia_control": 0, "kherson_control": 0, "kharkiv_control": 0}, "narrative": "1 короткое предложение — что и почему сделала ВСУ"}
-Пушбэк только для фронтов, которые реально контратакуются (0 или отсутствие ключа — фронт не контратакован). Числа — целые.`;
+Пушбэк только для фронтов, которые реально контратакуются (0 или отсутствие ключа — фронт не контратакован). Числа — ПОЛОЖИТЕЛЬНЫЕ целые (сколько пунктов ВСУ отбивает у России на этом фронте).`;
 
     const response = await callClaudeApi({
       model: "claude-haiku-4-5-20251001",
@@ -67,7 +83,7 @@ ${movesText}
     }, meta);
 
     const rawText = response.content.filter(b => b.type === "text").map(b => b.text).join("\n");
-    const parsed = JSON.parse(stripMarkdownFences(rawText));
+    const parsed = extractJsonObject(rawText);
 
     if (!parsed.pushback || typeof parsed.pushback !== "object") return null;
 
@@ -75,7 +91,10 @@ ${movesText}
     let total = 0;
     for (const [key, value] of Object.entries(parsed.pushback)) {
       if (!TERRITORY_KEYS.includes(key)) continue; // неизвестный ключ — игнорируем, не проваливаем весь ответ
-      const n = Math.round(Number(value));
+      // Math.abs — модель иногда пишет отрицательные числа (семантически "минус для России"),
+      // несмотря на инструкцию "положительные" (живой тест, 2026-07-11). Величина отката — это
+      // всегда положительная величина по смыслу, знак роли не играет.
+      const n = Math.round(Math.abs(Number(value)));
       if (!Number.isFinite(n) || n <= 0) continue;
       const clamped = Math.min(MAX_PUSHBACK_PER_KEY, n);
       pushbackByKey[key] = clamped;
