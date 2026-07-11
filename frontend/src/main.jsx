@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { createGame, deleteGame, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName } from "./api";
+import { createGame, deleteGame, fetchLeaderboard, login, register, setToken, getToken, fetchMyGames, updateDisplayName, fetchPublicGames, fetchPublicView } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, LangToggle, useLang, useForceDesktop, DesktopViewToggle } from "./i18n";
 
@@ -160,7 +160,7 @@ function NewsVideoPanel() {
 
 const GAME_SLOT_LIMIT = 5;
 
-function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onAdminOpen, onLogout, onLeaderboard }) {
+function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames = [], myGamesLoading = false, onResume, onDeleteGame, onAdminOpen, onLogout, onLeaderboard, onSpectate }) {
   useLang(); // ре-рендер экрана при переключении RU/EN (сам t() — не хук, читает currentLang напрямую)
   const forceDesktop = useForceDesktop(); // "Обычная версия" — форсирует показ .news-panel ниже 900px
   const [rawMobile, setRawMobile] = useState(() => window.innerWidth < 600);
@@ -184,6 +184,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
   const [selectedMode, setSelectedMode] = useState("advisor"); // "advisor" | "hardcore"
   const [presidentName, setPresidentName] = useState("");
   const [showInLeaderboard, setShowInLeaderboard] = useState(true);
+  const [isPublic, setIsPublic] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(null);
 
@@ -245,7 +246,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
     setStarting(true);
     setStartError(null);
     try {
-      const { gameId } = await createGame(selectedCountry, selectedMode, presidentName.trim() || authUser.displayName, showInLeaderboard, getLang());
+      const { gameId } = await createGame(selectedCountry, selectedMode, presidentName.trim() || authUser.displayName, showInLeaderboard, getLang(), isPublic);
       onStart(gameId, presidentName.trim() || authUser.displayName, selectedCountry);
     } catch (err) {
       setStartError(err.message);
@@ -365,6 +366,16 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                   </button>
                 );
               })()}
+
+              {/* Зрительский режим (2026-07-11) — доступен БЕЗ регистрации, специально для
+                  посетителей, у которых нет кода приглашения (Петя: "дам доступ немногим, но
+                  зрители — бесплатная конверсия, читать чужую партию не стоит ни одного вызова ИИ"). */}
+              <button onClick={() => onSpectate?.()}
+                style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
+                {t("start.spectate")}
+              </button>
             </div>
           ) : (
             /* ——— GAME SELECTION (after auth) ——— */
@@ -511,6 +522,17 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                 </label>
               </div>
 
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                  <input type="checkbox" checked={isPublic} onChange={e => setIsPublic(e.target.checked)}
+                    style={{ marginTop: 2, accentColor: "#9c8347", cursor: "pointer", flexShrink: 0 }} />
+                  <div>
+                    <div className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.06em", marginBottom: 2 }}>{t("start.make_public")}</div>
+                    <div className="doc-font" style={{ fontSize: 11, color: "#5a6070", lineHeight: 1.4 }}>{t("start.make_public_desc")}</div>
+                  </div>
+                </label>
+              </div>
+
               {startError && <div className="doc-font" style={{ color: "#e09090", fontSize: 13.5, marginBottom: 14 }}>{startError}</div>}
 
               {myGames.length >= GAME_SLOT_LIMIT ? (
@@ -538,6 +560,12 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
               onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
               {t("start.feedback")}
+            </button>
+            <button onClick={() => onSpectate?.()}
+              style={{ flex: 1, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
+              {t("start.spectate")}
             </button>
           </div>
 
@@ -651,6 +679,142 @@ function LeaderboardPage({ onBack }) {
         <div className="mono-font" style={{ fontSize: 9, color: "#2a3040", textAlign: "center", marginTop: 16 }}>
           {t("board.footer")}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Зрительский режим (2026-07-11) — список партий с is_public=true. Без авторизации, доступно
+// прямо со стартового экрана до регистрации (см. onSpectate в StartScreen) — это и есть весь
+// смысл фичи: конверсия для читателей, у которых нет гостевого кода.
+function PublicGamesPage({ onBack, onOpen }) {
+  useLang();
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchPublicGames()
+      .then(data => setGames(data.games || []))
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#1a1f2c", padding: "24px 16px" }}>
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          <button onClick={onBack} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "6px 12px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer" }}>{t("board.back")}</button>
+          <div className="mono-font" style={{ fontSize: 13, color: "#9c8347", letterSpacing: "0.1em" }}>{t("spectate.title")}</div>
+        </div>
+        <div className="doc-font" style={{ fontSize: 12, color: "#5a6070", marginBottom: 20, lineHeight: 1.5 }}>
+          {t("spectate.subtitle")}
+        </div>
+
+        {loading && <div className="mono-font" style={{ color: "#5a6070", fontSize: 11, textAlign: "center", padding: 40 }}>{t("board.loading")}</div>}
+        {error && <div className="doc-font" style={{ color: "#e09090", fontSize: 13, textAlign: "center", padding: 40 }}>{error}</div>}
+        {!loading && !error && games.length === 0 && (
+          <div className="doc-font" style={{ color: "#5a6070", fontSize: 13, textAlign: "center", padding: 40, lineHeight: 1.6 }}>
+            {t("spectate.empty")}
+          </div>
+        )}
+
+        {games.map(g => {
+          const flag = COUNTRY_FLAG[g.country_id] || "🌐";
+          return (
+            <div key={g.id} onClick={() => onOpen(g.id)}
+              style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px", marginBottom: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; }}>
+              <div style={{ fontSize: 20 }}>{flag}</div>
+              <div style={{ flex: 1 }}>
+                <div className="doc-font" style={{ fontSize: 14, fontWeight: 700, color: "#ece7d8" }}>{g.display_name}</div>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", marginTop: 2 }}>
+                  {g.country_name} · {t("board.turn_short")} {g.current_turn} · {g.status === "active" ? t("spectate.status_active") : g.status}
+                </div>
+              </div>
+              <div style={{ color: "#5a6070", fontSize: 16 }}>→</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Read-only просмотр одной публичной партии — намеренно НЕ переиспользует основной App.jsx
+// (там завязано на владение партией: подпись указов, советники, казна и т.д.) — упрощённая
+// витрина: обстановка, статы, лента новостей, ходы. Никаких действий, только просмотр.
+function SpectatorView({ gameId, onBack }) {
+  useLang();
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPublicView(gameId)
+      .then(setData)
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [gameId]);
+
+  if (loading) return <div style={{ minHeight: "100vh", background: "#1a1f2c", display: "flex", alignItems: "center", justifyContent: "center" }}><div className="mono-font" style={{ color: "#5a6070", fontSize: 11 }}>{t("board.loading")}</div></div>;
+  if (error) return (
+    <div style={{ minHeight: "100vh", background: "#1a1f2c", padding: "24px 16px" }}>
+      <button onClick={onBack} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "6px 12px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer", marginBottom: 20 }}>{t("board.back")}</button>
+      <div className="doc-font" style={{ color: "#e09090", fontSize: 13, textAlign: "center", padding: 40 }}>{error}</div>
+    </div>
+  );
+
+  const s = data.stats || {};
+  const KEY_STATS = [
+    ["economy", t("stat.economy")], ["military", t("stat.military")], ["stability", t("stat.stability")],
+    ["diplomacy", t("stat.diplomacy")], ["approval", t("stat.approval")], ["peace_progress", t("spectate.peace_track")],
+  ];
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#1a1f2c", padding: "24px 16px" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+          <button onClick={onBack} style={{ background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "6px 12px", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, cursor: "pointer" }}>{t("board.back")}</button>
+          <div style={{ fontSize: 9, background: "#2a2a1a", color: "#c8a857", borderRadius: 3, padding: "2px 6px", fontFamily: "monospace", letterSpacing: "0.06em" }}>👁 {t("spectate.readonly_badge")}</div>
+        </div>
+        <div className="doc-font" style={{ fontSize: 22, fontWeight: 700, color: "#ece7d8", marginTop: 14, marginBottom: 2 }}>{data.presidentName}</div>
+        <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginBottom: 18 }}>
+          {data.countryName} · {t("board.turn_short")} {data.currentTurn} · {data.status === "active" ? t("spectate.status_active") : data.status}
+        </div>
+
+        {data.overview?.headline && (
+          <div style={{ background: "#1f2733", border: "1px solid #2a3040", borderLeft: "3px solid #9c8347", borderRadius: 4, padding: "12px 14px", marginBottom: 18 }}>
+            <div className="doc-font" style={{ fontSize: 13, color: "#ece7d8", lineHeight: 1.5, fontStyle: "italic" }}>{data.overview.headline}</div>
+          </div>
+        )}
+
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>{t("spectate.stats_header")}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 20 }}>
+          {KEY_STATS.map(([key, label]) => {
+            const v = Math.round(s[key] ?? 0);
+            const color = v > 60 ? "#7fae93" : v > 35 ? "#9c8347" : "#e09090";
+            return (
+              <div key={key} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 4, padding: "8px 10px" }}>
+                <div className="mono-font" style={{ fontSize: 9, color: "#5a6070" }}>{label}</div>
+                <div className="mono-font" style={{ fontSize: 16, color, fontWeight: 700 }}>{v}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.08em", marginBottom: 8 }}>{t("spectate.log_header")}</div>
+        {(!data.log || data.log.length === 0) && (
+          <div className="doc-font" style={{ color: "#5a6070", fontSize: 12, padding: "20px 0" }}>{t("spectate.empty_log")}</div>
+        )}
+        {data.log?.slice().reverse().map((entry, i) => (
+          <div key={i} style={{ background: "#1f2733", border: "1px solid #2a3040", borderRadius: 6, padding: "12px 14px", marginBottom: 10 }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#9c8347", marginBottom: 4 }}>{t("board.turn_short")} {entry.turn}</div>
+            {entry.decree && <div className="doc-font" style={{ fontSize: 12, color: "#a8a294", fontStyle: "italic", marginBottom: 6 }}>«{entry.decree}»</div>}
+            <div className="doc-font" style={{ fontSize: 13, color: "#ece7d8", lineHeight: 1.5 }}>{entry.body}</div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1633,6 +1797,8 @@ function Root() {
   const [game, setGame] = useState(loadActiveGame);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showSpectate, setShowSpectate] = useState(false);
+  const [spectatingGameId, setSpectatingGameId] = useState(null);
   const [authUser, setAuthUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [myGames, setMyGames] = useState([]);
@@ -1730,8 +1896,10 @@ function Root() {
 
   let screen;
   if (showLeaderboard) screen = <LeaderboardPage onBack={() => setShowLeaderboard(false)} />;
+  else if (spectatingGameId) screen = <SpectatorView gameId={spectatingGameId} onBack={() => setSpectatingGameId(null)} />;
+  else if (showSpectate) screen = <PublicGamesPage onBack={() => setShowSpectate(false)} onOpen={(id) => setSpectatingGameId(id)} />;
   else if (game) screen = <App gameId={game.id} playerName={game.name} onNewGame={handleNewGame} showWelcome={game.isNew === true} />;
-  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onNameChanged={handleNameChanged} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} onLeaderboard={() => setShowLeaderboard(true)} />;
+  else screen = <StartScreen authUser={authUser} onAuthSuccess={handleAuthSuccess} onNameChanged={handleNameChanged} onStart={handleStart} myGames={myGames} myGamesLoading={myGamesLoading} onResume={handleResume} onDeleteGame={handleDeleteGame} onAdminOpen={() => setShowAdmin(true)} onLogout={handleLogout} onLeaderboard={() => setShowLeaderboard(true)} onSpectate={() => setShowSpectate(true)} />;
 
   return (
     <>

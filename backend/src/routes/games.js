@@ -51,7 +51,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     const payload = verifyToken(request, reply);
     if (!payload) return;
 
-    const { countryId, assistMode, presidentName, showInLeaderboard, language } = request.body || {};
+    const { countryId, assistMode, presidentName, showInLeaderboard, isPublic, language } = request.body || {};
     const userId = payload.userId;
     // Режим закрепляется на старте: 'advisor' (по умолчанию) | 'hardcore'
     const mode = assistMode === "hardcore" ? "hardcore" : "advisor";
@@ -63,6 +63,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     }
     // Зал Славы: игрок явно выбирает публикацию (false по умолчанию).
     const leaderboardOpt = showInLeaderboard === true;
+    // Зрительский режим (2026-07-11) — отдельная галочка от Зала Славы: показывает партию
+    // ЦЕЛИКОМ (ход за ходом, пока идёт), а не только финальный результат в рейтинге.
+    const publicOpt = isPublic === true;
     // Язык партии — закреплён при создании, как assist_mode (i18n, Фаза 1, Петя, 2026-07-07).
     // Сейчас влияет только на будущие фазы (промпты ИИ/seed-данные) — сохраняем уже сейчас,
     // чтобы не терять выбор игрока, сделанный на стартовом экране.
@@ -106,9 +109,9 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       await client.query("BEGIN");
 
       const gameRes = await client.query(
-        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode, president_name, show_in_leaderboard, language)
-         VALUES ($1, $2, 'active', 0, $3, $4, $5, $6) RETURNING id`,
-        [userId, countryId, mode, president, leaderboardOpt, gameLanguage]
+        `INSERT INTO games (owner_user_id, country_id, status, current_turn, assist_mode, president_name, show_in_leaderboard, is_public, language)
+         VALUES ($1, $2, 'active', 0, $3, $4, $5, $6, $7) RETURNING id`,
+        [userId, countryId, mode, president, leaderboardOpt, publicOpt, gameLanguage]
       );
       const gameId = gameRes.rows[0].id;
 
@@ -378,6 +381,84 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       newsfeed,
       log,
       pendingFactionDilemma,
+    });
+  });
+
+  // ---------- Зрительский режим (2026-07-11) ----------
+  // Читает уже сыгранные ходы — НЕ вызывает ИИ, НЕ требует токена (публичная партия видна всем,
+  // владелец явно согласился галочкой на старте). Отдельные роуты от владельческих /games/:gameId
+  // и т.д. — те требуют verifyToken + owner_user_id match, тут сознательно наоборот.
+
+  // GET /games/public — список партий с is_public=true, для страницы "Смотреть партии".
+  fastify.get("/games/public", async (request, reply) => {
+    const res = await db.query(
+      `SELECT g.id, g.current_turn, g.status, g.assist_mode, g.president_name, g.updated_at,
+              c.id AS country_id, c.name AS country_name,
+              COALESCE(g.president_name, u.display_name) AS display_name
+       FROM games g
+       JOIN countries c ON c.id = g.country_id
+       LEFT JOIN users u ON u.id = g.owner_user_id
+       WHERE g.is_public = true
+       ORDER BY g.updated_at DESC
+       LIMIT 50`
+    );
+    return reply.send({ games: res.rows });
+  });
+
+  // GET /games/:gameId/public-view — read-only снимок публичной партии: статы, лента, ходы.
+  // Намеренно НЕ переиспользует полный /games/:gameId (там дилеммы/контекст владельца — лишнее
+  // для стороннего зрителя) — упрощённая параллельная версия тех же данных.
+  fastify.get("/games/:gameId/public-view", async (request, reply) => {
+    const { gameId } = request.params;
+    const gameRes = await db.query(
+      `SELECT g.id, g.current_turn, g.status, g.created_at, g.is_public, g.assist_mode,
+              COALESCE(g.president_name, u.display_name) AS president_name,
+              gs.stats, gs.overview,
+              c.name AS country_name
+       FROM games g
+       JOIN game_state gs ON gs.game_id = g.id
+       JOIN countries c ON c.id = g.country_id
+       LEFT JOIN users u ON u.id = g.owner_user_id
+       WHERE g.id = $1`,
+      [gameId]
+    );
+    if (gameRes.rowCount === 0 || !gameRes.rows[0].is_public) {
+      return reply.code(404).send({ error: "Партия не найдена или не публичная" });
+    }
+    const game = gameRes.rows[0];
+
+    const newsfeedRes = await db.query(
+      `SELECT turn_n, item_type, source, text FROM newsfeed_items WHERE game_id = $1 ORDER BY turn_n ASC`,
+      [gameId]
+    );
+    const turnsRes = await db.query(
+      `SELECT turn_n, player_input, action_mode, narrative_text, created_at
+       FROM turns WHERE game_id = $1 ORDER BY turn_n ASC`,
+      [gameId]
+    );
+
+    // Дефолты для территорий/казны/башен у партий, созданных до соответствующих механик —
+    // тот же список, что в /games/:gameId выше (держать в синхроне, если список поменяется там).
+    const STAT_DEFAULTS_FOR_OLD_GAMES = {
+      donetsk_control: 78, luhansk_control: 96, zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
+      treasury: 52, oil_price: 68, usd_rub: 80,
+      faction_siloviki: 65, faction_tehnokraty: 65, faction_oligarhi: 65, faction_konservatory: 65, coalition_stability: 0,
+    };
+    const stats = { ...game.stats };
+    for (const [key, val] of Object.entries(STAT_DEFAULTS_FOR_OLD_GAMES)) {
+      if (stats[key] === undefined) stats[key] = val;
+    }
+
+    return reply.send({
+      countryName: game.country_name,
+      presidentName: game.president_name,
+      currentTurn: game.current_turn,
+      status: game.status,
+      assistMode: game.assist_mode,
+      stats,
+      overview: game.overview || {},
+      newsfeed: newsfeedRes.rows.map(r => ({ turn: r.turn_n, type: r.item_type, source: r.source, text: r.text })),
+      log: turnsRes.rows.map(r => ({ turn: r.turn_n, decree: r.player_input || null, actionMode: r.action_mode || null, body: r.narrative_text, createdAt: r.created_at })),
     });
   });
 

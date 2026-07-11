@@ -163,14 +163,28 @@ export async function fetchLeaderboard(countryId) {
   return res.json();
 }
 
-export async function createGame(countryId, assistMode = "advisor", presidentName = "", showInLeaderboard = false, language = "ru") {
+export async function createGame(countryId, assistMode = "advisor", presidentName = "", showInLeaderboard = false, language = "ru", isPublic = false) {
   const res = await fetchWithTimeout(`${API_BASE}/games`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ countryId, assistMode, presidentName, showInLeaderboard, language }),
+    body: JSON.stringify({ countryId, assistMode, presidentName, showInLeaderboard, isPublic, language }),
   }, 30000);
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || `createGame failed: ${res.status}`);
+  return body;
+}
+
+// Зрительский режим (2026-07-11) — не требует авторизации, читает уже сыгранные публичные партии.
+export async function fetchPublicGames() {
+  const res = await fetchWithTimeout(`${API_BASE}/games/public`, {}, 15000);
+  if (!res.ok) throw new Error(`fetchPublicGames failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchPublicView(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/public-view`, {}, 15000);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `fetchPublicView failed: ${res.status}`);
   return body;
 }
 
