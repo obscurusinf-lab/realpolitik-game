@@ -369,13 +369,14 @@
       "duration_turns": null,
       "status": "active",
       "effect_stats": {
-        "reserves": 2,
-        "economy": 1
+        "reserves": 3,
+        "economy": 2
       },
       "cancel_penalty": {
-        "reserves": -2,
-        "approval": 2,
-        "inflation": -1
+        "reserves": -4,
+        "approval": 3,
+        "inflation": -2,
+        "faction_oligarhi": -3
       },
       "items": [
         "Резкое повышение утильсбора на импортные автомобили",
@@ -384,8 +385,10 @@
         "Дополнительные доходы бюджета — сотни млрд руб. в год"
       ],
       "newsfeed_keyword": "утильсбор",
-      "budget_income": 3,
-      "approval_upkeep": -2
+      "budget_income": 4,
+      "approval_upkeep": -2,
+      "lower_class_mood_upkeep": -1,
+      "faction_upkeep": { "faction_oligarhi": 1 }
     },
     {
       "title": "Повышение НДС до 22%",
@@ -395,13 +398,15 @@
       "duration_turns": null,
       "status": "active",
       "effect_stats": {
-        "reserves": 3,
-        "economy": 1
+        "reserves": 5,
+        "economy": 2
       },
       "cancel_penalty": {
-        "reserves": -3,
-        "approval": 2,
-        "inflation": -2
+        "reserves": -6,
+        "approval": 3,
+        "inflation": -3,
+        "faction_tehnokraty": -2,
+        "faction_oligarhi": -2
       },
       "items": [
         "Повышение базовой ставки НДС с 20% до 22%",
@@ -410,8 +415,10 @@
         "Повышенная нагрузка на потребителей и малый бизнес"
       ],
       "newsfeed_keyword": "НДС",
-      "budget_income": 6,
-      "approval_upkeep": -3
+      "budget_income": 8,
+      "approval_upkeep": -3,
+      "lower_class_mood_upkeep": -2,
+      "faction_upkeep": { "faction_tehnokraty": 1, "faction_oligarhi": 1 }
     },
     {
       "title": "Снижение порога НДС для ИП (с 60 до 20 млн ₽)",
@@ -421,13 +428,14 @@
       "duration_turns": null,
       "status": "active",
       "effect_stats": {
-        "reserves": 2,
-        "economy": 1
+        "reserves": 3,
+        "economy": 2
       },
       "cancel_penalty": {
-        "reserves": -2,
-        "middle_class": 2,
-        "approval": 1
+        "reserves": -4,
+        "middle_class": 3,
+        "approval": 2,
+        "faction_tehnokraty": -2
       },
       "items": [
         "Поэтапное снижение порога освобождения от НДС для ИП с 60 до 20 млн руб.",
@@ -436,8 +444,10 @@
         "Риск ухода части предпринимателей в тень"
       ],
       "newsfeed_keyword": "ИП",
-      "budget_income": 3,
-      "approval_upkeep": -2
+      "budget_income": 4,
+      "approval_upkeep": -2,
+      "middle_class_upkeep": -2,
+      "faction_upkeep": { "faction_tehnokraty": 1 }
     }
   ],
   "initial_newsfeed": [

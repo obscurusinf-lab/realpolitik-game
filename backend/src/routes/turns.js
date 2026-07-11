@@ -2166,6 +2166,33 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       if (approvalUpkeep) {
         newStats.approval = Math.max(0, Math.min(100, (newStats.approval ?? 50) + approvalUpkeep));
       }
+      // Петя, 2026-07-11: "спорные политики сделать выгоднее по эффектам, но у них должен быть
+      // дебаф по морали населения (и на башни могут влиять)" — approval_upkeep выше бьёт по общему
+      // рейтингу, но не различает КОГО именно раздражает мера (повышение НДС для всех — это низы,
+      // снижение порога НДС для ИП — это средний класс). Два новых помесячных поля, тот же паттерн,
+      // что approval_upkeep, только точечнее по социальной группе.
+      const lowerClassMoodUpkeep = activePolicies.reduce((s, p) => s + (Number(p.lower_class_mood_upkeep) || 0), 0);
+      if (lowerClassMoodUpkeep) {
+        newStats.lower_class_mood = Math.max(0, Math.min(100, (newStats.lower_class_mood ?? 41) + lowerClassMoodUpkeep));
+      }
+      const middleClassUpkeep = activePolicies.reduce((s, p) => s + (Number(p.middle_class_upkeep) || 0), 0);
+      if (middleClassUpkeep) {
+        newStats.middle_class = Math.max(0, Math.min(100, (newStats.middle_class ?? 44) + middleClassUpkeep));
+      }
+      // Помесячное влияние спорных политик на башни Кремля — некоторые меры (пополняющие бюджет)
+      // нравятся олигархам/технократам, даже если раздражают население. Object.entries вместо
+      // жёстко заданных 4 полей — политике не обязательно задевать все 4 башни.
+      {
+        const { FACTION_KEYS } = require("../rules/rules-engine");
+        for (const p of activePolicies) {
+          if (!p.faction_upkeep || typeof p.faction_upkeep !== "object") continue;
+          for (const [faction, delta] of Object.entries(p.faction_upkeep)) {
+            if (typeof delta === "number" && FACTION_KEYS.includes(faction)) {
+              newStats[faction] = Math.max(0, Math.min(100, (newStats[faction] ?? 55) + delta));
+            }
+          }
+        }
+      }
       // ОФЗ: обслуживание долга (вычитается из казны каждый месяц). Стоимость 1 выпуска
       // компаундится вместе с ключевой ставкой ЦБ — см. treasury.js/ofzMonthlyCostPerBond.
       const ofzCount = newStats.ofz_count ?? 0;

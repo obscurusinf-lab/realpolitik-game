@@ -6392,7 +6392,7 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
               этой информации не было вообще, был только "effect_stats" (косметическое "при успехе
               вырастут", ничего не значащее численно) и cancel_penalty (что будет ПРИ ОТМЕНЕ). Игрок
               не мог увидеть, что политика ПРЯМО СЕЙЧАС даёт доход и/или тянет вниз одобрение. */}
-          {!isCancelled && Boolean(Number(policy.budget_income) || Number(policy.budget_upkeep) || Number(policy.approval_upkeep)) && (
+          {!isCancelled && Boolean(Number(policy.budget_income) || Number(policy.budget_upkeep) || Number(policy.approval_upkeep) || Number(policy.lower_class_mood_upkeep) || Number(policy.middle_class_upkeep) || (policy.faction_upkeep && Object.keys(policy.faction_upkeep).length > 0)) && (
             <div style={{ background: "#e8e4d4", border: "1px solid #9c8347", borderRadius: 4, padding: "9px 12px", marginBottom: 14 }}>
               <div className="mono-font" style={{ fontSize: 8, color: "#7a6a30", marginBottom: 5 }}>{t("policies.while_active_header")}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 12px" }}>
@@ -6407,6 +6407,26 @@ function PolicyDetailModal({ policy, gameId, currentTurn, onClose, onCancelled }
                     {t("policies.approval_plain", { sign: Number(policy.approval_upkeep) > 0 ? "+" : "", n: policy.approval_upkeep })}
                   </span>
                 )}
+                {/* Недовольство спорных политик по конкретной социальной группе — отдельно от
+                    общего одобрения (Петя, 2026-07-11: "дебаф по морали населения"). */}
+                {(Number(policy.lower_class_mood_upkeep) || 0) !== 0 && (
+                  <span className="doc-font" style={{ fontSize: 13, color: Number(policy.lower_class_mood_upkeep) < 0 ? "#a8313a" : "#2f6f5f", fontWeight: 700 }}>
+                    {t("policies.lower_class_mood_plain", { sign: Number(policy.lower_class_mood_upkeep) > 0 ? "+" : "", n: policy.lower_class_mood_upkeep })}
+                  </span>
+                )}
+                {(Number(policy.middle_class_upkeep) || 0) !== 0 && (
+                  <span className="doc-font" style={{ fontSize: 13, color: Number(policy.middle_class_upkeep) < 0 ? "#a8313a" : "#2f6f5f", fontWeight: 700 }}>
+                    {t("policies.middle_class_plain", { sign: Number(policy.middle_class_upkeep) > 0 ? "+" : "", n: policy.middle_class_upkeep })}
+                  </span>
+                )}
+                {/* Влияние на башни Кремля, пока политика активна */}
+                {policy.faction_upkeep && Object.entries(policy.faction_upkeep).map(([faction, delta]) => (
+                  Number(delta) !== 0 && (
+                    <span key={faction} className="doc-font" style={{ fontSize: 13, color: Number(delta) > 0 ? "#2f6f5f" : "#a8313a", fontWeight: 700 }}>
+                      {FACTION_META[faction]?.icon} {FACTION_META[faction]?.label || faction} {Number(delta) > 0 ? "+" : ""}{delta}
+                    </span>
+                  )
+                ))}
               </div>
             </div>
           )}
