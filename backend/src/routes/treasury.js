@@ -56,6 +56,18 @@
  *   - Эффект: economy +10 немедленно, инфляция +5 сразу
  *   - "Похмелье": 3 месяца подряд −1 к economy И +1 к инфляции (perk_stimulus_hangover_turns,
  *     тикает в /turns/end-month) — цена приходит ПОСЛЕ, не разово наперёд, как настоящий адреналин
+ *
+ * POST /games/:gameId/treasury/invest-surplus — инвестировать профицит казны
+ *   (Петя, 2026-07-11: "профицит казны... но прирост к экономике так же +1. Как будто бы должно
+ *   быть больше. Или должен быть механизм вложения этих денег" — плоский +1 к economy при
+ *   treasury>65 не масштабировался по размеру излишка, ЭТО поправлено отдельно в turns.js;
+ *   а это — активная кнопка для игрока, не только пассивный фон):
+ *   - Доступно только когда treasury ≥ 70 (это ИНВЕСТИЦИЯ ИЗЛИШКА, не рутинная трата рабочей казны)
+ *   - ⚡25 инициативы, −30 казны (резервы ФНБ не трогает — другой ресурс, другая роль), кулдаун
+ *     3 хода (stats.invest_surplus_last_turn)
+ *   - Эффект: НЕ мгновенный (в отличие от emergency-stimulus) — растянутый +2 economy/мес на
+ *     протяжении 4 месяцев (perk_investment_boost_turns, тикает в /turns/end-month), БЕЗ инфляции
+ *     и без похмелья — спокойное решение с деньгами, которые уже есть, а не паническая мера
  */
 
 const OFZ_TREASURY_GAIN = 20;        // немедленный прирост казны
@@ -72,6 +84,11 @@ const EMERGENCY_STIMULUS_ECONOMY_BOOST = 10;
 const EMERGENCY_STIMULUS_INFLATION_HIT = 5;    // немедленный удар по инфляции
 const EMERGENCY_STIMULUS_COOLDOWN_TURNS = 4;   // ходов между применениями
 const EMERGENCY_STIMULUS_HANGOVER_TURNS = 3;   // месяцев отложенной цены (-1 economy И +1 инфляция/мес)
+const INVESTMENT_THRESHOLD = 70;        // казна должна быть НЕ НИЖЕ этого для инвестиции
+const INVESTMENT_TREASURY_COST = 30;    // тратим часть профицита
+const INVESTMENT_INITIATIVE_COST = 25;
+const INVESTMENT_COOLDOWN_TURNS = 3;
+const INVESTMENT_BOOST_TURNS = 4;       // месяцев растянутого эффекта (+2 economy/мес, см. turns.js)
 
 // Компаундинг: стоимость обслуживания 1 выпуска ОФЗ растёт вместе с ключевой ставкой ЦБ.
 // При базовой ставке ~18.5% даёт те же −3/мес, что и раньше при фиксированной стоимости.
@@ -627,6 +644,65 @@ async function registerTreasuryRoutes(fastify, { db, verifyToken }) {
       await client.query("ROLLBACK");
       fastify.log.error(err);
       return reply.code(500).send({ error: "Ошибка экстренного стимулирования" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // ---------- ИНВЕСТИРОВАНИЕ ПРОФИЦИТА КАЗНЫ ----------
+  fastify.post("/games/:gameId/treasury/invest-surplus", async (request, reply) => {
+    const { gameId } = request.params;
+    const payload = verifyToken(request, reply);
+    if (!payload) return;
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const game = await loadGameForUpdate(client, gameId);
+      if (!game) { await client.query("ROLLBACK"); return reply.code(404).send({ error: "Game not found" }); }
+
+      const newStats = { ...game.stats };
+      const treasuryBefore = typeof newStats.treasury === "number" ? newStats.treasury : 52;
+      if (treasuryBefore < INVESTMENT_THRESHOLD) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: `Профицит казны недостаточен для инвестиции (нужно от ${INVESTMENT_THRESHOLD}, сейчас ${treasuryBefore}).` });
+      }
+      const currentTurn = game.current_turn ?? 0;
+      const lastTurn = newStats.invest_surplus_last_turn;
+      if (typeof lastTurn === "number" && currentTurn - lastTurn < INVESTMENT_COOLDOWN_TURNS) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: `Инвестиция ещё не восстановилась (доступна раз в ${INVESTMENT_COOLDOWN_TURNS} хода).` });
+      }
+      const initiative = typeof newStats.initiative === "number" ? newStats.initiative : 100;
+      if (initiative < INVESTMENT_INITIATIVE_COST) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: `Недостаточно инициативы (нужно ${INVESTMENT_INITIATIVE_COST}).` });
+      }
+
+      const { TREASURY_MIN } = require("../rules/rules-engine");
+      newStats.initiative = initiative - INVESTMENT_INITIATIVE_COST;
+      newStats.treasury = Math.max(TREASURY_MIN, treasuryBefore - INVESTMENT_TREASURY_COST);
+      newStats.invest_surplus_last_turn = currentTurn;
+      // Суммируем, а не перезаписываем — тот же принцип, что и у похмелья экстренного стимула:
+      // повторная инвестиция, пока предыдущая ещё не отработала, должна продлевать эффект,
+      // а не молча обнулять остаток.
+      newStats.perk_investment_boost_turns = (newStats.perk_investment_boost_turns ?? 0) + INVESTMENT_BOOST_TURNS;
+
+      await client.query(`UPDATE game_state SET stats = $1 WHERE game_id = $2`, [JSON.stringify(newStats), gameId]);
+
+      const newsText = `Профицит казны направлен на инфраструктурные и промышленные инвестиции (−${INVESTMENT_TREASURY_COST} казны) — экономический эффект будет проявляться постепенно в течение ближайших ${INVESTMENT_BOOST_TURNS} месяцев, без давления на инфляцию.`;
+
+      await client.query(
+        `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,$5)`,
+        [gameId, game.current_turn + 1, "Минфин", newsText, JSON.stringify([{ stat_delta: { treasury: -INVESTMENT_TREASURY_COST } }])]
+      );
+
+      await client.query("COMMIT");
+      return reply.send({ stats: newStats, treasuryBefore, treasuryAfter: newStats.treasury });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      fastify.log.error(err);
+      return reply.code(500).send({ error: "Ошибка инвестирования" });
     } finally {
       client.release();
     }

@@ -145,7 +145,12 @@ async function buildServer() {
         await client.query("ROLLBACK");
         return reply.code(403).send({ error: "Код приглашения недействителен, истёк или уже использован" });
       }
-      const accountTier = codeRes.rows[0].tier === "admin" ? "unrestricted" : "guest";
+      // 'test' — отдельный tier для QA-регистраций Claude-сессий (Петя: "убери ботов из списка
+      // игроков... или в отдельную категорию — они тоже тратят кредиты, по ним можно
+      // калиброваться"). Раньше тестовые аккаунты регистрировались тем же guest/admin кодом,
+      // что и реальные игроки, и были неотличимы в админке — см. HANDOFF за подробностями кода.
+      const codeTier = codeRes.rows[0].tier;
+      const accountTier = codeTier === "admin" ? "unrestricted" : codeTier === "test" ? "test" : "guest";
 
       const res = await client.query(
         `INSERT INTO users (display_name, username, password_hash, is_anonymous, account_tier)

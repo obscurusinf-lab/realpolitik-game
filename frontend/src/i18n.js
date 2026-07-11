@@ -415,6 +415,12 @@ const RU = {
   "treasury.emergency_running": "Вводим…",
   "treasury.emergency_cooldown": "⚠ Ещё не восстановилось (через {n} х.)",
 
+  "treasury.invest_label": "📈 ИНВЕСТИРОВАТЬ ПРОФИЦИТ · ⚡25, −30 казны · раз в 3 хода",
+  "treasury.invest_desc": "Направить излишек казны в экономику — спокойное решение, не паника: без удара по инфляции и без «похмелья». Эффект растянут на 4 месяца (+2 к экономике каждый), не мгновенный.",
+  "treasury.invest_btn": "📈 Инвестировать профицит",
+  "treasury.invest_running": "Вкладываем…",
+  "treasury.invest_cooldown": "⚠ Ещё не восстановилось (через {n} х.)",
+
   "treasury.w.reserves_title": "РЕЗЕРВЫ (ФНБ)",
   "treasury.reserves_none": "ЦБ нечем защищать рубль",
   "treasury.reserves_thin": "буфер тонкий",
@@ -1000,6 +1006,12 @@ const EN = {
   "treasury.emergency_btn": "💉 Emergency stimulus",
   "treasury.emergency_running": "Injecting…",
   "treasury.emergency_cooldown": "⚠ Not ready yet (in {n} turns)",
+
+  "treasury.invest_label": "📈 INVEST SURPLUS · ⚡25, −30 treasury · once per 3 turns",
+  "treasury.invest_desc": "Put the treasury surplus to work — a calm decision, not a panic move: no inflation hit, no hangover. The effect is spread over 4 months (+2 to the economy each), not instant.",
+  "treasury.invest_btn": "📈 Invest surplus",
+  "treasury.invest_running": "Investing…",
+  "treasury.invest_cooldown": "⚠ Not ready yet (in {n} turns)",
 
   "treasury.w.reserves_title": "RESERVES (NATIONAL WEALTH FUND)",
   "treasury.reserves_none": "the CB has nothing left to defend the ruble with",

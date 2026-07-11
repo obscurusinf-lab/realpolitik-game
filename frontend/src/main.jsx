@@ -883,6 +883,11 @@ function AdminTabPlayers({ pwd }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [expandedGame, setExpandedGame] = useState(null); // gameId
   const [interveneGame, setInterveneGame] = useState(null); // gameId
+  // Тестовые аккаунты (account_tier='test', регистрируются Claude-сессиями через отдельный
+  // реюзаемый инвайт-код при живом QA-тестировании) сворачиваются отдельно — Петя: "убери ботов
+  // из списка игроков... или в отдельную категорию, они тоже тратят кредиты, по ним можно
+  // калиброваться". Не прячем совсем — именно расход на них и есть та самая калибровка.
+  const [showTestUsers, setShowTestUsers] = useState(false);
   const isMobile = useAdminMobile();
 
   useEffect(() => {
@@ -900,12 +905,10 @@ function AdminTabPlayers({ pwd }) {
   return (
     <div style={{ display: "flex", gap: 0, height: "100%" }}>
       {/* Список игроков — на мобильном скрыт, когда выбран игрок */}
-      {(!isMobile || !selected) && (
-      <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, borderRight: isMobile ? "none" : "1px solid #2a3040", overflowY: "auto", height: "100%" }}>
-        <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", padding: "10px 14px 6px", letterSpacing: "0.1em" }}>
-          ВСЕГО: {users.length}
-        </div>
-        {users.map(u => (
+      {(!isMobile || !selected) && (() => {
+        const realUsers = users.filter(u => u.account_tier !== "test");
+        const testUsers = users.filter(u => u.account_tier === "test");
+        const renderRow = u => (
           <div key={u.id} onClick={() => openUser(u.id)}
             style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #1a1f2c", background: selected === u.id ? "#1f2a1a" : "transparent",
               borderLeft: selected === u.id ? "3px solid #9c8347" : "3px solid transparent" }}
@@ -922,9 +925,10 @@ function AdminTabPlayers({ pwd }) {
                 {u.games_active > 0 && <div style={{ fontSize: 9, background: "#2a3a1a", color: "#7fae93", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>active</div>}
               </div>
             </div>
-            {(u.account_tier === "guest" || u.is_banned || u.anomaly_flagged_at) && (
+            {(u.account_tier === "guest" || u.account_tier === "test" || u.is_banned || u.anomaly_flagged_at) && (
               <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap" }}>
                 {u.account_tier === "guest" && <span style={{ fontSize: 8, background: "#2a2a3a", color: "#9a94c8", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.06em" }}>ГОСТЬ</span>}
+                {u.account_tier === "test" && <span style={{ fontSize: 8, background: "#1a2a2a", color: "#6ac0c0", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.06em" }}>🤖 БОТ</span>}
                 {u.anomaly_flagged_at && <span style={{ fontSize: 8, background: "#3a2a14", color: "#e0a857", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.06em" }}>⚠ АНОМАЛИЯ</span>}
                 {u.is_banned && <span style={{ fontSize: 8, background: "#3a1414", color: "#e09090", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.06em" }}>ЗАБАНЕН</span>}
               </div>
@@ -939,9 +943,27 @@ function AdminTabPlayers({ pwd }) {
               {new Date(u.last_active).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
             </div>}
           </div>
-        ))}
-      </div>
-      )}
+        );
+        return (
+          <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, borderRight: isMobile ? "none" : "1px solid #2a3040", overflowY: "auto", height: "100%" }}>
+            <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", padding: "10px 14px 6px", letterSpacing: "0.1em" }}>
+              ВСЕГО: {realUsers.length}
+            </div>
+            {realUsers.map(renderRow)}
+            {testUsers.length > 0 && (
+              <div style={{ borderTop: "1px solid #2a3040", marginTop: 6 }}>
+                <div onClick={() => setShowTestUsers(v => !v)}
+                  className="mono-font"
+                  style={{ fontSize: 8, color: "#6ac0c0", padding: "10px 14px", letterSpacing: "0.1em", cursor: "pointer", display: "flex", justifyContent: "space-between" }}>
+                  <span>🤖 ТЕСТОВЫЕ АККАУНТЫ (БОТЫ): {testUsers.length} · 💸 ${testUsers.reduce((s, u) => s + Number(u.ai_cost_usd || 0), 0).toFixed(3)}</span>
+                  <span>{showTestUsers ? "▲" : "▼"}</span>
+                </div>
+                {showTestUsers && testUsers.map(renderRow)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Детальный вид — на мобильном показан только когда выбран игрок */}
       {(!isMobile || selected) && (
@@ -965,6 +987,7 @@ function AdminTabPlayers({ pwd }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div className="doc-font" style={{ fontSize: 18, fontWeight: 700, color: "#ece7d8" }}>{detail.user.display_name}</div>
                     {detail.user.account_tier === "guest" && <span style={{ fontSize: 9, background: "#2a2a3a", color: "#9a94c8", borderRadius: 3, padding: "2px 6px", fontFamily: "monospace", letterSpacing: "0.06em" }}>ГОСТЬ</span>}
+                    {detail.user.account_tier === "test" && <span style={{ fontSize: 9, background: "#1a2a2a", color: "#6ac0c0", borderRadius: 3, padding: "2px 6px", fontFamily: "monospace", letterSpacing: "0.06em" }}>🤖 БОТ</span>}
                     {detail.user.is_banned && <span style={{ fontSize: 9, background: "#3a1414", color: "#e09090", borderRadius: 3, padding: "2px 6px", fontFamily: "monospace", letterSpacing: "0.06em" }}>ЗАБАНЕН</span>}
                   </div>
                   <div className="mono-font" style={{ fontSize: 10, color: "#5a6070", marginTop: 2 }}>

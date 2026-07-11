@@ -447,3 +447,16 @@ export async function emergencyStimulus(gameId) {
   }
   return res.json();
 }
+
+export async function investSurplus(gameId) {
+  const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/treasury/invest-surplus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+    body: "{}",
+  }, 10000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Ошибка инвестирования");
+  }
+  return res.json();
+}

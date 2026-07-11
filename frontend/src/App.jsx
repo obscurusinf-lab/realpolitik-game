@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, Send, AlertTriangle, Users, FileText } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
+import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, convertReserves, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
@@ -716,7 +716,14 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId, gameSt
 
   const stance = classifySource(reaction?.source);
   const theme = detectReactionTheme(reaction?.text);
-  const optionSet = RESPONSE_OPTIONS[stance]?.[theme] || RESPONSE_OPTIONS[stance]?.generic || RESPONSE_OPTIONS.hostile.generic;
+  // ИИ теперь генерирует варианты ответа под конкретное событие в том же вызове, что и текст
+  // самой реакции (backend/src/ai/worldUpdate.js) — Петя: "варианты ответа однотипные... пусть
+  // будут вариативными". Статичная таблица RESPONSE_OPTIONS остаётся ТОЛЬКО как фолбэк для
+  // старых записей (созданных до этой правки) или если ИИ не вернул валидный набор из 3
+  // вариантов (sanitizeReactionOptions на бэкенде уже отсеивает битые/неполные наборы).
+  const aiOptions = reaction?.reactions?.[0]?.options;
+  const isAiGenerated = Array.isArray(aiOptions) && aiOptions.length === 3;
+  const optionSet = isAiGenerated ? aiOptions : (RESPONSE_OPTIONS[stance]?.[theme] || RESPONSE_OPTIONS[stance]?.generic || RESPONSE_OPTIONS.hostile.generic);
   const advisor = getEventAdvisor({ stance, theme, stats: gameStats, options: optionSet });
 
   async function handleChoice(responseType) {
@@ -804,7 +811,7 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId, gameSt
             {advisor.recOption && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span className="mono-font" style={{ fontSize: 8, color: "#4a7a3a" }}>РЕКОМЕНДУЮ:</span>
-                <span className="doc-font" style={{ fontSize: 11.5, color: "#7fae93", fontStyle: "italic" }}>«{personalizeOptionLabel(advisor.recOption, reaction?.source)}»</span>
+                <span className="doc-font" style={{ fontSize: 11.5, color: "#7fae93", fontStyle: "italic" }}>«{isAiGenerated ? advisor.recOption.label : personalizeOptionLabel(advisor.recOption, reaction?.source)}»</span>
               </div>
             )}
           </div>
@@ -826,7 +833,7 @@ function DiplomaticResponseScreen({ reactions, onRespond, onSkip, gameId, gameSt
                     onMouseEnter={e => !choosing && (e.currentTarget.style.borderColor = "#9c8347")}
                     onMouseLeave={e => (e.currentTarget.style.borderColor = isRec ? "#3a6a2a" : "#2a3040")}
                   >
-                    <span style={{ color: "#9c8347", marginRight: 8 }}>{i + 1}.</span>{personalizeOptionLabel(opt, reaction?.source)}
+                    <span style={{ color: "#9c8347", marginRight: 8 }}>{i + 1}.</span>{isAiGenerated ? opt.label : personalizeOptionLabel(opt, reaction?.source)}
                     {isRec && <span className="mono-font" style={{ position: "absolute", top: 6, right: 8, fontSize: 7, color: "#4a7a3a", background: "#0d1a08", borderRadius: 2, padding: "1px 4px" }}>★ советник</span>}
                   </button>
                 );
@@ -2575,12 +2582,19 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // масштаб указа сейчас выбран в форме, только от statов/истории ходов. В hardcore не считается
   // вовсе — не просто прячем готовый рендер, а не даём игроку даже мгновение увидеть баннер
   // (тот же принцип, что уже применялся к computeKremlinRecommendation).
+  //
+  // БАГ (Петя: "сделал рекомендованный указ — а совет остался висеть"): зависимость была только
+  // от state.turn, который меняется ТОЛЬКО на /turns/end-month — при нескольких указах за месяц
+  // (multiActionTurns) statы реально меняются после КАЖДОГО confirm (loadState() их подтягивает),
+  // но эффект не перезапускался до конца месяца, и баннер молча показывал устаревший совет.
+  // state?.stats — новый объект при каждом loadState(), сравнение по ссылке в deps этого
+  // достаточно, чтобы триггерить рефетч после каждого отдельного указа, не только смены месяца.
   useEffect(() => {
     if (assistMode === "hardcore") { setOptimalMove(null); return; }
     let cancelled = false;
     fetchOptimalMove(gameId).then(({ optimalMove: om }) => { if (!cancelled) setOptimalMove(om || null); }).catch(() => { if (!cancelled) setOptimalMove(null); });
     return () => { cancelled = true; };
-  }, [gameId, state?.turn, assistMode]);
+  }, [gameId, state?.turn, state?.stats, assistMode]);
 
   async function handlePreview() {
     if (!draftInput.trim() || previewing) return;
@@ -8477,6 +8491,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
     finally { setLoading(null); }
   }
 
+  async function handleInvestSurplus() {
+    setLoading("invest_surplus"); setError(null);
+    try { await investSurplus(gameId); onRefresh?.(); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(null); }
+  }
+
   async function handleConvertReserves() {
     setLoading("convert_reserves"); setError(null);
     try { await convertReserves(gameId); onRefresh?.(); }
@@ -8635,6 +8656,51 @@ function TreasuryTab({ state, gameId, onRefresh }) {
                   : onCooldown
                   ? t("treasury.emergency_cooldown", { n: turnsLeft })
                   : t("treasury.emergency_btn")}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* Инвестировать профицит — Петя, 2026-07-11: "профицит казны... прирост к экономике
+            так же +1... должен быть механизм вложения этих денег". Спокойная противоположность
+            экстренному стимулу: доступна только при ЗДОРОВОЙ казне, без инфляции/похмелья,
+            эффект растянут, а не мгновенный. */}
+        {(() => {
+          const investThreshold = 70;
+          const investAvailable = treasury >= investThreshold;
+          const currentTurn = state.turn ?? 0;
+          const lastInvestTurn = stats.invest_surplus_last_turn;
+          const investCooldownTurns = 3;
+          const investTurnsLeft = typeof lastInvestTurn === "number" ? investCooldownTurns - (currentTurn - lastInvestTurn) : 0;
+          const investOnCooldown = investTurnsLeft > 0;
+          const initiative = stats.initiative ?? 100;
+          const investCanAfford = investAvailable && !investOnCooldown && initiative >= 25;
+          if (!investAvailable && !investOnCooldown) return null; // не мозолит глаза, пока казна не в профиците
+          return (
+            <div style={{ background: "#0f1a12", border: "1px solid #204a2a", borderRadius: 4, padding: "10px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.08em", color: "#7ac08a", marginBottom: 6 }}>
+                {t("treasury.invest_label")}
+              </div>
+              <div className="doc-font" style={{ fontSize: 11.5, color: "#94a894", lineHeight: 1.4, marginBottom: 8 }}>
+                {t("treasury.invest_desc")}
+              </div>
+              <button
+                onClick={handleInvestSurplus}
+                disabled={!investCanAfford || loading === "invest_surplus"}
+                style={{
+                  width: "100%", background: !investCanAfford ? "#141a14" : "#143a1c",
+                  border: `1px solid ${!investCanAfford ? "#283828" : "#308a48"}`,
+                  color: !investCanAfford ? "#405040" : "#7fd090",
+                  borderRadius: 3, padding: "9px 12px",
+                  fontFamily: "'PT Serif',serif", fontSize: 12.5, cursor: !investCanAfford ? "not-allowed" : "pointer",
+                  textAlign: "left", fontWeight: 700,
+                }}
+              >
+                {loading === "invest_surplus"
+                  ? t("treasury.invest_running")
+                  : investOnCooldown
+                  ? t("treasury.invest_cooldown", { n: investTurnsLeft })
+                  : t("treasury.invest_btn")}
               </button>
             </div>
           );

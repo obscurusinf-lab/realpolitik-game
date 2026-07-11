@@ -581,28 +581,31 @@ ${historyLines || "(история пуста)"}
     let delta = {};
     let outcome = "neutral";
 
+    // Тиры раньше были сильно скошены к среднему исходу (напр. "confront" давал "mixed" в 70%
+    // случаев, roll<0.7) — Петя: "ощущение, что ГСЧ нет, всё детерминировано". Бросок и так
+    // честно случайный и разный МЕЖДУ партиями (seed включает gameId) — проблема была в самом
+    // распределении тиров, не в генераторе. Переписано на 3 примерно равных тира (~30/35/35) с
+    // более различающимися дельтами на каждом, не просто "иногда на 1 больше".
     if (responseType === "cooperate") {
-      // Сотрудничество — дипломатия растёт, вероятность бонуса к экономике
-      delta.diplomacy = 2 + (roll < 0.4 ? 1 : 0);
-      if (roll < 0.5) delta.economy = 1;
-      if (roll < 0.15) { delta.approval = -1; outcome = "negative"; } else outcome = "positive";
+      delta.diplomacy = 2;
+      if (roll < 0.3) { delta.approval = -1; outcome = "negative"; }
+      else if (roll < 0.65) { delta.economy = 1; outcome = "positive"; }
+      else { delta.economy = 2; delta.diplomacy = 3; outcome = "positive"; }
     } else if (responseType === "deescalate") {
-      // Деэскалация — дипломатия растёт, одобрение может упасть
-      delta.diplomacy = 1 + (roll < 0.5 ? 1 : 0);
-      if (roll < 0.35) { delta.approval = -1; outcome = "mixed"; }
-      else if (roll < 0.7) { outcome = "positive"; }
-      else { delta.stability = 1; outcome = "positive"; }
+      delta.diplomacy = 1;
+      if (roll < 0.3) { delta.approval = -1; outcome = "mixed"; }
+      else if (roll < 0.65) { delta.diplomacy = 2; outcome = "positive"; }
+      else { delta.diplomacy = 2; delta.stability = 1; outcome = "positive"; }
     } else if (responseType === "confront") {
-      // Конфронтация — одобрение растёт, дипломатия страдает
-      delta.approval = 1 + (roll < 0.45 ? 1 : 0);
-      delta.diplomacy = roll < 0.6 ? -2 : -1;
-      if (roll < 0.25) { delta.stability = -1; outcome = "mixed"; }
-      else if (roll < 0.7) { outcome = "mixed"; }
-      else { delta.military = 1; outcome = "positive"; }
+      delta.diplomacy = -1;
+      if (roll < 0.3) { delta.stability = -1; delta.diplomacy = -2; outcome = "mixed"; }
+      else if (roll < 0.65) { delta.approval = 1; delta.diplomacy = -2; outcome = "mixed"; }
+      else { delta.approval = 2; delta.military = 1; outcome = "positive"; }
     } else {
-      // ignore — нет эффекта, случайный мелкий штраф или ничего
-      if (roll < 0.3) delta.diplomacy = -1;
-      outcome = roll < 0.3 ? "negative" : "neutral";
+      // ignore — нет активного действия, три равных исхода фонового дрейфа
+      if (roll < 0.35) { delta.diplomacy = -1; outcome = "negative"; }
+      else if (roll < 0.7) { outcome = "neutral"; }
+      else { delta.stability = 1; outcome = "neutral"; }
     }
 
     // Применяем дельту

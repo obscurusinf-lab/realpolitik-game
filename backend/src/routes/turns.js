@@ -226,6 +226,24 @@ function computeGameScore(stats, outcome) {
 const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP, UKRAINE_FULL_SYMMETRY, rollExposure } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 
+// Варианты ответа на "реакцию мира" (Петя: "варианты ответа однотипные... пусть будут
+// вариативными") — раньше фронт брал 3 фиксированных шаблона из статичной таблицы
+// (RESPONSE_OPTIONS в App.jsx) по stance/theme. Теперь ИИ сам генерирует 3 варианта под
+// конкретное событие в том же вызове, что уже пишет текст реакции (без нового вызова) —
+// но "type" каждого варианта обязан остаться в этом enum, т.к. именно по нему резолвится
+// исход в games.js (confront/deescalate/cooperate/ignore — те же тиры, что и раньше, меняется
+// только текст кнопки). Не доверяем частичному/битому набору от ИИ — либо ровно 3 валидных
+// варианта, либо null (фронт откатывается на статичную таблицу как раньше).
+const REACTION_OPTION_TYPES = new Set(["confront", "deescalate", "cooperate", "ignore"]);
+function sanitizeReactionOptions(rawOptions) {
+  if (!Array.isArray(rawOptions)) return null;
+  const cleaned = rawOptions
+    .filter(o => o && typeof o.label === "string" && o.label.trim() && REACTION_OPTION_TYPES.has(o.type))
+    .slice(0, 3)
+    .map(o => ({ label: o.label.trim().slice(0, 200), type: o.type }));
+  return cleaned.length === 3 ? cleaned : null;
+}
+
 // Прилагательные для "сводки с фронта" (см. блок ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ ниже)
 const TERRITORY_REGION_ADJ = {
   donetsk_control: "Донецкое",
@@ -1721,11 +1739,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             ? [...rawReactions].sort((a, b) => (a.escalation || 1) - (b.escalation || 1))
             : rawReactions;
           for (const reaction of sortedReactions) {
+            const reactionMeta = {};
+            if (reaction.escalation) reactionMeta.escalation = reaction.escalation;
+            const options = sanitizeReactionOptions(reaction.options);
+            if (options) reactionMeta.options = options;
             await db.query(
               `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
                VALUES ($1, $2, $3, $4, $5, $6)`,
               [gameId, turnNumber, reactionItemType, reaction.source, reaction.text,
-               reaction.escalation ? JSON.stringify([{ escalation: reaction.escalation }]) : "[]"]
+               Object.keys(reactionMeta).length > 0 ? JSON.stringify([reactionMeta]) : "[]"]
             );
           }
           // Добавляем ходы других стран + применяем stat_delta
@@ -2411,6 +2433,15 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         economyAutoEffects.push({ label: "Похмелье после экстренного стимула", delta: -1 });
         newStats.perk_stimulus_hangover_turns -= 1;
       }
+      // Инвестиция профицита казны (Петя: "профицит даёт всего +1, нужен механизм вложения
+      // этих денег" — см. treasury.js /invest-surplus). В отличие от экстренного стимула это
+      // спокойное, заранее оплаченное решение без побочек — растянутый +2 economy/мес вместо
+      // мгновенного укола, никакой инфляции.
+      if ((newStats.perk_investment_boost_turns ?? 0) > 0) {
+        newStats.economy = Math.min(100, (newStats.economy ?? 50) + 2);
+        economyAutoEffects.push({ label: "Инвестиция профицита казны", delta: 2 });
+        newStats.perk_investment_boost_turns -= 1;
+      }
 
       // ИНФЛЯЦИОННЫЙ ШОК: высокая инфляция (>70) давит на экономику и одобрение каждый месяц.
       // Каждые 10 пунктов сверх 70 = -1 к экономике и одобрению. Максимум: -3 при инфляции 100.
@@ -2437,8 +2468,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         // Низкая казна — вынужденная аустерити, экономика проседает
         economyEffect = -1;
       } else if (treasuryAfter > 65 && (newStats.economy ?? 50) < 82) {
-        // Здоровый профицит — есть на инвестиции, экономика восстанавливается
-        economyEffect = +1;
+        // Здоровый профицит — есть на инвестиции, экономика восстанавливается. Раньше плоский
+        // +1 независимо от размера излишка (Петя: "у меня 13.5 трлн, а прирост всё равно +1" —
+        // едва перевалившая 65 казна давала тот же эффект, что почти максимальная) — теперь
+        // масштабируется по размеру запаса (65-85 → +1, 85-95 → +2, 95+ → +3).
+        economyEffect = treasuryAfter >= 95 ? 3 : treasuryAfter >= 85 ? 2 : 1;
       }
       if (economyEffect) {
         newStats.economy = Math.max(0, Math.min(100, (newStats.economy ?? 50) + economyEffect));
@@ -3054,9 +3088,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
             try {
               await client2.query("BEGIN");
               for (const reaction of (worldResult.world_reactions || [])) {
+                const options = sanitizeReactionOptions(reaction.options);
                 await client2.query(
-                  `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'reaction',$3,$4,'[]')`,
-                  [gameId, turnNumber, reaction.source, reaction.text]
+                  `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'reaction',$3,$4,$5)`,
+                  [gameId, turnNumber, reaction.source, reaction.text, options ? JSON.stringify([{ options }]) : "[]"]
                 );
               }
               await client2.query("COMMIT");
