@@ -1349,6 +1349,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       remainingEffects,
       actionMode,
       aiCounterattackDecision,
+      // playerInput жил только в теле /preview — /confirm шлёт пустой body {} и пытался читать
+      // его же request.body?.playerInput, поэтому в turns.player_input у ВСЕХ игроков всегда
+      // писалась заглушка "(см. gm_classification)". Найдено при разборе игры реального игрока
+      // (2026-07-12) — Журнал (LogTab) не мог показать реальный текст указа игрока.
+      playerInput,
     });
 
     return reply.send({
@@ -1400,7 +1405,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         });
       }
 
-      const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, actionMode: pendingActionMode = "decree" } = pending;
+      const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, actionMode: pendingActionMode = "decree", playerInput: pendingPlayerInput } = pending;
 
       // Военный лимит: повторная проверка (защита от race condition)
       const confirmAt = gmClassification.action_type;
@@ -1573,7 +1578,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         [
           gameId,
           turnNumber,
-          request.body?.playerInput || "(см. gm_classification)",
+          pendingPlayerInput || "(см. gm_classification)",
           pendingActionMode,
           JSON.stringify(gmClassification),
           JSON.stringify(statDeltas),

@@ -1251,13 +1251,13 @@ const statMeta = {
   military:  { label: "Армия",        icon: Swords,       color: "#a8313a" },
   stability: { label: "Стабильность", icon: Shield,       color: "#4a6b5c" },
   diplomacy: { label: "Дипломатия",   icon: Globe2,       color: "#5b6b8c" },
-  approval:  { label: "Поддержка",    icon: Landmark,     color: "#8c6b3a" },
+  approval:  { label: "Рейтинг",      icon: Landmark,     color: "#8c6b3a" },
 };
 
 // Плоский словарь всех меток (основные + субметрики) для отображения дельт
 const ALL_STAT_LABELS = {
   economy: "Экономика", military: "Армия", stability: "Стабильность",
-  diplomacy: "Дипломатия", approval: "Поддержка", initiative: "Инициатива",
+  diplomacy: "Дипломатия", approval: "Рейтинг", initiative: "Инициатива",
   gdp_growth: "Рост ВВП", inflation: "Инфляция", employment: "Занятость", reserves: "Резервы",
   army_morale: "Боевой дух", equipment: "Техника", readiness: "Боеготовность", veterans: "Опыт войск",
   ally_trust: "Доверие союзников", isolation: "Изоляция",
@@ -1301,7 +1301,7 @@ const DELTA_GROUPS = [
 // простую схему взамен аккордеона по категориям: ОСНОВНЫЕ 5 статов всегда на виду с барами,
 // ВСЁ остальное (субметрики/территории/казна/инициатива/мирный трек) — за ОДНИМ переключателем
 // "Показать ещё N показателей", тоже барами (раньше часть рендерилась плоским текстом).
-const PRIMARY_STAT_KEYS = ["economy", "military", "stability", "diplomacy", "approval"];
+const PRIMARY_STAT_KEYS = ["economy", "military", "stability", "diplomacy", "approval", "treasury"];
 function partitionPrimarySecondary(deltas) {
   const primary = deltas.filter(([s]) => PRIMARY_STAT_KEYS.includes(s));
   const secondary = deltas.filter(([s]) => !PRIMARY_STAT_KEYS.includes(s) && !s.startsWith("_") && s !== "military_streak");
@@ -9784,8 +9784,14 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
           : [];
         return (
           <div key={`feed-${i}`} style={{
-            background: isWorldMove ? meta.bg : "#f5f1e6",
-            border: `1px solid ${isWorldMove ? meta.border : "#d8d2bf"}`,
+            // Петя, 2026-07-11 (аудит UX): "news"-карточки раньше рендерились на светлом
+            // "пергаментном" фоне (#f5f1e6), а world_move/log-карточки — на тёмном навигационном
+            // (#161b26) — в ОДНОМ списке Ленты это выглядело как несобранное приложение (два
+            // разных дизайн-языка вперемешку). Унифицировано на тёмную тему — тот же фон/бордер,
+            // что у log-карточек этой же вкладки; светлая парчментная тема остаётся только у
+            // модалок (PolicyDetailModal и т.п.), не у содержимого вкладок.
+            background: isWorldMove ? meta.bg : "#161b26",
+            border: `1px solid ${isWorldMove ? meta.border : "#2a3040"}`,
             borderRadius: 4, overflow: "hidden",
           }}>
             <div style={{ padding: "10px 13px", borderLeft: `3px solid ${meta.color}` }}>
@@ -9794,15 +9800,15 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
                   {meta.icon} {item.source.toUpperCase()} · {metaLabel}
                 </span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {x.important && <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? "#e0c878" : "#8a6f30" }}>{t("newsfeed.important_badge")}</span>}
+                  {x.important && <span className="mono-font" style={{ fontSize: 9, color: "#e0c878" }}>{t("newsfeed.important_badge")}</span>}
                   <span className="mono-font" style={{ fontSize: 9, color: isWorldMove ? meta.toggle : "#8a8472" }}>{t("world.turn_short")} {item.turn}</span>
                 </div>
               </div>
               <ExpandableText
                 text={item.text}
                 className="doc-font"
-                style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? meta.text : "#3a362e" }}
-                toggleColor={isWorldMove ? meta.toggle : "#8a8472"}
+                style={{ fontSize: 13.5, lineHeight: 1.45, color: isWorldMove ? meta.text : "#cdd3e0" }}
+                toggleColor={isWorldMove ? meta.toggle : "#8a94a6"}
               />
               {isWorldMove && <StatDeltaBadges delta={moveDelta} />}
               {!isWorldMove && newsStatDelta && Object.keys(newsStatDelta).length > 0 && (
@@ -9814,15 +9820,15 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
               )}
             </div>
             {!isWorldMove && comments.length > 0 && (
-              <div style={{ background: "#ebe5d4", padding: "8px 13px 10px" }}>
+              <div style={{ background: "rgba(0,0,0,0.2)", padding: "8px 13px 10px", borderTop: "1px solid #2a3040" }}>
                 <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 6, letterSpacing: "0.05em" }}>{t("newsfeed.comments")}</div>
                 <div style={{ display: "grid", gap: 6 }}>
                   {comments.map((r, j) => (
                     <div key={j} style={{ display: "flex", gap: 7, alignItems: "flex-start" }}>
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", marginTop: 5, flexShrink: 0, background: r.tone === "pos" ? "#4a6b5c" : r.tone === "neg" ? "#a8313a" : "#8c6b3a" }} />
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", marginTop: 5, flexShrink: 0, background: r.tone === "pos" ? "#7fae93" : r.tone === "neg" ? "#e09090" : "#c8a857" }} />
                       <div>
-                        <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: "#5b6b8c" }}>{r.user}</span>
-                        <span className="doc-font" style={{ fontSize: 12.5, color: "#3a362e", lineHeight: 1.4 }}> {r.text}</span>
+                        <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: "#8ab0e0" }}>{r.user}</span>
+                        <span className="doc-font" style={{ fontSize: 12.5, color: "#cdd3e0", lineHeight: 1.4 }}> {r.text}</span>
                       </div>
                     </div>
                   ))}
