@@ -146,6 +146,8 @@ const RU = {
   "tab.relations": "Отношения",
   "tab.newsfeed": "Лента",
   "tab.log": "Журнал",
+  "tab.group_management": "Управление",
+  "tab.group_progress": "Прогресс",
 
   // ---- App.jsx: WelcomeModal (шапка/лейблы, не глубокое содержимое статов) ----
   "welcome.briefing": "ВВОДНЫЙ БРИФИНГ",
@@ -803,6 +805,8 @@ const EN = {
   "tab.relations": "Relations",
   "tab.newsfeed": "Newsfeed",
   "tab.log": "Log",
+  "tab.group_management": "Government",
+  "tab.group_progress": "Progress",
 
   "welcome.briefing": "INTRODUCTORY BRIEFING",
   "welcome.skip": "Skip →",

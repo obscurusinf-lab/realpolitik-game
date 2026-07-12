@@ -3040,6 +3040,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // а Журнал показывал те же ходы, что и Лента, просто другим набором данных (state.log вместо
   // state.newsfeed) — см. NewsfeedTab, теперь объединяющий оба источника с фильтрами и пометкой
   // "важных" записей).
+  // "Обстановка" (см. OverviewTab — теперь включает и бывшую "Ленту") стоит особняком, остальные
+  // 8 вкладок сгруппированы в 3 категории верхнего уровня (Петя, 2026-07-12, вариант 1 из
+  // предложенных: "Управление"/"Мир"/"Прогресс" — снижает 9 кнопок таб-бара до 4). Сам набор
+  // экранов и их содержимое НЕ меняется — только навигационная обёртка вокруг них.
   const tabs = [
     { id: "overview", label: t("tab.overview"), icon: Globe2 },
     { id: "kremlin", label: t("tab.kremlin"), icon: KremlinStarIcon },
@@ -3049,16 +3053,31 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     { id: "stats", label: t("tab.stats"), icon: Shield },
     { id: "policies", label: t("tab.policies"), icon: FileText },
     { id: "relations", label: t("tab.relations"), icon: Landmark },
-    { id: "newsfeed", label: t("tab.newsfeed"), icon: ScrollText },
+  ];
+  const TAB_GROUPS = [
+    { id: "management", label: t("tab.group_management"), icon: Users, tabIds: ["kremlin", "advisors", "treasury"] },
+    { id: "world", label: t("tab.world"), icon: Globe2, tabIds: ["map", "relations"] },
+    { id: "progress", label: t("tab.group_progress"), icon: Shield, tabIds: ["stats", "policies"] },
+  ];
+  const GROUP_OF_TAB = Object.fromEntries(TAB_GROUPS.flatMap(g => g.tabIds.map(id => [id, g.id])));
+  const activeGroupId = GROUP_OF_TAB[tab] || null;
+
+  // Верхний уровень таб-бара: "Обстановка" напрямую + 3 кнопки-группы. Клик по кнопке-группе,
+  // когда она уже активна, ничего не переключает — остаёмся на текущей под-вкладке.
+  const topLevelItems = [
+    { id: "overview", label: t("tab.overview"), icon: Globe2, kind: "leaf" },
+    ...TAB_GROUPS.map(g => ({ id: `group:${g.id}`, label: g.label, icon: g.icon, kind: "group", groupId: g.id })),
   ];
 
   // Применяем сохранённый порядок, но защищаемся от устаревшего списка id (новая вкладка
-  // добавилась в игру, а в localStorage её ещё нет — просто дописываем в конец).
-  const tabIds = tabs.map(t => t.id);
+  // добавилась в игру, а в localStorage её ещё нет — просто дописываем в конец). Это же
+  // защищает от старого сохранённого порядка (9 плоских id из версии до группировки) — ни один
+  // из них не совпадёт с новыми id верхнего уровня, тогда просто берётся id-порядок по умолчанию.
+  const tabIds = topLevelItems.map(t => t.id);
   const savedOrderIds = tabOrder ? tabOrder.filter(id => tabIds.includes(id)) : null;
   const missingTabIds = tabIds.filter(id => !savedOrderIds?.includes(id));
   const orderedTabIds = savedOrderIds ? [...savedOrderIds, ...missingTabIds] : tabIds;
-  const orderedTabs = orderedTabIds.map(id => tabs.find(t => t.id === id));
+  const orderedTabs = orderedTabIds.map(id => topLevelItems.find(t => t.id === id));
 
   // fromId передаётся явно самой кнопкой (тот же фикс, что и у виджетов Казны — onUp,
   // созданный в момент pointerdown, иначе замыкается на handleTabDrop ТОГО рендера, где
@@ -3144,8 +3163,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     tabActiveBg: "#2a0808",
     tabActiveColor: "#e8b0b0",
     tabInactiveColor: "#7a4040",
-    contentBg: "#1a0808",
-    contentColor: "#d0a0a0",
     inputBg: "#14181f",
     footerBg: "#0d0505",
     footerBorder: "#6a1010",
@@ -3158,8 +3175,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     tabActiveBg: "#ece7d8",
     tabActiveColor: "#1a1f2c",
     tabInactiveColor: "#a8a294",
-    contentBg: "#ece7d8",
-    contentColor: "#262420",
     inputBg: "#14181f",
     footerBg: "#14181f",
     footerBorder: "#9c8347",
@@ -3256,19 +3271,23 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       </div>
 
       <div className="scroll-hide" style={{ display: "flex", gap: 6, padding: "10px 16px 8px", overflowX: "auto", background: NK.tabBarBg }}>
-        {orderedTabs.map((t) => {
-          const Icon = t.icon;
-          const active = tab === t.id;
-          const dragging = draggedTabId === t.id;
+        {orderedTabs.map((item) => {
+          const Icon = item.icon;
+          const active = item.kind === "leaf" ? tab === item.id : activeGroupId === item.groupId;
+          const dragging = draggedTabId === item.id;
           return (
             <button
-              key={t.id}
-              data-tab-id={t.id}
+              key={item.id}
+              data-tab-id={item.id}
               className="tab-btn"
-              onPointerDown={(e) => handleTabPointerDown(e, t.id)}
+              onPointerDown={(e) => handleTabPointerDown(e, item.id)}
               onClick={() => {
                 if (tabDragSuppressClickRef.current) { tabDragSuppressClickRef.current = false; return; }
-                setTab(t.id);
+                if (item.kind === "leaf") { setTab(item.id); return; }
+                if (activeGroupId !== item.groupId) {
+                  const group = TAB_GROUPS.find(g => g.id === item.groupId);
+                  setTab(group.tabIds[0]);
+                }
               }}
               title="Перетащите, чтобы изменить порядок вкладок"
               style={{
@@ -3293,14 +3312,42 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               }}
             >
               <Icon size={14} />
-              {t.label}
+              {item.label}
             </button>
           );
         })}
       </div>
 
-      <div style={{ background: tab !== "overview" ? "#161b26" : NK.contentBg, color: tab !== "overview" ? "#ece7d8" : NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
-        {tab === "overview" && <OverviewTab state={state} />}
+      {activeGroupId && (
+        <div className="scroll-hide" style={{ display: "flex", gap: 5, padding: "0 16px 10px", overflowX: "auto", background: NK.tabBarBg }}>
+          {TAB_GROUPS.find(g => g.id === activeGroupId).tabIds.map((id) => {
+            const sub = tabs.find(x => x.id === id);
+            const Icon = sub.icon;
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5, padding: "5px 12px",
+                  background: active ? "rgba(255,255,255,0.08)" : "transparent",
+                  color: active ? NK.accent : NK.tabInactiveColor,
+                  border: `1px solid ${active ? NK.accent : "transparent"}`,
+                  borderRadius: 8, fontFamily: "'PT Serif',serif",
+                  fontSize: 11.5, fontWeight: active ? 700 : 400, whiteSpace: "nowrap", flexShrink: 0,
+                  cursor: "pointer",
+                }}
+              >
+                <Icon size={12} />
+                {sub.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ background: "#161b26", color: "#ece7d8", minHeight: "60vh", padding: "20px 16px 32px" }}>
+        {tab === "overview" && <OverviewTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "kremlin" && (
           <FactionsTab state={state} gameId={gameId} onStateRefresh={loadState} />
         )}
@@ -3337,7 +3384,6 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         {tab === "policies" && <PoliciesTab state={state} gameId={gameId} currentTurn={state.turn} onStateRefresh={loadState} />}
         {tab === "relations" && <RelationsTab state={state} />}
         {tab === "treasury" && <TreasuryTab state={state} gameId={gameId} onRefresh={loadState} />}
-        {tab === "newsfeed" && <NewsfeedTab state={state} gameId={gameId} onRefresh={loadState} />}
       </div>
 
       {/* Mission panel — always visible above action area */}
@@ -4905,12 +4951,18 @@ function NewsLiveFeed({ state }) {
 
 function NewsVideoPanel({ state }) { return <NewsLiveFeed state={state} />; }
 
-function OverviewTab({ state }) {
+// Обстановка = сводка (видео/заголовок/горячие точки) + Лента (бывшая отдельная вкладка,
+// объединены по просьбе Пети, 2026-07-12: "обстановку бы сделал — новостная лента" — один
+// экран-вход вместо двух почти одинаковых по смыслу вкладок). Оформление сводки переведено с
+// парчментной светлой темы на тёмную — тем же принципом, что уже применялся к карточкам Ленты
+// (см. коммент у LogDeltaChip): единая карточная тема на одной вкладке выглядит собранно, смесь
+// светлого и тёмного — нет.
+function OverviewTab({ state, gameId, onRefresh }) {
   const [modal, setModal] = useState(null);
   const hotspots = state.overview?.hotspots ?? [];
 
   return (
-    <div>
+    <div style={{ display: "grid", gap: 12 }}>
       {modal && (
         <Modal title={modal.region.toUpperCase() + " · ПОДРОБНЕЕ"} onClose={() => setModal(null)}>
           <div className="mono-font" style={{ fontSize: 10, color: "#a8313a", letterSpacing: "0.08em", marginBottom: 10 }}>
@@ -4928,38 +4980,42 @@ function OverviewTab({ state }) {
       <MarketTicker stats={state.stats || {}} />
       <NewsVideoPanel state={state} />
 
-      <div style={{ borderLeft: "3px solid #a8313a", paddingLeft: 12, marginBottom: 14 }}>
+      <div style={{ borderLeft: "3px solid #a8313a", paddingLeft: 12 }}>
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8313a", marginBottom: 4 }}>
           ГЛАВНОЕ СЕЙЧАС · ХОД {state.turn + 1}
         </div>
-        <p className="doc-font" style={{ margin: 0, fontSize: 15, lineHeight: 1.55 }}>
+        <p className="doc-font" style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: "#cdd3e0" }}>
           {state.overview?.headline ?? state.log?.[state.log.length - 1]?.body}
         </p>
       </div>
 
-      <div style={{ display: "grid", gap: 8 }}>
-        {hotspots.map((item) => (
-          <div
-            key={item.region}
-            onClick={() => setModal(item)}
-            style={{ background: "#f5f1e6", border: "1px solid #d8d2bf", borderRadius: 4, padding: "10px 12px", cursor: "pointer", transition: "border-color 0.15s" }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
-            onMouseLeave={e => e.currentTarget.style.borderColor = "#d8d2bf"}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.08em", color: "#8c6b3a", marginBottom: 3 }}>
-                  {item.region.toUpperCase()}
+      {hotspots.length > 0 && (
+        <div style={{ display: "grid", gap: 8 }}>
+          {hotspots.map((item) => (
+            <div
+              key={item.region}
+              onClick={() => setModal(item)}
+              style={{ background: "#161b26", border: "1px solid #2a3040", borderRadius: 4, padding: "10px 12px", cursor: "pointer", transition: "border-color 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "#9c8347"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "#2a3040"}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.08em", color: "#c8a857", marginBottom: 3 }}>
+                    {item.region.toUpperCase()}
+                  </div>
+                  <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.45, color: "#cdd3e0" }}>
+                    {item.text.length > 120 ? item.text.slice(0, 120) + "…" : item.text}
+                  </div>
                 </div>
-                <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.45 }}>
-                  {item.text.length > 120 ? item.text.slice(0, 120) + "…" : item.text}
-                </div>
+                <span style={{ color: "#9c8347", marginLeft: 10, flexShrink: 0, fontSize: 16, marginTop: 2 }}>›</span>
               </div>
-              <span style={{ color: "#9c8347", marginLeft: 10, flexShrink: 0, fontSize: 16, marginTop: 2 }}>›</span>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+
+      <NewsfeedTab state={state} gameId={gameId} onRefresh={onRefresh} hideTicker />
     </div>
   );
 }
@@ -9688,7 +9744,9 @@ function isImportantFeedItem(item, moveDelta, newsStatDelta) {
 }
 const NEWSFEED_FILTERS = ["all", "important", "mine", "world"];
 
-function NewsfeedTab({ state, gameId, onRefresh }) {
+// hideTicker: используется, когда компонент встроен внутрь OverviewTab (см. ниже) — тикер
+// уже отрисован там один раз выше, дублировать его здесь не нужно.
+function NewsfeedTab({ state, gameId, onRefresh, hideTicker = false }) {
   const [respondedMap, setRespondedMap] = useState(() => state.stats?.ukraine_responses || {});
   const [filter, setFilter] = useState("all");
 
@@ -9703,7 +9761,7 @@ function NewsfeedTab({ state, gameId, onRefresh }) {
   }
 
   const stats = state.stats || {};
-  const marketTicker = <MarketTicker stats={stats} />;
+  const marketTicker = hideTicker ? null : <MarketTicker stats={stats} />;
 
   const relMap = {};
   for (const r of (state.relations || [])) relMap[r.name] = r.value;
