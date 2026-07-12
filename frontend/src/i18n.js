@@ -334,6 +334,7 @@ const RU = {
   "newsfeed.filter_mine": "Мои указы",
   "newsfeed.filter_world": "Мир",
   "newsfeed.important_badge": "⭐ ВАЖНО",
+  "newsfeed.show_more": "Показать ещё {n}",
 
   // ---- AdvisorsTab ----
   "advisors.scale_label": "МАСШТАБ РЕШЕНИЯ:",
@@ -991,6 +992,7 @@ const EN = {
   "newsfeed.filter_mine": "My decrees",
   "newsfeed.filter_world": "World",
   "newsfeed.important_badge": "⭐ IMPORTANT",
+  "newsfeed.show_more": "Show {n} more",
 
   // ---- AdvisorsTab ----
   "advisors.scale_label": "DECISION SCALE:",

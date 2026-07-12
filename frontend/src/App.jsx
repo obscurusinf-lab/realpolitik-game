@@ -9746,14 +9746,28 @@ const NEWSFEED_FILTERS = ["all", "important", "mine", "world"];
 
 // hideTicker: используется, когда компонент встроен внутрь OverviewTab (см. ниже) — тикер
 // уже отрисован там один раз выше, дублировать его здесь не нужно.
+// Сколько записей ленты показывать сразу — Петя, 2026-07-12: "Обстановка очень перегружена" (сразу
+// после слияния бывшей отдельной Ленты внутрь Обстановки, см. HANDOFF) — партия с историей в
+// десятки ходов рендерила ВЕСЬ combined-список целиком под шапкой/горячими точками разом. Дальше
+// подгружается порциями по клику, как уже принято в PrimarySecondaryDeltas (delta.show_more).
+const FEED_PAGE_SIZE = 6;
+
 function NewsfeedTab({ state, gameId, onRefresh, hideTicker = false }) {
   const [respondedMap, setRespondedMap] = useState(() => state.stats?.ukraine_responses || {});
   const [filter, setFilter] = useState("all");
+  const [visibleCount, setVisibleCount] = useState(FEED_PAGE_SIZE);
 
   // Синхронизируем при обновлении state
   useEffect(() => {
     setRespondedMap(state.stats?.ukraine_responses || {});
   }, [state.stats?.ukraine_responses]);
+
+  // Смена фильтра — новый список, счётчик показанных записей должен начаться заново, иначе
+  // переключение на редкий фильтр (напр. "Мои указы") может сразу показать вообще все совпадения
+  // без пагинации просто потому, что счётчик остался большим с предыдущего фильтра.
+  useEffect(() => {
+    setVisibleCount(FEED_PAGE_SIZE);
+  }, [filter]);
 
   function handleResponded(turnN, responseType) {
     setRespondedMap(prev => ({ ...prev, [turnN]: responseType }));
@@ -9816,7 +9830,7 @@ function NewsfeedTab({ state, gameId, onRefresh, hideTicker = false }) {
       {combined.length > 0 && filtered.length === 0 && (
         <div className="doc-font" style={{ fontSize: 13, color: "#8a8472", fontStyle: "italic" }}>{t("newsfeed.filter_empty")}</div>
       )}
-      {filtered.map((x, i) => {
+      {filtered.slice(0, visibleCount).map((x, i) => {
         if (x._kind === "log") {
           const entry = x.entry;
           const badge = entry.actionMode && ACTION_MODE_BADGE[entry.actionMode];
@@ -9941,6 +9955,18 @@ function NewsfeedTab({ state, gameId, onRefresh, hideTicker = false }) {
           </div>
         );
       })}
+      {filtered.length > visibleCount && (
+        <button
+          onClick={() => setVisibleCount(v => v + FEED_PAGE_SIZE)}
+          className="mono-font"
+          style={{
+            background: "transparent", border: "1px solid #3a4156", color: "#8a94a6",
+            borderRadius: 4, padding: "8px 14px", fontSize: 11, cursor: "pointer", letterSpacing: "0.04em",
+          }}
+        >
+          {t("newsfeed.show_more", { n: filtered.length - visibleCount })}
+        </button>
+      )}
     </div>
   );
 }
