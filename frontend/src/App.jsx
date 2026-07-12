@@ -4869,41 +4869,48 @@ function truncateHeadline(text) {
   return text.length > HEADLINE_MAX_LEN ? text.slice(0, HEADLINE_MAX_LEN).trim() + "…" : text;
 }
 
-function NewsLiveFeed({ state }) {
-  // Берём реальные новости из state.newsfeed, дополняем статичными если мало
-  const headlines = useMemo(() => {
-    const fromGame = (state?.newsfeed || [])
-      .filter(n => n.text && n.source)
-      .map(n => ({ src: n.source, text: truncateHeadline(n.text), fullText: n.text }))
-      .reverse(); // последние первыми
-    const combined = [...fromGame, ...LIVE_HEADLINES];
-    return combined.slice(0, 20);
-  }, [state?.turn]); // обновляем при смене хода
+// Сколько заголовков держать в брифинге разом (Петя, 2026-07-12: "Мировые новости нужно
+// расширить — чтоб вкладка Обстановка была похожа на сводку новостей целиком, с возможностью
+// все рассмотреть подробнее как президент"). Раньше это была марки-строка с ОДНИМ активным
+// заголовком, менявшимся раз в 8 секунд — реальные новости партии почти никогда не попадали в
+// поле зрения игрока, если он не ждал ротации. Теперь — статичный список, реальные события
+// партии всегда идут первыми (более информативны, чем декоративный фоновый шум), статика
+// LIVE_HEADLINES только дополняет пустые слоты в начале партии, пока реальных событий мало.
+const NEWS_DIGEST_SIZE = 6;
 
-  const [visibleIdx, setVisibleIdx] = useState(0);
-  const [fade, setFade] = useState(true);
+function NewsLiveFeed({ state }) {
   const [expanded, setExpanded] = useState(null);
 
-  useEffect(() => {
-    setVisibleIdx(0); // сброс при смене хода
-  }, [headlines]);
+  const headlines = useMemo(() => {
+    const relMap = {};
+    for (const r of (state?.relations || [])) relMap[r.name] = r.value;
 
-  useEffect(() => {
-    if (headlines.length === 0) return;
-    const interval = setInterval(() => {
-      setFade(false);
-      setTimeout(() => {
-        setVisibleIdx(i => (i + 1) % headlines.length);
-        setFade(true);
-      }, 400);
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [headlines]);
+    const fromGame = (state?.newsfeed || [])
+      .filter(n => n.text && n.source)
+      .map(n => {
+        const isWorldMove = n.type === "world_move";
+        const analystNote = isWorldMove ? n.reactions?.[0] : null;
+        const moveDelta = analystNote?.stat_delta || {};
+        const newsStatDelta = (!isWorldMove && Array.isArray(n.reactions))
+          ? n.reactions.find(r => r.stat_delta)?.stat_delta
+          : null;
+        const delta = isWorldMove ? moveDelta : newsStatDelta;
+        return {
+          src: n.source, text: truncateHeadline(n.text), fullText: n.text, turn: n.turn,
+          isWorldMove, stance: isWorldMove ? getWorldMoveStance(relMap, n.source) : null,
+          delta, analystNote: isWorldMove ? analystNote?.text : null,
+          important: isImportantFeedItem(n, moveDelta, newsStatDelta),
+        };
+      })
+      .reverse(); // последние первыми
+
+    if (fromGame.length >= NEWS_DIGEST_SIZE) return fromGame.slice(0, NEWS_DIGEST_SIZE);
+    const filler = LIVE_HEADLINES.slice(0, NEWS_DIGEST_SIZE - fromGame.length)
+      .map(h => ({ ...h, fullText: h.text, isWorldMove: false, stance: null, delta: null, analystNote: null, important: false }));
+    return [...fromGame, ...filler];
+  }, [state?.turn]); // обновляем при смене хода
 
   if (headlines.length === 0) return null;
-  const item = headlines[visibleIdx];
-  const next = headlines[(visibleIdx + 1) % headlines.length];
-  const prev = headlines[(visibleIdx - 1 + headlines.length) % headlines.length];
 
   return (
     <div style={{ marginBottom: 14, background: "#f0ebe0", border: "1px solid #c8c2af", borderRadius: 4, overflow: "hidden" }}>
@@ -4914,14 +4921,28 @@ function NewsLiveFeed({ state }) {
         <style>{`@keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
       </div>
 
-      {/* Главная новость — свободная высота, полный текст */}
-      <div
-        onClick={() => setExpanded(item)}
-        style={{ padding: "10px 12px 10px", transition: "opacity 0.4s", opacity: fade ? 1 : 0, cursor: "pointer" }}
-        title="Нажмите, чтобы прочитать полностью"
-      >
-        <div className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em", marginBottom: 5 }}>{item.src.toUpperCase()}</div>
-        <div className="doc-font" style={{ fontSize: 13.5, lineHeight: 1.5, color: "#1e1c18", fontWeight: 700 }}>{item.text}</div>
+      <div>
+        {headlines.map((h, i) => (
+          <div
+            key={i}
+            onClick={() => setExpanded(h)}
+            title="Нажмите, чтобы рассмотреть подробнее"
+            style={{
+              padding: "9px 12px", cursor: "pointer",
+              borderBottom: i < headlines.length - 1 ? "1px solid #e0dac5" : "none",
+              display: "flex", gap: 8, alignItems: "flex-start",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                <span className="mono-font" style={{ fontSize: 8, color: "#a8313a", letterSpacing: "0.1em" }}>{h.src.toUpperCase()}</span>
+                {h.important && <span className="mono-font" style={{ fontSize: 8, color: "#8c6b3a" }}>⭐</span>}
+              </div>
+              <div className="doc-font" style={{ fontSize: 12.5, lineHeight: 1.45, color: "#1e1c18" }}>{h.text}</div>
+            </div>
+            <span style={{ color: "#9c8347", flexShrink: 0, fontSize: 14, marginTop: 2 }}>›</span>
+          </div>
+        ))}
       </div>
 
       {expanded && (
@@ -4929,22 +4950,20 @@ function NewsLiveFeed({ state }) {
           <div className="doc-font" style={{ fontSize: 15, lineHeight: 1.6, color: "#1e1c18" }}>
             {expanded.fullText || expanded.text}
           </div>
+          {expanded.stance && (
+            <div className="mono-font" style={{ fontSize: 11, marginTop: 10, color: WORLD_MOVE_STANCE_STYLE[expanded.stance].color }}>
+              {WORLD_MOVE_STANCE_STYLE[expanded.stance].icon} {worldMoveStanceLabel(expanded.stance)}
+            </div>
+          )}
+          {expanded.delta && Object.keys(expanded.delta).length > 0 && <StatDeltaBadges delta={expanded.delta} />}
+          {expanded.analystNote && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #d8d2bf" }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", marginBottom: 4, letterSpacing: "0.05em" }}>{t("newsfeed.analyst_note")}</div>
+              <div className="doc-font" style={{ fontSize: 13, color: "#3a362e", lineHeight: 1.5 }}>{expanded.analystNote}</div>
+            </div>
+          )}
         </Modal>
       )}
-
-      {/* Следующие заголовки */}
-      <div style={{ borderTop: "1px solid #d8d2bf" }}>
-        {[next, prev].map((h, i) => (
-          <div
-            key={i}
-            onClick={() => setExpanded(h)}
-            style={{ padding: "6px 12px", borderBottom: i === 0 ? "1px solid #e8e2cf" : "none", display: "flex", gap: 8, alignItems: "baseline", cursor: "pointer" }}
-          >
-            <span className="mono-font" style={{ fontSize: 8, color: "#8c6b3a", flexShrink: 0 }}>{h.src}</span>
-            <span className="doc-font" style={{ fontSize: 11.5, color: "#3a362e", lineHeight: 1.4 }}>{h.text.length > 100 ? h.text.slice(0, 100) + "…" : h.text}</span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
