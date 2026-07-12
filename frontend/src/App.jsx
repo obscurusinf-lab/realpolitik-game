@@ -4998,6 +4998,7 @@ function OverviewTab({ state, gameId, onRefresh }) {
 
       <MarketTicker stats={state.stats || {}} />
       <NewsVideoPanel state={state} />
+      <NewsfeedTab state={state} gameId={gameId} onRefresh={onRefresh} hideTicker />
 
       <div style={{ borderLeft: "3px solid #a8313a", paddingLeft: 12 }}>
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8313a", marginBottom: 4 }}>
@@ -5033,8 +5034,6 @@ function OverviewTab({ state, gameId, onRefresh }) {
           ))}
         </div>
       )}
-
-      <NewsfeedTab state={state} gameId={gameId} onRefresh={onRefresh} hideTicker />
     </div>
   );
 }
