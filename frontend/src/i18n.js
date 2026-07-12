@@ -149,6 +149,7 @@ const RU = {
 
   // ---- App.jsx: WelcomeModal (шапка/лейблы, не глубокое содержимое статов) ----
   "welcome.briefing": "ВВОДНЫЙ БРИФИНГ",
+  "welcome.skip": "Пропустить →",
   "welcome.dossier": "ЛИЧНОЕ ДЕЛО",
   "welcome.default_title": "Президент",
   "welcome.dossier_text": "Верховный главнокомандующий. Возглавил {country} в переломный момент истории. Все стратегические решения — в ваших руках. Советники готовы к докладу.",
@@ -378,6 +379,7 @@ const RU = {
   "treasury.total": "ИТОГ",
   "treasury.points_per_month": "пунктов/мес.",
   "treasury.w.ofz_title": "ОФЗ — ГОСУДАРСТВЕННЫЙ ДОЛГ",
+  "treasury.w.ofz_tooltip": "ОФЗ — облигации федерального займа: государство занимает деньги у рынка. Выпуск даёт немедленный приток в казну, но каждый активный выпуск нужно ежемесячно обслуживать (проценты) — чем выше ключевая ставка ЦБ, тем дороже обслуживание.",
   "treasury.ofz_bond": "ОФЗ-{n}",
   "treasury.ofz_active_summary": "Активных выпусков: {count}/{max} · Обслуживание: −{debt} пунктов/мес. (≈₽{rub} трлн) · Инфляционное давление +{pressure}/мес.",
   "treasury.ofz_none": "Активных выпусков нет. Долговая нагрузка: нулевая.",
@@ -400,6 +402,7 @@ const RU = {
   "treasury.trend_falling": "▼ снижается",
   "treasury.trend_stable": "→ стабильна",
   "treasury.w.keyrate_title": "КЛЮЧЕВАЯ СТАВКА ЦБ",
+  "treasury.w.keyrate_tooltip": "Базовая процентная ставка Центробанка — рычаг против инфляции. Выше ставка — дороже кредиты и обслуживание ОФЗ, но инфляция сдерживается сильнее; ниже ставка — дешевле долг и стимул экономике, но риск разгона инфляции.",
   "treasury.cb_target": "цель ЦБ ~{target}%",
   "treasury.cb_head_label": "ГЛАВА ЦБ · {head}",
   "treasury.inflation_short": "Инфл.: {v}",
@@ -802,6 +805,7 @@ const EN = {
   "tab.log": "Log",
 
   "welcome.briefing": "INTRODUCTORY BRIEFING",
+  "welcome.skip": "Skip →",
   "welcome.dossier": "PERSONNEL FILE",
   "welcome.default_title": "President",
   "welcome.dossier_text": "Commander-in-Chief. Took charge of {country} at a turning point in history. All strategic decisions are in your hands. Advisors are ready to report.",
@@ -1030,6 +1034,7 @@ const EN = {
   "treasury.total": "TOTAL",
   "treasury.points_per_month": "points/mo.",
   "treasury.w.ofz_title": "OFZ — GOVERNMENT DEBT",
+  "treasury.w.ofz_tooltip": "OFZ are federal government bonds — the state borrows from the market. Issuing one gives an immediate cash injection to the treasury, but every active issue must be serviced monthly (interest) — the higher the central bank's key rate, the more expensive that servicing gets.",
   "treasury.ofz_bond": "OFZ-{n}",
   "treasury.ofz_active_summary": "Active issues: {count}/{max} · Servicing: −{debt} points/mo. (≈₽{rub}T) · Inflation pressure +{pressure}/mo.",
   "treasury.ofz_none": "No active issues. Debt burden: zero.",
@@ -1052,6 +1057,7 @@ const EN = {
   "treasury.trend_falling": "▼ falling",
   "treasury.trend_stable": "→ stable",
   "treasury.w.keyrate_title": "CENTRAL BANK KEY RATE",
+  "treasury.w.keyrate_tooltip": "The central bank's base interest rate — the main lever against inflation. Higher rate: costlier loans and OFZ servicing, but stronger inflation control. Lower rate: cheaper debt and a boost to the economy, but a higher risk of inflation taking off.",
   "treasury.cb_target": "CB target ~{target}%",
   "treasury.cb_head_label": "CB GOVERNOR · {head}",
   "treasury.inflation_short": "Infl.: {v}",

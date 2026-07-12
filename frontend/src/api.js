@@ -51,6 +51,20 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
   }
 }
 
+// Аудит UX (2026-07-11/12, пункт 🔴 №8): "сырые JS-ошибки показываются игроку напрямую" — раньше
+// каждая функция ниже сама решала, что показать при неудаче, и половина падала на голый
+// `` `${name} failed: ${status}` `` (английский, с внутренним именем функции — читается как баг
+// интерфейса). Единая точка вместо обёртки в каждом из ~15 мест рендера ошибки в App.jsx — чинит
+// причину на уровне источника, а не каждое место, где текст потом показывается.
+function friendlyHttpError(status) {
+  if (status === 401) return "Сессия истекла или недействительна — войдите заново.";
+  if (status === 403) return "Нет доступа к этому действию.";
+  if (status === 404) return "Партия или запись не найдены.";
+  if (status === 409) return "Действие уже выполнено или недоступно сейчас — обновите страницу.";
+  if (status >= 500) return "Ошибка сервера — попробуйте ещё раз через минуту.";
+  return `Не удалось выполнить действие (код ${status}).`;
+}
+
 // ---------- Auth API ----------
 export async function register(username, password, displayName, inviteCode) {
   const res = await fetchWithTimeout(`${API_BASE}/auth/register`, {
@@ -93,7 +107,15 @@ export async function fetchMyGames() {
 
 export async function fetchGameState(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}`, {}, 15000);
-  if (!res.ok) throw new Error(`fetchGameState failed: ${res.status}`);
+  if (!res.ok) {
+    // .status сохранён отдельно от текста ошибки — App.jsx проверяет 404 по коду (не по
+    // подстроке сообщения), чтобы автоматически сбрасывать устаревший gameId. Раньше матчилось
+    // на "404"/"not found" В ТЕКСТЕ ошибки — сломалось бы, как только сообщение стало дружелюбным
+    // (friendlyHttpError больше не содержит слово "404" нигде в тексте).
+    const err = new Error(friendlyHttpError(res.status));
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
@@ -124,7 +146,7 @@ export async function previewTurn(gameId, playerInput, actionMode = "decree") {
   }, 90000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `previewTurn failed: ${res.status}`);
+    throw new Error(body.error || friendlyHttpError(res.status));
   }
   return res.json();
 }
@@ -137,7 +159,7 @@ export async function confirmTurn(gameId) {
   }, 60000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `confirmTurn failed: ${res.status}`);
+    throw new Error(body.error || friendlyHttpError(res.status));
   }
   return res.json();
 }
@@ -150,32 +172,32 @@ export async function resolveFactionDilemma(gameId, dilemmaId, choice) {
     body: JSON.stringify({ dilemmaId, choice }),
   }, 30000);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `resolveFactionDilemma failed: ${res.status}`);
+  if (!res.ok) throw new Error(body.error || friendlyHttpError(res.status));
   return body;
 }
 
 export async function cancelTurn(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/cancel`, { method: "POST" }, 15000);
-  if (!res.ok) throw new Error(`cancelTurn failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 
 export async function fetchNewsfeed(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/newsfeed`, {}, 15000);
-  if (!res.ok) throw new Error(`fetchNewsfeed failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 
 export async function fetchLog(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/log`, {}, 15000);
-  if (!res.ok) throw new Error(`fetchLog failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 
 export async function fetchLeaderboard(countryId) {
   const params = countryId ? `?countryId=${countryId}` : "";
   const res = await fetchWithTimeout(`${API_BASE}/leaderboard${params}`, {}, 15000);
-  if (!res.ok) throw new Error(`fetchLeaderboard failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 
@@ -186,21 +208,21 @@ export async function createGame(countryId, assistMode = "advisor", presidentNam
     body: JSON.stringify({ countryId, assistMode, presidentName, showInLeaderboard, isPublic, language }),
   }, 30000);
   const body = await res.json();
-  if (!res.ok) throw new Error(body.error || `createGame failed: ${res.status}`);
+  if (!res.ok) throw new Error(body.error || friendlyHttpError(res.status));
   return body;
 }
 
 // Зрительский режим (2026-07-11) — не требует авторизации, читает уже сыгранные публичные партии.
 export async function fetchPublicGames() {
   const res = await fetchWithTimeout(`${API_BASE}/games/public`, {}, 15000);
-  if (!res.ok) throw new Error(`fetchPublicGames failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 
 export async function fetchPublicView(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/public-view`, {}, 15000);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `fetchPublicView failed: ${res.status}`);
+  if (!res.ok) throw new Error(body.error || friendlyHttpError(res.status));
   return body;
 }
 
@@ -221,7 +243,7 @@ export async function argueWithAdvisor(gameId, playerArgument) {
   }, 60000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `argue failed: ${res.status}`);
+    throw new Error(body.error || friendlyHttpError(res.status));
   }
   return res.json();
 }
@@ -232,7 +254,7 @@ export async function fetchSuggestions(gameId, actionMode = "decree") {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ actionMode }),
   }, 60000);
-  if (!res.ok) throw new Error(`fetchSuggestions failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 
@@ -244,7 +266,7 @@ export async function consultAdvisor(gameId, advisorId, playerDraft, actionMode)
   }, 60000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `consultAdvisor failed: ${res.status}`);
+    throw new Error(body.error || friendlyHttpError(res.status));
   }
   return res.json();
 }
@@ -254,7 +276,7 @@ export async function consultAdvisor(gameId, advisorId, playerDraft, actionMode)
 // последствия — см. computeOptimalMove в backend/src/ai/advisors.js).
 export async function fetchOptimalMove(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/advisors/optimal-move`, { method: "GET" }, 20000);
-  if (!res.ok) throw new Error(`fetchOptimalMove failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 
@@ -262,7 +284,7 @@ export async function regroupTurn(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/regroup`, { method: "POST" }, 60000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `regroupTurn failed: ${res.status}`);
+    throw new Error(body.error || friendlyHttpError(res.status));
   }
   return res.json();
 }
@@ -271,7 +293,7 @@ export async function endMonth(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/end-month`, { method: "POST" }, 30000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `endMonth failed: ${res.status}`);
+    throw new Error(body.error || friendlyHttpError(res.status));
   }
   return res.json();
 }
@@ -280,7 +302,7 @@ export async function skipTurn(gameId) {
   const res = await fetchWithTimeout(`${API_BASE}/games/${gameId}/turns/skip`, { method: "POST" }, 60000);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `skipTurn failed: ${res.status}`);
+    throw new Error(body.error || friendlyHttpError(res.status));
   }
   return res.json();
 }
@@ -290,7 +312,7 @@ export async function fetchAdminStats(password) {
     headers: { "x-admin-password": password },
   }, 15000);
   if (res.status === 403) throw new Error("Неверный пароль");
-  if (!res.ok) throw new Error(`fetchAdminStats failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 
@@ -313,7 +335,7 @@ export async function fetchLegacy(gameId, outcome) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ outcome }),
   }, 90000);
-  if (!res.ok) throw new Error(`fetchLegacy failed: ${res.status}`);
+  if (!res.ok) throw new Error(friendlyHttpError(res.status));
   return res.json();
 }
 

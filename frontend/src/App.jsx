@@ -2615,8 +2615,10 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       setSessionTurnStart(prev => prev ?? data.turn);
       setLoadError(null);
     } catch (err) {
-      // Игра не найдена — сохранённый gameId устарел, предлагаем начать заново
-      if (err.message.includes("404") || err.message.includes("not found")) {
+      // Игра не найдена — сохранённый gameId устарел, предлагаем начать заново. Проверяем
+      // err.status (см. fetchGameState в api.js), не текст сообщения — с friendlyHttpError
+      // сообщение больше не содержит слово "404" ни в каком виде.
+      if (err.status === 404) {
         onNewGame?.();
         return;
       }
@@ -2967,12 +2969,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     // релогин, игрок при каждом заходе снова падал сюда без способа выбраться (Петя, 2026-07-11:
     // "игра вообще не запускается"). Кнопка возврата на старт очищает сохранённую партию через
     // тот же onNewGame, что и обычная кнопка "Новая партия" в шапке.
-    const friendlyError = loadError?.includes("401")
-      ? "Сессия истекла или недействительна. Войдите заново."
-      : `Не удалось загрузить партию: ${loadError || "нет данных"}`;
+    // Текст ошибки уже человекочитаемый — fetchGameState (api.js, friendlyHttpError) отдаёт
+    // готовую русскую фразу для любого статуса, отдельный кейс под 401 тут больше не нужен
+    // (аудит UX 🔴 №8, 2026-07-12: "сырые JS-ошибки показываются напрямую" — почищено в api.js).
     return (
       <div style={{ minHeight: "100vh", background: "#1a1f2c", color: "#e09090", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'PT Serif',serif", fontSize: 14, padding: 20, textAlign: "center", gap: 20 }}>
-        <div>{friendlyError}</div>
+        <div>{loadError || "Не удалось загрузить партию — нет данных."}</div>
         <button
           onClick={() => onNewGame?.()}
           style={{ background: "#2a3040", border: "1px solid #4a5060", color: "#ece7d8", borderRadius: 4, padding: "10px 20px", fontFamily: "'JetBrains Mono',monospace", fontSize: 12, cursor: "pointer", letterSpacing: "0.06em" }}
@@ -4072,13 +4074,24 @@ function WelcomeModal({ state, playerName, assistMode, onClose, onOpenWiki }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
       <div style={{ background: "#14181f", border: "1px solid #3a4156", borderTop: "3px solid #9c8347", borderRadius: 6, maxWidth: 600, width: "100%", maxHeight: "92vh", overflow: "auto", boxShadow: "0 30px 80px rgba(0,0,0,0.8)" }}>
 
-        {/* Шапка */}
-        <div style={{ padding: "16px 22px 14px", borderBottom: "1px solid #2a3040", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        {/* Шапка — липкая (sticky), не уезжает при скролле: аудит UX 🔴 №1 (Петя, 2026-07-12:
+            "давай исправим") — раньше единственный способ выбраться из брифинга был долистать до
+            самого низа мимо досье+профиля+цели+условий победы+аккордеонов. Кнопка "Пропустить"
+            теперь доступна СРАЗУ, без скролла, и остаётся под рукой на всём протяжении. Ничего из
+            контента не удалено — он по-прежнему доступен тем, кто хочет прочитать (аккордеоны
+            свёрнуты по умолчанию, как и были), просто больше не единственный путь дальше. */}
+        <div style={{ position: "sticky", top: 0, zIndex: 2, background: "#14181f", padding: "16px 22px 14px", borderBottom: "1px solid #2a3040", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div className="mono-font" style={{ fontSize: 9, letterSpacing: "0.2em", color: "#a8313a", marginBottom: 3 }}>{t("app.classified")}</div>
             <div className="mono-font" style={{ fontSize: 12, color: "#9c8347", letterSpacing: "0.12em", fontWeight: 700 }}>{t("welcome.briefing")}</div>
           </div>
-          <div className="mono-font" style={{ fontSize: 11, color: "#3a4156", letterSpacing: "0.1em" }}>REALPOLITIK</div>
+          <button
+            onClick={onClose}
+            className="mono-font"
+            style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 4, color: "#9c8347", fontSize: 10, letterSpacing: "0.06em", padding: "6px 12px", cursor: "pointer" }}
+          >
+            {t("welcome.skip")}
+          </button>
         </div>
 
         <div style={{ padding: "22px 22px 28px" }}>
@@ -8229,13 +8242,18 @@ function ofzMonthlyCostPerBondPreview(keyRate) {
 // виджеты, чтобы не осталось дыр. Хитбокс драга — вся строка заголовка (реальный "край" виджета,
 // не крошечная иконка). Растягивание — ручка ⤢ в углу, зажато между компактным минимумом и
 // РЕАЛЬНОЙ высотой контента (scrollHeight).
-function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, draggedId, onDragStart, onDrop, children }) {
+function WidgetCard({ id, label, tooltip, pos, onHeightChange, size, onSizeChange, draggedId, onDragStart, onDrop, children }) {
   const isDragging = draggedId === id;
   const isMini = size === "mini";
   const bodyRef = useRef(null);
   const outerRef = useRef(null);
   const [dragPreviewHeight, setDragPreviewHeight] = useState(null);
   const [dragOffset, setDragOffset] = useState(null); // {dx,dy} — карточка реально следует за курсором
+  // Расшифровка жаргона (аудит UX 🔴 №5, 2026-07-12, Петя: "давай расшифруем") — опциональный
+  // проп tooltip, тот же паттерн ховер-подсказки, что уже был у "КАЗНА ⓘ" в панели действия
+  // (App.jsx, showTreasuryTip) — вынесен сюда как переиспользуемый механизм для ЛЮБОГО виджета
+  // с непонятным термином в заголовке, не только ОФЗ/ключевой ставки.
+  const [showTooltip, setShowTooltip] = useState(false);
   const MINI_HEIGHT = 92;
 
   // Драг за счёт pointer-событий, а не нативного HTML5 draggable — карточка визуально едет
@@ -8324,7 +8342,23 @@ function WidgetCard({ id, label, pos, onHeightChange, size, onSizeChange, dragge
           padding: "10px 16px 8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between",
         }}
       >
-        <span>{label}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, position: "relative" }}>
+          <span>{label}</span>
+          {tooltip && (
+            <span
+              onMouseEnter={() => setShowTooltip(true)}
+              onMouseLeave={() => setShowTooltip(false)}
+              style={{ color: "#5a6070", cursor: "help", fontSize: 10, lineHeight: 1 }}
+            >
+              ⓘ
+              {showTooltip && (
+                <div style={{ position: "absolute", top: "120%", left: 0, zIndex: 99, background: "#1a2030", border: "1px solid #2a3848", borderRadius: 6, padding: "10px 14px", width: 260, boxShadow: "0 4px 16px #00000080", cursor: "default", textTransform: "none", letterSpacing: "normal" }}>
+                  <div className="doc-font" style={{ fontSize: 11.5, color: "#a0a8b8", lineHeight: 1.5 }}>{tooltip}</div>
+                </div>
+              )}
+            </span>
+          )}
+        </span>
         <span
           onPointerDown={handleHeaderPointerDown}
           title="Потяните за точки, чтобы переставить виджет"
@@ -8885,7 +8919,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
       </WidgetCard>
 
       {/* ОФЗ: долговые инструменты */}
-      <WidgetCard {...widgetCardProps("ofz")} label={t("treasury.w.ofz_title")}>
+      <WidgetCard {...widgetCardProps("ofz")} label={t("treasury.w.ofz_title")} tooltip={t("treasury.w.ofz_tooltip")}>
         <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: `1px solid ${ofzCount > 0 ? "#5a3a10" : "#2a3040"}` }}>
           {/* Слоты выпусков */}
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
@@ -8972,7 +9006,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const rateTrend = keyRate < cbTarget ? t("treasury.trend_rising") : keyRate > cbTarget + 0.5 ? t("treasury.trend_falling") : t("treasury.trend_stable");
 
         return (
-          <WidgetCard {...widgetCardProps("keyrate")} label={t("treasury.w.keyrate_title")}>
+          <WidgetCard {...widgetCardProps("keyrate")} label={t("treasury.w.keyrate_title")} tooltip={t("treasury.w.keyrate_tooltip")}>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
 
               {/* Текущая ставка */}
