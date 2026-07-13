@@ -684,6 +684,19 @@ const RU = {
   "map.close": "✕ закрыть",
   "map.hotspot_header": "ОЧАГ",
   "map.conflicts_header": "КОНФЛИКТЫ",
+  "map.mode_general": "Общая",
+  "map.mode_tactical": "Тактическая (СВО)",
+  "map.legend_self": "Россия",
+  "map.legend_ally": "Союзники",
+  "map.legend_enemy": "Противники",
+  "map.legend_neutral": "Нейтральные",
+  "map.tactical_hint": "клик по маркеру — регион",
+  "map.escalation_header": "ЭСКАЛАЦИЯ ВОЙНЫ",
+  "map.escalation_warning": "На пределе — ещё один шаг эскалации может привести к поражению.",
+  "map.territory_header": "ТЕРРИТОРИАЛЬНЫЙ КОНТРОЛЬ",
+  "map.forces_header": "СИЛЫ СТОРОН",
+  "map.forces_russia": "Россия",
+  "map.forces_ukraine": "ВСУ",
 };
 
 const EN = {
@@ -1342,6 +1355,19 @@ const EN = {
   "map.close": "✕ close",
   "map.hotspot_header": "HOTSPOT",
   "map.conflicts_header": "CONFLICTS",
+  "map.mode_general": "General",
+  "map.mode_tactical": "Tactical (SMO)",
+  "map.legend_self": "Russia",
+  "map.legend_ally": "Allies",
+  "map.legend_enemy": "Adversaries",
+  "map.legend_neutral": "Neutral",
+  "map.tactical_hint": "click a marker for region detail",
+  "map.escalation_header": "WAR ESCALATION",
+  "map.escalation_warning": "At the brink — one more escalation step could trigger defeat.",
+  "map.territory_header": "TERRITORIAL CONTROL",
+  "map.forces_header": "FORCES",
+  "map.forces_russia": "Russia",
+  "map.forces_ukraine": "Ukraine (AFU)",
 };
 
 const DICTS = { ru: RU, en: EN };

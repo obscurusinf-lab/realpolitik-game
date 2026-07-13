@@ -4499,6 +4499,15 @@ function CenteredMessage({ text, isError }) {
 
 // Союзники России (ОДКБ без Армении + Северная Корея)
 const RUSSIA_ALLIES = new Set(["Беларусь", "Казахстан", "Кыргызстан", "Таджикистан", "Северная Корея"]);
+// Противники (Петя, 2026-07-13: "нужно раскрасить враждебные страны в красный") — те же страны,
+// что уже категорически числятся "ВРАГИ" в worldUpdate.js (США/НАТО/Великобритания/ЕС/Германия/
+// Франция/Польша, сузили до реальных фигур на карте — НАТО и ЕС не страны), плюс Украина как
+// прямой противник. БАГ, который это чинит: стартовые значения relations у этих стран (США 38,
+// Украина 8, Германия 12, Франция 16, Польша 6, Британия 8 — см. FULL_RELATIONS в games.js) все
+// ПОЛОЖИТЕЛЬНЫЕ, хоть и низкие — старая раскраска только по числу красила красным ТОЛЬКО value<0,
+// так что канонические противники всю партию заливались нейтральным серо-синим/фиолетовым, как
+// будто с ними всё в порядке.
+const RUSSIA_ENEMIES = new Set(["США", "Великобритания", "Германия", "Франция", "Польша", "Украина"]);
 
 // Map country name (from topojson) → relation lookup key
 const COUNTRY_NAME_MAP = {
@@ -4669,7 +4678,7 @@ const COUNTRY_INFO = {
   "Папуа Новая Гвинея": { capital: "Порт-Морсби", gov: "Конституционная монархия", flag: "🇵🇬", desc: "Богатая ресурсами страна Тихоокеанского региона. США усиливают военное присутствие на фоне конкуренции с Китаем за влияние в регионе." },
 };
 
-function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, actionMarkers = [], nuclearStrike = null }) {
+function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, center = [20, 15], actionMarkers = [], territoryMarkers = [], nuclearStrike = null }) {
   const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
   function getCountryFill(geoName) {
@@ -4680,11 +4689,16 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
     // Союзники — ярко-зелёный
     if (RUSSIA_ALLIES.has(ruName)) return "#1d4a2e";
     const rel = relations.find(r => r.name === ruName || r.country === ruName);
+    // Канонические противники (см. RUSSIA_ENEMIES) — явный красный, даже если числовое
+    // отношение ещё не ушло в минус (см. коммент у RUSSIA_ENEMIES: у США/Украины/etc. старт
+    // положительный, но низкий). Отношения выше 60 — реальный разворот к союзничеству, тогда
+    // красная заливка снимается и работает обычная шкала ниже.
+    if (RUSSIA_ENEMIES.has(ruName) && (!rel || rel.value < 60)) return "#5a1f1f";
     if (!rel) return "#1f2d3d";
     if (rel.value >= 60) return "#1a3a2a";
     if (rel.value >= 30) return "#1f2d3d";
     if (rel.value >= 0)  return "#2a2535";
-    return "#3a1f1f";
+    return "#5a1f1f";
   }
 
   return (
@@ -4700,7 +4714,7 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
         <ComposableMap
           width={800}
           height={340}
-          projectionConfig={{ scale, center: [20, 15] }}
+          projectionConfig={{ scale, center }}
           style={{ width: "100%", height: "auto", aspectRatio: "800/340", background: "transparent", display: "block", filter: nuclearStrike ? "grayscale(0.7) sepia(0.35) brightness(0.75)" : "none" }}
         >
           <Geographies geography={GEO_URL}>
@@ -4749,6 +4763,21 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               </Marker>
             );
           })}
+          {/* Маркеры территорий Донбасса — тактический режим (см. MapTab, "Тактическая (СВО)").
+              Радиус и цвет — от % контроля (territoryColor из TerritoryPanel), не декоративные:
+              то же деление на "выполнено/близко/далеко", что уже есть в панели территорий. */}
+          {territoryMarkers.map((m, i) => (
+            <Marker key={"tm" + i} coordinates={m.coords}>
+              <g onClick={() => m.onClick && m.onClick()} style={{ cursor: m.onClick ? "pointer" : "default" }}>
+                <circle r={11} fill={m.color} fillOpacity={0.18} />
+                <circle r={7} fill={m.color} fillOpacity={0.9} stroke="#0d1420" strokeWidth={1} />
+                <text textAnchor="middle" y={-13} fontSize={9} fill="#ece7d8" fontWeight="bold" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 3 }}>
+                  {m.short}
+                </text>
+                <text textAnchor="middle" y={3} fontSize={7} fill="#fff" fontWeight="bold">{Math.round(m.pct)}</text>
+              </g>
+            </Marker>
+          ))}
           {/* Маркер ядерного удара */}
           {nuclearStrike?.coords && (
             <Marker coordinates={nuclearStrike.coords}>
@@ -5178,10 +5207,24 @@ function useIsMobile() {
   return forced ? false : raw;
 }
 
+// Координаты 5 регионов Донбасса/юга для тактической карты (Петя, 2026-07-13: "подробная
+// тактическая (СВО), с полной информацией о ходе боевых действий") — те же точки, что уже
+// использует resolveCoords/REGION_COORDS для очагов ИИ, просто явно сведены к ключам статов
+// территориального контроля.
+const TERRITORY_COORDS = {
+  donetsk_control: REGION_COORDS["донецк"],
+  luhansk_control: REGION_COORDS["луганск"],
+  zaporizhzhia_control: REGION_COORDS["запорожье"],
+  kherson_control: REGION_COORDS["херсон"],
+  kharkiv_control: REGION_COORDS["харьков"],
+};
+
 function MapTab({ state }) {
   const [activeHotspotIdx, setActiveHotspotIdx] = useState(null);
   const [hotspotModal, setHotspotModal] = useState(null);
   const [countryModal, setCountryModal] = useState(null);
+  // Петя, 2026-07-13: "несколько вариантов — общая (как сейчас), и подробная тактическая (СВО)".
+  const [mapMode, setMapMode] = useState("general");
   const rawHotspots = state.overview?.hotspots ?? [];
   // Обогащаем hotspots координатами если их нет
   const hotspots = rawHotspots.map(h => {
@@ -5234,27 +5277,65 @@ function MapTab({ state }) {
         {t("map.header", { n: state.turn + 1 })}
       </div>
 
-      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
-        {/* Карта */}
-        <div style={{ flex: "1 1 0", width: "100%", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, position: "relative" }}>
-          {nuclearStrike && (
-            <div className="mono-font" style={{ padding: "4px 8px", background: "#2a0a0a", color: "#ff4444", fontSize: 9, letterSpacing: "0.1em", borderBottom: "1px solid #5a1a1a" }}>
-              {t("map.nuclear_banner", { target: nuclearStrike.city ? t("map.nuclear_target", { city: nuclearStrike.city.toUpperCase() }) : "" })}
-            </div>
-          )}
-          <GeoMap
-            hotspots={hotspots}
-            activeHotspotIdx={activeHotspotIdx}
-            onMarkerClick={handleMarkerClick}
-            onCountryClick={handleCountryClick}
-            relations={relations}
-            scale={isMobile ? 130 : 110}
-            nuclearStrike={nuclearStrike}
-          />
-          <div className="mono-font" style={{ position: "absolute", bottom: 5, left: 8, fontSize: 8, color: "#2a3a4d" }}>
-            {t("map.click_hint")}
+      {/* Переключатель режима — "Общая" (мир целиком) / "Тактическая (СВО)" (Донбасс крупным
+          планом + полная сводка по фронту). */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        {["general", "tactical"].map(m => (
+          <button
+            key={m}
+            onClick={() => setMapMode(m)}
+            className="mono-font"
+            style={{
+              background: mapMode === m ? "#3a2020" : "transparent",
+              border: `1px solid ${mapMode === m ? "#a8313a" : "#3a4156"}`,
+              color: mapMode === m ? "#e0a0a0" : "#8a94a6",
+              borderRadius: 4, padding: "6px 12px", fontSize: 11, cursor: "pointer",
+            }}
+          >
+            {m === "general" ? t("map.mode_general") : t("map.mode_tactical")}
+          </button>
+        ))}
+      </div>
+
+      {mapMode === "general" && (
+        <>
+          {/* Легенда — Петя, 2026-07-13: "нужно раскрасить враждебные страны в красный". Раньше
+              цвета читались только по контексту (наведи и смотри число) — теперь явно подписаны. */}
+          <div className="mono-font" style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 9, color: "#8a94a6", marginBottom: 8 }}>
+            {[
+              { color: "#1a3d28", label: t("map.legend_self") },
+              { color: "#1d4a2e", label: t("map.legend_ally") },
+              { color: "#5a1f1f", label: t("map.legend_enemy") },
+              { color: "#1f2d3d", label: t("map.legend_neutral") },
+            ].map((l, i) => (
+              <span key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: l.color, display: "inline-block", flexShrink: 0 }} />
+                {l.label}
+              </span>
+            ))}
           </div>
-        </div>
+
+          <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
+            {/* Карта */}
+            <div style={{ flex: "1 1 0", width: "100%", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, position: "relative" }}>
+              {nuclearStrike && (
+                <div className="mono-font" style={{ padding: "4px 8px", background: "#2a0a0a", color: "#ff4444", fontSize: 9, letterSpacing: "0.1em", borderBottom: "1px solid #5a1a1a" }}>
+                  {t("map.nuclear_banner", { target: nuclearStrike.city ? t("map.nuclear_target", { city: nuclearStrike.city.toUpperCase() }) : "" })}
+                </div>
+              )}
+              <GeoMap
+                hotspots={hotspots}
+                activeHotspotIdx={activeHotspotIdx}
+                onMarkerClick={handleMarkerClick}
+                onCountryClick={handleCountryClick}
+                relations={relations}
+                scale={isMobile ? 130 : 110}
+                nuclearStrike={nuclearStrike}
+              />
+              <div className="mono-font" style={{ position: "absolute", bottom: 5, left: 8, fontSize: 8, color: "#2a3a4d" }}>
+                {t("map.click_hint")}
+              </div>
+            </div>
 
         {/* Боковая панель */}
         <div style={{ width: isMobile ? "100%" : 140, flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -5348,6 +5429,145 @@ function MapTab({ state }) {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+          </div>
+        </>
+      )}
+
+      {mapMode === "tactical" && (
+        <TacticalFrontView state={state} isMobile={isMobile} nuclearStrike={nuclearStrike} hotspots={hotspots} />
+      )}
+    </div>
+  );
+}
+
+// Тактическая карта СВО (Петя, 2026-07-13: "подробная тактическая (СВО), с полной информацией
+// о ходе боевых действий") — карта, приближенная на Донбасс/юг Украины с маркерами контроля по
+// 5 регионам, плюс развёрнутая (не свёрнутая, в отличие от TerritoryPanel) сводка контроля и
+// сравнение военных показателей России/ВСУ. Переиспользует TERRITORIES/territoryColor/
+// TERRITORY_DEFAULTS/MIL_VICTORY_REQS/TERRITORY_DEFEAT_FLOOR — те же формулы и пороги, что уже
+// в TerritoryPanel (панель под экшн-баром), просто в развёрнутом виде и привязанные к карте.
+function TacticalFrontView({ state, isMobile, nuclearStrike, hotspots }) {
+  const stats = { ...TERRITORY_DEFAULTS, ...(state.stats || {}) };
+  const territoryMarkers = TERRITORIES
+    .map(({ key, short }) => {
+      const coords = TERRITORY_COORDS[key];
+      if (!coords) return null;
+      const pct = stats[key] ?? 0;
+      const req = MIL_VICTORY_REQS[key];
+      const floor = TERRITORY_DEFEAT_FLOOR[key];
+      const color = floor != null && pct < floor ? "#c03030" : territoryColor(pct, req);
+      return { coords, short, pct, color };
+    })
+    .filter(Boolean);
+
+  const RU_MIL_KEYS = ["army_morale", "equipment", "readiness", "veterans"];
+  const escalation = state.stats?.war_escalation_counter ?? 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
+      <div style={{ flex: "1 1 0", width: "100%", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, position: "relative" }}>
+        <GeoMap
+          hotspots={hotspots}
+          activeHotspotIdx={null}
+          onMarkerClick={() => {}}
+          onCountryClick={() => {}}
+          relations={state.relations ?? []}
+          scale={isMobile ? 900 : 1400}
+          center={[36, 48.3]}
+          territoryMarkers={territoryMarkers}
+          nuclearStrike={nuclearStrike}
+        />
+        <div className="mono-font" style={{ position: "absolute", bottom: 5, left: 8, fontSize: 8, color: "#2a3a4d" }}>
+          {t("map.tactical_hint")}
+        </div>
+      </div>
+
+      <div style={{ width: isMobile ? "100%" : 220, flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* Эскалация войны — риск поражения defeat_war при достижении 3 (см. computeOptimalMove) */}
+        <div style={{ background: escalation >= 2 ? "#2a1010" : "#1a1f2c", border: `1px solid ${escalation >= 2 ? "#6a2020" : "#2a3040"}`, borderRadius: 5, padding: "8px 10px" }}>
+          <div className="mono-font" style={{ fontSize: 9, color: escalation >= 2 ? "#e09090" : "#8a94a6", letterSpacing: "0.08em", marginBottom: 4 }}>
+            {t("map.escalation_header")}
+          </div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{ flex: 1, height: 6, borderRadius: 2, background: i < escalation ? "#c03030" : "#2a3040" }} />
+            ))}
+          </div>
+          {escalation >= 2 && (
+            <div className="doc-font" style={{ fontSize: 10.5, color: "#e0a0a0", marginTop: 5, lineHeight: 1.4 }}>
+              {t("map.escalation_warning")}
+            </div>
+          )}
+        </div>
+
+        {/* Территориальный контроль — та же логика, что TerritoryPanel, но всегда развёрнута */}
+        <div style={{ background: "#1a1f2c", border: "1px solid #2a3040", borderRadius: 5, padding: "8px 10px" }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", letterSpacing: "0.08em", marginBottom: 8 }}>
+            {t("map.territory_header")}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {TERRITORIES.map(({ key, label }) => {
+              const pct = stats[key] ?? 0;
+              const req = MIL_VICTORY_REQS[key];
+              const floor = TERRITORY_DEFEAT_FLOOR[key];
+              const belowFloor = floor != null && pct < floor;
+              const color = belowFloor ? "#c03030" : territoryColor(pct, req);
+              const meetsReq = pct >= req;
+              return (
+                <div key={key}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                    <span className="doc-font" style={{ color: "#a8a090", fontSize: 11 }}>{label}</span>
+                    <span className="mono-font" style={{ color, fontWeight: 700, fontSize: 11 }}>{Math.round(pct)}%{meetsReq ? " ✓" : ""}</span>
+                  </div>
+                  <div style={{ background: "#0e0e14", borderRadius: 2, height: 4, overflow: "hidden", position: "relative" }}>
+                    <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.5s" }} />
+                    <div style={{ position: "absolute", top: 0, left: `${req}%`, width: 1, height: "100%", background: "#4a5878" }} />
+                    {floor != null && <div style={{ position: "absolute", top: 0, left: `${floor}%`, width: 1, height: "100%", background: "#a8313a" }} />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Сравнение сторон — Россия vs ВСУ, те же метрики/цвета, что в SUBSTAT_META.military и
+            UA_STAT_META (StatsTab), просто рядом друг с другом для прямого сравнения на фронте. */}
+        <div style={{ background: "#1a1f2c", border: "1px solid #2a3040", borderRadius: 5, padding: "8px 10px" }}>
+          <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", letterSpacing: "0.08em", marginBottom: 8 }}>
+            {t("map.forces_header")}
+          </div>
+          <div className="mono-font" style={{ fontSize: 9.5, color: "#7a8fae", marginBottom: 4 }}>🇷🇺 {t("map.forces_russia")}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 8 }}>
+            {RU_MIL_KEYS.map(k => {
+              const meta = SUBSTAT_META.military.find(m => m.key === k);
+              const value = state.stats?.[k] ?? 50;
+              return (
+                <div key={k}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                    <span className="doc-font" style={{ color: "#a8a090" }}>{meta?.label || k}</span>
+                    <span className="mono-font" style={{ color: meta?.color || "#7a8fae" }}>{value}</span>
+                  </div>
+                  <Bar value={value} color={meta?.color || "#7a8fae"} />
+                </div>
+              );
+            })}
+          </div>
+          <div className="mono-font" style={{ fontSize: 9.5, color: "#8c6b3a", marginBottom: 4 }}>🇺🇦 {t("map.forces_ukraine")}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {Object.entries(UA_STAT_META).filter(([k]) => ["ua_army", "ua_west_support", "ua_morale"].includes(k)).map(([k, meta]) => {
+              const value = state.stats?.[k] ?? 50;
+              return (
+                <div key={k}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                    <span className="doc-font" style={{ color: "#a8a090" }}>{meta.label}</span>
+                    <span className="mono-font" style={{ color: meta.color }}>{value}</span>
+                  </div>
+                  <Bar value={value} color={meta.color} />
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
