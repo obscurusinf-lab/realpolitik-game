@@ -174,6 +174,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
   const [authMode, setAuthMode] = useState("login"); // "login" | "register"
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
@@ -353,9 +354,17 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
               )}
 
               <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.12em", color: "#9c8347", marginBottom: 8 }}>{t("start.field_password")}</div>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleAuth()}
-                placeholder="••••••" style={inputStyle} />
+              <div style={{ position: "relative" }}>
+                <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleAuth()}
+                  placeholder="••••••" style={{ ...inputStyle, paddingRight: 42 }} />
+                <button type="button" onClick={() => setShowPassword(v => !v)}
+                  aria-label={showPassword ? t("start.password_hide") : t("start.password_show")}
+                  title={showPassword ? t("start.password_hide") : t("start.password_show")}
+                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 16, lineHeight: 1, opacity: 0.65, padding: 4 }}>
+                  {showPassword ? "🙈" : "👁"}
+                </button>
+              </div>
 
               {authError && <div className="doc-font" style={{ color: "#e09090", fontSize: 13.5, marginBottom: 14 }}>{authError}</div>}
 
