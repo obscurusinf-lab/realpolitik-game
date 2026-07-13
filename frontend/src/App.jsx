@@ -3163,6 +3163,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     tabActiveBg: "#2a0808",
     tabActiveColor: "#e8b0b0",
     tabInactiveColor: "#7a4040",
+    // БАГ (найден code-review, 2026-07-12): при слиянии Обстановка+Лента contentBg/contentColor
+    // случайно убрали как "мёртвый код" (единственный читатель — див содержимого вкладок — был
+    // упрощён до жёстко зашитых цветов) — на деле это гасило красную подсветку "ядерного кризиса"
+    // именно на вкладке Обстановка. Возвращено.
+    contentBg: "#1a0808",
+    contentColor: "#d0a0a0",
     inputBg: "#14181f",
     footerBg: "#0d0505",
     footerBorder: "#6a1010",
@@ -3175,6 +3181,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     tabActiveBg: "#ece7d8",
     tabActiveColor: "#1a1f2c",
     tabInactiveColor: "#a8a294",
+    contentBg: "#161b26",
+    contentColor: "#ece7d8",
     inputBg: "#14181f",
     footerBg: "#14181f",
     footerBorder: "#9c8347",
@@ -3346,7 +3354,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         </div>
       )}
 
-      <div style={{ background: "#161b26", color: "#ece7d8", minHeight: "60vh", padding: "20px 16px 32px" }}>
+      <div style={{ background: NK.contentBg, color: NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} gameId={gameId} onRefresh={loadState} />}
         {tab === "kremlin" && (
           <FactionsTab state={state} gameId={gameId} onStateRefresh={loadState} />
@@ -4908,7 +4916,13 @@ function NewsLiveFeed({ state }) {
     const filler = LIVE_HEADLINES.slice(0, NEWS_DIGEST_SIZE - fromGame.length)
       .map(h => ({ ...h, fullText: h.text, isWorldMove: false, stance: null, delta: null, analystNote: null, important: false }));
     return [...fromGame, ...filler];
-  }, [state?.turn]); // обновляем при смене хода
+    // БАГ (найден code-review, 2026-07-12): раньше зависело только от state?.turn — в мульти-режиме
+    // current_turn НЕ продвигается на каждое действие (только на /turns/end-month), но
+    // state.newsfeed уже пополняется новыми записями сразу после confirm+loadState(). Дайджест
+    // не пересчитывался и показывал устаревшие заголовки, пока встроенная НИЖЕ NewsfeedTab (не
+    // мемоизирована, пересчитывается на каждый рендер) уже показывала новую запись — расхождение
+    // на одном экране сразу после действия игрока.
+  }, [state?.turn, state?.newsfeed]);
 
   if (headlines.length === 0) return null;
 
