@@ -3235,6 +3235,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         </div>
       )}
 
+      {/* Шапка + таб-бар + под-вкладки — единый sticky-блок (Петя, 2026-07-13, скриншот с мобильного:
+          "Всё должно быть сверху" — при скролле вниз по длинной Обстановке шапка с датой/ходом и
+          вся навигация уезжали за экран целиком, вернуться к другой вкладке можно было только
+          проскроллив обратно наверх). Три вложенных блока уже сплошь закрашены своими NK.*Bg без
+          зазоров между ними, так что обёртке отдельный фон не нужен. */}
+      <div style={{ position: "sticky", top: 0, zIndex: 20 }}>
       <div style={{ background: NK.headerBg, borderBottom: `2px solid ${NK.headerBorder}`, padding: "18px 20px 14px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
@@ -3353,6 +3359,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           })}
         </div>
       )}
+      </div>
 
       <div style={{ background: NK.contentBg, color: NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
         {tab === "overview" && <OverviewTab state={state} gameId={gameId} onRefresh={loadState} />}
@@ -3863,7 +3870,19 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
                 {t("kremlin.advisor_rec_header")}
               </div>
               <div className="doc-font" style={{ fontSize: 13.5, fontWeight: 700, color: "#cfeeda", marginBottom: 3 }}>{rec.title}</div>
-              <div className="doc-font" style={{ fontSize: 11.5, color: "#a8c4b2", lineHeight: 1.45 }}>{rec.reason}</div>
+              {/* Петя, 2026-07-13 (скриншот "Много инфы"): rec.reason — это склейка нескольких
+                  серверных объяснений в один абзац (follow-through + основная причина + темп +
+                  "цена вопроса" + давление башен + активные баффы) — на экране целиком выглядит
+                  стеной текста. Не трогаем сам текст (бэкенд, computeOptimalMove) — сворачиваем
+                  ту же ExpandableText, что уже используется для длинных карточек Ленты, вместо
+                  ещё одного отдельного компонента "показать ещё". */}
+              <ExpandableText
+                text={rec.reason}
+                lines={2}
+                className="doc-font"
+                style={{ fontSize: 11.5, color: "#a8c4b2", lineHeight: 1.45 }}
+                toggleColor="#5fbf85"
+              />
             </div>
             {/* recTarget может быть null (например, категория "econ_hold" — "дать реформе
                 сработать", ей некуда вести, decree:null) — раньше кнопка всё равно рисовалась
