@@ -5071,9 +5071,13 @@ function OverviewTab({ state, gameId, onRefresh }) {
         <div className="mono-font" style={{ fontSize: 10, letterSpacing: "0.1em", color: "#a8313a", marginBottom: 4 }}>
           ГЛАВНОЕ СЕЙЧАС · ХОД {state.turn + 1}
         </div>
-        <p className="doc-font" style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: "#cdd3e0" }}>
-          {state.overview?.headline ?? state.log?.[state.log.length - 1]?.body}
-        </p>
+        <ExpandableText
+          text={state.overview?.headline ?? state.log?.[state.log.length - 1]?.body}
+          lines={2}
+          className="doc-font"
+          style={{ fontSize: 15, lineHeight: 1.55, color: "#cdd3e0" }}
+          toggleColor="#9c8347"
+        />
       </div>
 
       {hotspots.length > 0 && (
@@ -9884,7 +9888,11 @@ function NewsfeedTab({ state, gameId, onRefresh, hideTicker = false }) {
 
   const filtered = combined.filter(x => {
     if (filter === "important") return x.important;
-    if (filter === "mine") return x._kind === "log";
+    // Петя, 2026-07-13, скриншот: "в моих указах общие новости" — раньше "Мои указы" отдавал
+    // ЛЮБУЮ запись _kind==="log", включая вводный нарратив хода 0 (партия ещё не началась,
+    // entry.decree пуст — см. рендер ниже, цитата указа показывается только если он есть).
+    // Реальный указ игрока — это запись, где entry.decree реально заполнен.
+    if (filter === "mine") return x._kind === "log" && !!x.entry.decree;
     if (filter === "world") return x._kind === "feed" && x.item.type === "world_move";
     return true;
   });
@@ -9938,7 +9946,16 @@ function NewsfeedTab({ state, gameId, onRefresh, hideTicker = false }) {
                   «{entry.decree}»
                 </div>
               )}
-              <div className="doc-font" style={{ fontSize: 13, lineHeight: 1.5, color: "#cdd3e0" }}>{entry.body}</div>
+              {/* Петя, 2026-07-13: "нужно чтоб была возможность их свернуть-раскрыть" — нарратив
+                  хода мог быть длинным абзацем, показанным всегда целиком. Тот же ExpandableText,
+                  что уже режет длинные карточки "news"/"world_move" в этой же ленте ниже. */}
+              <ExpandableText
+                text={entry.body}
+                lines={3}
+                className="doc-font"
+                style={{ fontSize: 13, lineHeight: 1.5, color: "#cdd3e0" }}
+                toggleColor="#8a94a6"
+              />
               <LogEntryDeltas deltaEntries={x.deltaEntries} />
             </div>
           );
