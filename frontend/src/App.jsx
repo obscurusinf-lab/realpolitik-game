@@ -9007,6 +9007,13 @@ function TreasuryTab({ state, gameId, onRefresh }) {
   const [statHistory, setStatHistory] = useState(null);
   const [confirmReserves, setConfirmReserves] = useState(false);
   const [confirmFxRegime, setConfirmFxRegime] = useState(false);
+  // Быстрые переходы по виджетам (Петя, 2026-07-18: "в мобильной версии виджеты не очень
+  // удобны — нужно листать долго вниз") — на мобильном 10 карточек Казны рендерятся в один
+  // столбец (масонри-раскладка ниже сама схлопывается в 1 колонку на узком экране), это и есть
+  // источник долгого скролла. НЕ трогаем сам масонри/драг/ресайз — их специально просил вернуть
+  // Петя раньше (см. коммент про "уберём аккордеон" ниже). Вместо этого — чипы-якоря сверху,
+  // клик сразу скроллит к нужной карточке через уже существующий data-widget-id.
+  const isMobile = useIsMobile();
 
   // Виджеты Казны — карточки с перестановкой (drag ⋮⋮, тот же паттерн, что уже обкатан для
   // вкладок шапки — tabOrder/draggedTabId/handleTabDrop) и растягиванием (ручка ⤢, зажато между
@@ -9220,11 +9227,29 @@ function TreasuryTab({ state, gameId, onRefresh }) {
       draggedId: draggedWidgetId, onDragStart: setDraggedWidgetId, onDrop: handleWidgetDrop,
     };
   }
+  function scrollToWidget(id) {
+    treasuryGridRef.current?.querySelector(`[data-widget-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
+    <div>
+      {isMobile && (
+        <div data-testid="treasury-jump-row" className="scroll-hide" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "0 0 12px" }}>
+          {widgetOrder.map(id => (
+            <button
+              key={id}
+              onClick={() => scrollToWidget(id)}
+              className="mono-font"
+              style={{ flexShrink: 0, background: "#1f2733", border: "1px solid #2a3040", borderRadius: 14, color: "#c8a857", fontSize: 10.5, letterSpacing: "0.04em", padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }}
+            >
+              {t(`treasury.jump.${id}`)}
+            </button>
+          ))}
+        </div>
+      )}
     <div ref={treasuryGridRef} style={{ position: "relative", height: masonryHeight || undefined, minHeight: 200 }}>
       {/* Казна: текущий уровень */}
-      <WidgetCard {...widgetCardProps("treasury")} label={t("treasury.w.treasury_title")}>
+      <WidgetCard {...widgetCardProps("treasury")} label={t("treasury.w.treasury_title")} tooltip={t("treasury.w.treasury_tooltip")}>
         <div style={{ background: "#14181f", borderRadius: 6, padding: "14px 16px", border: "1px solid #2a3040" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
             <div>
@@ -9260,7 +9285,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           объясняет EndMonthForecastPanel ниже (та же логика, что и на вкладке Показатели).
           Показываем в реалистичных единицах (₽/$/%%), а не в сырых баллах 0-100 —
           балл остаётся внутри для баланса, но игроку он ничего не говорит. */}
-      <WidgetCard {...widgetCardProps("economy")} label={t("treasury.w.economy_title")}>
+      <WidgetCard {...widgetCardProps("economy")} label={t("treasury.w.economy_title")} tooltip={t("treasury.w.economy_tooltip")}>
         <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 90px" }}>
             <div style={{ fontFamily: "'PT Serif',serif", fontSize: 11, color: "#a8a294", marginBottom: 2 }}>{statLabel("economy", "Экономика")}</div>
@@ -9465,7 +9490,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
 
       {/* Баланс: доходы и расходы — очки + рублёвый эквивалент тем же курсом T, что и казна/
           резервы (см. TREASURY_PER_TRILLION) — раньше строки были только в абстрактных очках. */}
-      <WidgetCard {...widgetCardProps("balance")} label={t("treasury.w.balance_title")}>
+      <WidgetCard {...widgetCardProps("balance")} label={t("treasury.w.balance_title")} tooltip={t("treasury.w.balance_tooltip")}>
         <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4 }}>
           <div style={{ ...rowStyle, padding: "7px 12px", borderBottom: "1px solid #2a3040" }}>
             <span style={{ fontFamily: "'PT Serif',serif", fontSize: 13, color: "#5a8a6a" }}>{t("treasury.tax_income", { eco: Math.round(eco) })}</span>
@@ -9744,7 +9769,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const corrCpi = corruptionCpiEquivalent(corrLevel);
         const corrDrainRubT = corruptionDrainRubTrillion(corruptionDrainT);
         return (
-          <WidgetCard {...widgetCardProps("corruption")} label={t("treasury.w.corruption_title")}>
+          <WidgetCard {...widgetCardProps("corruption")} label={t("treasury.w.corruption_title")} tooltip={t("treasury.w.corruption_tooltip")}>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
@@ -9829,7 +9854,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const reservesYieldTarget = stats.reserves_yield_target === "treasury" ? "treasury" : "reserves";
         return (
           <React.Fragment>
-          <WidgetCard {...widgetCardProps("reserves")} label={t("treasury.w.reserves_title")}>
+          <WidgetCard {...widgetCardProps("reserves")} label={t("treasury.w.reserves_title")} tooltip={t("treasury.w.reserves_tooltip")}>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
@@ -9965,7 +9990,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const canToggle = initiativeF >= 15;
         return (
           <React.Fragment>
-          <WidgetCard {...widgetCardProps("fxregime")} label={t("treasury.w.fxregime_title")}>
+          <WidgetCard {...widgetCardProps("fxregime")} label={t("treasury.w.fxregime_title")} tooltip={t("treasury.w.fxregime_tooltip")}>
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 6, padding: "14px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div>
@@ -10052,7 +10077,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const pct = inflationPercent(inf);
         const stormPct = inflationPercent(70); // порог штрафов в человеческом %
         return (
-          <WidgetCard {...widgetCardProps("inflation")} label={t("treasury.w.inflation_title")}>
+          <WidgetCard {...widgetCardProps("inflation")} label={t("treasury.w.inflation_title")} tooltip={t("treasury.w.inflation_tooltip")}>
             <div style={{ background: inf > 70 ? "#1a0c08" : "#14181f", border: `1px solid ${inf > 70 ? "#7a3020" : "#2a3040"}`, borderRadius: 4, padding: "12px 14px" }}>
               {/* Значение + бар */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -10133,7 +10158,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
         const [showOilAdvice, setShowOilAdvice] = React.useState(false);
 
         return (
-          <WidgetCard {...widgetCardProps("oilfx")} label={t("treasury.w.oilfx_title")}>
+          <WidgetCard {...widgetCardProps("oilfx")} label={t("treasury.w.oilfx_title")} tooltip={t("treasury.w.oilfx_tooltip")}>
 
             {/* Котировки */}
             <div style={{ background: "#14181f", border: "1px solid #2a3040", borderRadius: 4, padding: "12px 14px", marginBottom: 10 }}>
@@ -10245,6 +10270,7 @@ function TreasuryTab({ state, gameId, onRefresh }) {
           </WidgetCard>
         );
       })()}
+    </div>
     </div>
   );
 }
