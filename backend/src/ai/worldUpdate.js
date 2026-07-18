@@ -34,13 +34,14 @@ function buildNuclearAftermathPrompt({ countryName, turnNumber, playerInput, nar
     {"source": "Мировые рынки", "text": "1-2 предложения о коллапсе", "tone": "neg", "escalation": 1}
   ],
   "world_moves": [
-    {"country": "США", "action": "1 предложение — конкретное действие против игрока", "impact": "1 предложение", "direction": "hostile", "stat_delta": {"economy": -2}},
-    {"country": "НАТО", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile", "stat_delta": {"military": -1, "diplomacy": -2}},
-    {"country": "Китай", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile", "stat_delta": {"diplomacy": -1}}
+    {"country": "США", "action": "1 предложение — конкретное действие против игрока", "impact": "1 предложение", "direction": "hostile", "category": "sanctions", "stat_delta": {"economy": -2}},
+    {"country": "НАТО", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile", "category": "military", "stat_delta": {"military": -1, "diplomacy": -2}},
+    {"country": "Китай", "action": "1 предложение", "impact": "1 предложение", "direction": "hostile", "category": "diplomacy", "stat_delta": {"diplomacy": -1}}
   ]
 }
 escalation: 1=осуждение, 2=ультиматум, 3=угроза ядерного ответа.
-stat_delta: реальные изменения статов игрока от хода противника (из набора: economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2. Заполни все поля реальными текстами.${languageInstruction(language)}`;
+stat_delta: реальные изменения статов игрока от хода противника (из набора: economy, military, stability, diplomacy, approval). Только нужные стату, значения -4..+2.
+category (world_moves): один из "military", "economy", "sanctions", "diplomacy", "energy", "culture" — тот, что точнее всего описывает действие. Заполни все поля реальными текстами.${languageInstruction(language)}`;
 }
 
 // БАЛАНС (2026-07-04): игрок пожаловался, что ответы других стран (Анкара, Китай) "ощущаются
@@ -122,11 +123,12 @@ function buildWorldUpdatePrompt({ countryName, turnNumber, playerInput, narrativ
 реакции (не обязательно одинаковый набор типов для всех трёх world_reactions — врагу обычно не
 подходит "cooperate", союзнику обычно не подходит "confront", но решай по контексту, не механически).
   "world_moves": [
-    {"country": "1 страна из ВРАГИ", "action": "конкретное действие (санкции/нота/переброска)", "impact": "1 предложение — последствие", "direction": "hostile", "stat_delta": {"economy": -1}},
-    {"country": "1 страна из СОЮЗНИКИ или НЕЙТРАЛЫ", "action": "конкретное действие (торговля/поддержка/сделка)", "impact": "1 предложение", "direction": "cooperative", "stat_delta": {"economy": 1}}
+    {"country": "1 страна из ВРАГИ", "action": "конкретное действие (санкции/нота/переброска)", "impact": "1 предложение — последствие", "direction": "hostile", "category": "sanctions", "stat_delta": {"economy": -1}},
+    {"country": "1 страна из СОЮЗНИКИ или НЕЙТРАЛЫ", "action": "конкретное действие (торговля/поддержка/сделка)", "impact": "1 предложение", "direction": "cooperative", "category": "economy", "stat_delta": {"economy": 1}}
   ]
 }
-ПРАВИЛА: lat/lon — реальные координаты, разные регионы. stat_delta только если действие реально влияет (economy/military/stability/diplomacy/approval), значения -3..+2. Текст каждой страны уникален и конкретен.${languageInstruction(language)}`;
+ПРАВИЛА: lat/lon — реальные координаты, разные регионы. stat_delta только если действие реально влияет (economy/military/stability/diplomacy/approval), значения -3..+2. Текст каждой страны уникален и конкретен.
+category (world_moves): один из "military", "economy", "sanctions", "diplomacy", "energy", "culture" — тот, что точнее всего описывает суть действия этой страны.${languageInstruction(language)}`;
 }
 
 async function generateWorldUpdate({ params, callClaudeApi, meta }) {

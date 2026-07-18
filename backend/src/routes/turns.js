@@ -1892,6 +1892,11 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           }
           // Добавляем ходы других стран + применяем stat_delta
           const VALID_STATS = new Set(["economy", "military", "stability", "diplomacy", "approval"]);
+          // Категория для пинов на общей карте (Петя, 2026-07-18: "тип новости — экономика,
+          // санкции, культура и тд") — свободный текст ИИ ограничен фиксированным набором,
+          // неизвестное/отсутствующее значение падает на "other" (карта показывает нейтральную
+          // иконку, а не ломается на непредвиденной строке).
+          const VALID_MOVE_CATEGORIES = new Set(["military", "economy", "sanctions", "diplomacy", "energy", "culture"]);
           for (const move of worldUpdate.world_moves || []) {
             const statDelta = move.stat_delta && typeof move.stat_delta === "object" ? move.stat_delta : {};
             // Валидируем и клэмпим delta
@@ -1901,13 +1906,14 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
                 safeDelta[k] = Math.max(-5, Math.min(5, Math.round(v)));
               }
             }
+            const category = VALID_MOVE_CATEGORIES.has(move.category) ? move.category : "other";
             await db.query(
               `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions)
                VALUES ($1, $2, 'world_move', $3, $4, $5)`,
               [gameId, turnNumber, move.country, move.action, JSON.stringify([{
                 user: "Аналитик", text: move.impact,
                 tone: move.direction === "hostile" ? "neg" : move.direction === "cooperative" ? "pos" : "neutral",
-                stat_delta: safeDelta,
+                stat_delta: safeDelta, category,
               }])]
             );
             // Применяем stat_delta к game_state

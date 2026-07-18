@@ -4878,7 +4878,7 @@ const COUNTRY_INFO = {
   "Папуа Новая Гвинея": { capital: "Порт-Морсби", gov: "Конституционная монархия", flag: "🇵🇬", desc: "Богатая ресурсами страна Тихоокеанского региона. США усиливают военное присутствие на фоне конкуренции с Китаем за влияние в регионе." },
 };
 
-function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, center = [20, 15], actionMarkers = [], nuclearStrike = null, oblastStats = null, projection = "geoEqualEarth" }) {
+function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, center = [20, 15], actionMarkers = [], nuclearStrike = null, oblastStats = null, projection = "geoEqualEarth", newsPins = [], onNewsPinClick = null }) {
   const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
   function getCountryFill(geoName) {
@@ -4948,6 +4948,24 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
                   {active && <circle r={10} fill="#e05060" fillOpacity={0.2} />}
                   <circle r={active ? 7 : 5} fill={active ? "#ff3a50" : "#e05060"} />
                   <circle r={active ? 3 : 2} fill="#ffffff" />
+                </g>
+              </Marker>
+            );
+          })}
+          {/* Пины стран-акторов на общей карте (Петя, 2026-07-18: "на общей карте пусть будут
+              подробно показаны пины с новостями... какая новость и от кого — союзники, враги,
+              нейтралы, и тип новости — экономика, санкции, культура и тд"). Один пин на страну
+              (самый свежий world_move, см. MapTab) — цвет кольца по реальной стойке (relations),
+              иконка в центре — по категории от ИИ (worldUpdate.js, поле category). Клик — тот же
+              hotspotModal, что уже показывает текст очагов (переиспользуем существующий, не
+              заводим отдельную модалку). */}
+          {newsPins.map((p, i) => {
+            const style = WORLD_MOVE_STANCE_STYLE[p.stance] || WORLD_MOVE_STANCE_STYLE.neutral;
+            return (
+              <Marker key={"np" + i} coordinates={p.coords}>
+                <g onClick={() => onNewsPinClick && onNewsPinClick(p)} style={{ cursor: onNewsPinClick ? "pointer" : "default" }}>
+                  <circle r={9} fill={style.bg} stroke={style.border} strokeWidth={1.3} />
+                  <text textAnchor="middle" y={3.5} fontSize={9}>{NEWS_PIN_CATEGORY_ICON[p.category] || NEWS_PIN_CATEGORY_ICON.other}</text>
                 </g>
               </Marker>
             );
@@ -5080,6 +5098,27 @@ const REGION_COORDS = {
   "рынок": [2.3, 48.9],
   "ооh": [2.3, 48.9], "оон": [2.3, 48.9], "un ": [2.3, 48.9],
   "г7": [7.0, 47.0], "g7": [7.0, 47.0], "g20": [7.0, 47.0],
+};
+
+// Точные координаты стран из COUNTRY_PROFILES (backend/src/ai/worldUpdate.js) — источник
+// world_move-пинов на общей карте (Петя, 2026-07-18: "на общей карте пусть будут подробно
+// показаны пины с новостями... какая новость и от кого — союзники, враги, нейтралы"). Отдельный
+// словарь с ТОЧНЫМ совпадением по названию страны, а не подстрокой через REGION_COORDS —
+// короткие ключи вроде "ес" там дали бы ложные срабатывания на других словах.
+const WORLD_MOVE_COUNTRY_COORDS = {
+  "США": [-98.0, 38.0], "НАТО": [10.0, 52.0], "Великобритания": [-2.0, 54.0],
+  "ЕС": [4.35, 50.85], "Германия": [10.0, 51.0], "Франция": [2.3, 46.5],
+  "Польша": [20.0, 52.0], "Китай": [104.0, 35.0], "Беларусь": [28.0, 53.5],
+  "Иран": [53.0, 32.0], "Северная Корея": [127.0, 40.0], "Индия": [78.0, 20.0],
+  "Турция": [35.0, 39.0], "ОАЭ": [54.3, 24.5], "Саудовская Аравия": [45.0, 24.0],
+  "Казахстан": [68.0, 48.0],
+};
+
+// Иконка типа новости для пинов на общей карте — категория приходит от ИИ (worldUpdate.js,
+// поле category на world_moves), неизвестное/старое значение (партии до этого фикса) падает
+// на "other".
+const NEWS_PIN_CATEGORY_ICON = {
+  military: "⚔", economy: "💰", sanctions: "🚫", diplomacy: "🤝", energy: "🛢", culture: "🎭", other: "📰",
 };
 
 function resolveCoords(spot) {
@@ -5488,6 +5527,36 @@ function MapTab({ state }) {
   const nuclearStrike = useMemo(() => detectNuclearStrike(state), [state.newsfeed, state.log]);
   const isMobile = useIsMobile();
 
+  // Пины стран-акторов на общей карте (Петя, 2026-07-18, часть Б исходного запроса про карту:
+  // "пусть будут подробно показаны пины с новостями... от кого — союзники, враги, нейтралы, и тип
+  // новости"). Один пин на страну — самый свежий её world_move (не по пину на каждый ход за всю
+  // партию, иначе к позднему ходу пины наложились бы друг на друга). source, у которого нет
+  // координат в WORLD_MOVE_COUNTRY_COORDS (внутренние источники вроде "Генштаб"/"МИД" из финальных
+  // глав — не иностранные государства), в пины не попадает — это осознанный фильтр, не баг.
+  const relMap = useMemo(() => {
+    const m = {};
+    for (const r of relations) m[r.name] = r.value;
+    return m;
+  }, [relations]);
+  const newsPins = useMemo(() => {
+    const latestBySource = new Map();
+    for (const n of (state.newsfeed || [])) {
+      if (n.type !== "world_move" || !n.source || !n.text) continue;
+      const coords = WORLD_MOVE_COUNTRY_COORDS[n.source];
+      if (!coords) continue;
+      const existing = latestBySource.get(n.source);
+      if (existing && (existing.turn ?? 0) > (n.turn ?? 0)) continue;
+      const note = Array.isArray(n.reactions) ? n.reactions[0] : null;
+      latestBySource.set(n.source, {
+        source: n.source, coords, turn: n.turn ?? 0,
+        category: note?.category || "other",
+        stance: getWorldMoveStance(relMap, n.source),
+        text: n.text, impact: note?.text || "",
+      });
+    }
+    return [...latestBySource.values()];
+  }, [state.newsfeed, relMap]);
+
   function handleMarkerClick(idx) {
     setActiveHotspotIdx(idx === activeHotspotIdx ? null : idx);
     setHotspotModal(hotspots[idx]);
@@ -5501,6 +5570,14 @@ function MapTab({ state }) {
     setCountryModal({ name: ruName, rel, info });
     setHotspotModal(null);
     setActiveHotspotIdx(null);
+  }
+
+  // Клик по пину — переиспользуем hotspotModal (тот же {region,text}-виджет, что уже показывает
+  // текст очагов ниже), просто с текстом действия+аналитики страны вместо описания очага.
+  function handleNewsPinClick(pin) {
+    setHotspotModal({ region: `${pin.source} · ${newsCategoryLabel(pin.category)}`, text: pin.impact ? `${pin.text} ${pin.impact}` : pin.text });
+    setActiveHotspotIdx(null);
+    setCountryModal(null);
   }
 
   function relColor(v) {
@@ -5561,6 +5638,20 @@ function MapTab({ state }) {
             ))}
           </div>
 
+          {/* Легенда пинов — иконка = тип новости (Петя, 2026-07-18: "тип новости — экономика,
+              санкции, культура и тд"). Пины сами уже кольцом окрашены по стойке страны (та же
+              схема, что и легенда выше), поэтому здесь только категории. */}
+          {newsPins.length > 0 && (
+            <div className="mono-font" style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 9, color: "#8a94a6", marginBottom: 8 }}>
+              {Object.keys(NEWS_PIN_CATEGORY_ICON).filter(c => newsPins.some(p => p.category === c)).map(c => (
+                <span key={c} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span>{NEWS_PIN_CATEGORY_ICON[c]}</span>
+                  {newsCategoryLabel(c)}
+                </span>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
             {/* Карта */}
             <div style={{ flex: "1 1 0", width: "100%", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, position: "relative" }}>
@@ -5577,6 +5668,8 @@ function MapTab({ state }) {
                 relations={relations}
                 scale={isMobile ? 130 : 110}
                 nuclearStrike={nuclearStrike}
+                newsPins={newsPins}
+                onNewsPinClick={handleNewsPinClick}
               />
               <div className="mono-font" style={{ position: "absolute", bottom: 5, left: 8, fontSize: 8, color: "#2a3a4d" }}>
                 {t("map.click_hint")}
@@ -8637,6 +8730,7 @@ const WORLD_MOVE_STANCE_STYLE = {
 };
 function newsfeedTypeLabel(type) { return t(`newsfeed.type.${type}`); }
 function worldMoveStanceLabel(stance) { return t(`newsfeed.stance.${stance}`); }
+function newsCategoryLabel(category) { return t(`newsfeed.category.${category || "other"}`); }
 function getWorldMoveStance(relMap, source) {
   const val = relMap[source];
   if (val === undefined) return "neutral";

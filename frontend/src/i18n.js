@@ -362,6 +362,13 @@ const RU = {
   "newsfeed.stance.cooperative": "ДЕЙСТВИЕ СОЮЗНИКА",
   "newsfeed.stance.neutral": "ДЕЙСТВИЕ ГОСУДАРСТВА",
   "newsfeed.stance.hostile": "ДЕЙСТВИЕ ПРОТИВНИКА",
+  "newsfeed.category.military": "военное",
+  "newsfeed.category.economy": "экономика",
+  "newsfeed.category.sanctions": "санкции",
+  "newsfeed.category.diplomacy": "дипломатия",
+  "newsfeed.category.energy": "энергетика",
+  "newsfeed.category.culture": "культура",
+  "newsfeed.category.other": "прочее",
 
   // ---- NewsfeedTab / MarketTicker ----
   "newsfeed.fx_floating": "⚙ курс в свободном плавании",
@@ -1097,6 +1104,13 @@ const EN = {
   "newsfeed.stance.cooperative": "ALLY ACTION",
   "newsfeed.stance.neutral": "STATE ACTION",
   "newsfeed.stance.hostile": "ADVERSARY ACTION",
+  "newsfeed.category.military": "military",
+  "newsfeed.category.economy": "economy",
+  "newsfeed.category.sanctions": "sanctions",
+  "newsfeed.category.diplomacy": "diplomacy",
+  "newsfeed.category.energy": "energy",
+  "newsfeed.category.culture": "culture",
+  "newsfeed.category.other": "other",
 
   // ---- NewsfeedTab / MarketTicker ----
   "newsfeed.fx_floating": "⚙ free-floating exchange rate",
