@@ -4,6 +4,8 @@ import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from "re
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, bankSurplus, convertReserves, setReservesYieldTarget, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma, setReadOnlyMode } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import UA_OBLASTS_GEO from "./assets/ua-oblasts.json";
+import UA_RAIONS_GEO from "./assets/ua-raions.json";
+import UA_SETTLEMENTS from "./assets/ua-settlements.json";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
 // БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
@@ -2142,6 +2144,68 @@ function oblastControlColor(pct) {
   const f = Math.max(0, Math.min(100, pct)) / 100;
   const rgb = OBLAST_COLOR_UA.map((ua, i) => Math.round(ua + (OBLAST_COLOR_RU[i] - ua) * f));
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
+
+// Пете, 2026-07-19: раньше вся область закрашивалась ОДНИМ цветом на весь полигон — геометрической
+// "линии фронта" не существовало вообще, только заливка целиком по общему проценту. Тут она
+// вычисляется из ТОГО ЖЕ числа (donetsk_control и т.д., без изменений в бэкенде) через районы
+// (frontend/src/assets/ua-raions.json, см. backend/scripts/prepare-ua-raions.js): районы внутри
+// области сортируются по долготе восток→запад (приближение реального направления наступления —
+// все 5 текущих % уже неявно следуют этой логике: восточные Донецк/Луганск высокие, северо-
+// западный Харьков низкий), закрашиваются с востока по накопленной доле площади области, пока не
+// наберётся pct% — получается реальная многоугольная граница между закрашенными и незакрашенными
+// районами, которая физически сдвигается при изменении числа хода к ходу. Один район на границе
+// красится ДРОБНО (не резким скачком) — сглаживает переход.
+// Возвращает { "oblastKey|shapeName": fillColor } — плоский лукап по композитному ключу, не по
+// ссылке на объект (Geographies от react-simple-maps не гарантирует identity сырых features).
+function computeRaionFills(raionFeatures, oblastStats) {
+  const byOblast = {};
+  for (const f of raionFeatures) {
+    const key = f.properties.oblastKey;
+    (byOblast[key] ||= []).push(f);
+  }
+  const fills = {};
+  for (const [oblastKey, raions] of Object.entries(byOblast)) {
+    const pct = Math.max(0, Math.min(100, oblastStats?.[oblastKey] ?? 0)) / 100;
+    const sorted = [...raions].sort((a, b) => b.properties.centroidLon - a.properties.centroidLon);
+    let cumulative = 0;
+    for (const raion of sorted) {
+      const share = raion.properties.areaShare;
+      const lookupKey = `${oblastKey}|${raion.properties.shapeName}`;
+      if (cumulative >= pct) {
+        fills[lookupKey] = oblastControlColor(0);
+      } else if (cumulative + share <= pct) {
+        fills[lookupKey] = oblastControlColor(100);
+      } else {
+        const fracInRaion = share > 0 ? (pct - cumulative) / share : 0;
+        fills[lookupKey] = oblastControlColor(fracInRaion * 100);
+      }
+      cumulative += share;
+    }
+  }
+  return fills;
+}
+
+// Точка в полигоне (ray casting) — тот же алгоритм, что и в backend/scripts/prepare-ua-raions.js
+// при подготовке данных, только тут нужен в рантайме: города/сёла (ua-settlements.json) хранят
+// только координаты, без привязки к району — привязка вычисляется на лету, самокорректирующе
+// (если координата чуть неточна, попадёт в реально ближайший по геометрии район, а не в
+// заранее вручную вписанный, который мог быть ошибочным).
+function pointInRing(pt, ring) {
+  const [x, y] = pt;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    const intersect = (yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function findRaionAt(coords) {
+  return UA_RAIONS_GEO.features.find(f => {
+    const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
+    return polys.some(poly => pointInRing(coords, poly[0]));
+  }) || null;
 }
 
 const TERRITORY_DEFAULTS = {
@@ -4785,6 +4849,10 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
   const [zoomPos, setZoomPos] = useState({ coordinates: center, zoom: 1 });
   useEffect(() => { setZoomPos({ coordinates: center, zoom: 1 }); }, [center[0], center[1], scale]);
 
+  // Считаем один раз на рендер — переиспользуется и заливкой районов, и городами/сёлами ниже
+  // (у обоих один и тот же источник цвета: "чья сейчас эта территория").
+  const raionFills = oblastStats ? computeRaionFills(UA_RAIONS_GEO.features, oblastStats) : null;
+
   function getCountryFill(geoName) {
     const ruName = COUNTRY_NAME_MAP[geoName];
     if (!ruName) return "#1f2d3d";
@@ -4890,11 +4958,10 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
           {/* Реальные контуры областей — тактическая карта (Петя, 2026-07-18: "выглядело так же
               детализировано, с такими же линиями фронта, цветовым обозначением, и тд"). oblastStats
               (donetsk_control и т.д.) передаётся только в тактическом режиме (см. TacticalFrontView).
-              Заливка отслеживаемых областей — красный↔синий градиент по % контроля России
-              (oblastControlColor); соседние области без игровых данных — нейтральный серый, просто
-              для географического контекста вокруг. Контур области ниже порога поражения
-              (TERRITORY_DEFEAT_FLOOR) дополнительно подсвечен ярко-красной обводкой — это тревожный
-              сигнал независимо от того, в какой цвет сейчас окрашена сама заливка на градиенте.
+              Соседние области без игровых данных — нейтральный серый, для географического контекста.
+              Отслеживаемые области — сама заливка теперь на уровне РАЙОНОВ (см. блок ниже), тут
+              только контур: тонкая обводка по умолчанию, ярко-красная — если % ниже порога
+              поражения (TERRITORY_DEFEAT_FLOOR), независимо от текущей заливки районов.
               Источник контуров: geoBoundaries.org (CC BY 4.0), см. атрибуцию под картой. */}
           {oblastStats && (
             <Geographies geography={UA_OBLASTS_GEO}>
@@ -4902,7 +4969,7 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
                 geographies.map(geo => {
                   const { key, tracked } = geo.properties;
                   const pct = key ? (oblastStats[key] ?? 0) : null;
-                  const fill = tracked ? oblastControlColor(pct) : "#242c3a";
+                  const fill = tracked ? "none" : "#242c3a";
                   const floor = key ? TERRITORY_DEFEAT_FLOOR[key] : null;
                   const belowFloor = floor != null && pct < floor;
                   return (
@@ -4920,6 +4987,48 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               }
             </Geographies>
           )}
+          {/* Заливка по районам — вычисляемая "линия фронта" (см. computeRaionFills выше), не
+              рукописная и не сплошная по всей области. Рендерится ПОВЕРХ контуров области (порядок
+              в SVG важен), только внутри 5 отслеживаемых областей — данные ua-raions.json уже
+              отфильтрованы под них при подготовке (backend/scripts/prepare-ua-raions.js). */}
+          {oblastStats && (
+            <Geographies geography={UA_RAIONS_GEO}>
+              {({ geographies }) =>
+                geographies.map(geo => {
+                  const { oblastKey, shapeName } = geo.properties;
+                  const fill = raionFills[`${oblastKey}|${shapeName}`] || "#242c3a";
+                  return (
+                    <Geography
+                      key={`${oblastKey}-${shapeName}`}
+                      geography={geo}
+                      style={{
+                        default: { fill, stroke: "#0d1420", strokeWidth: 0.25, outline: "none" },
+                        hover:   { fill, stroke: "#0d1420", strokeWidth: 0.25, outline: "none" },
+                        pressed: { fill, outline: "none" },
+                      }}
+                    />
+                  );
+                })
+              }
+            </Geographies>
+          )}
+          {/* Города/сёла — только при достаточном приближении (иначе на дефолтном масштабе ~35
+              подписей превратятся в кашу, см. Петя 2026-07-19: "нужна карта с городами, сёлами").
+              Цвет — по тому, в какой район попадает координата (тот же расчёт, что уже даёт
+              заливку района), не отдельный игровой стат на населённый пункт. */}
+          {oblastStats && zoomPos.zoom >= 2 && UA_SETTLEMENTS.map((s, i) => {
+            const raion = findRaionAt(s.coords);
+            if (!raion) return null;
+            const fill = raionFills[`${raion.properties.oblastKey}|${raion.properties.shapeName}`] || "#8a94a6";
+            return (
+              <Marker key={"settle" + i} coordinates={s.coords}>
+                <circle r={2} fill={fill} stroke="#0d1420" strokeWidth={0.4} />
+                <text textAnchor="middle" y={-4} fontSize={5.5} fill="#ece7d8" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 2 }}>
+                  {s.name}
+                </text>
+              </Marker>
+            );
+          })}
           {oblastStats && UA_OBLASTS_GEO.features.filter(f => f.properties.tracked).map(f => {
             const { key, name, centroid } = f.properties;
             const pct = oblastStats[key] ?? 0;
