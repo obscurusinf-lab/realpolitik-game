@@ -366,7 +366,7 @@ async function registerAdminRoutes(fastify, { db, callClaudeApi, adminEventStore
     const [newsfeedRes, turnsRes] = await Promise.all([
       db.query(`SELECT turn_n, item_type, source, text, reactions FROM newsfeed_items WHERE game_id = $1 ORDER BY turn_n ASC`, [gameId]),
       db.query(
-        `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at
+        `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at, gm_classification->>'action_type' AS action_type
          FROM turns WHERE game_id = $1 ORDER BY turn_n ASC`,
         [gameId]
       ),

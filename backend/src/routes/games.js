@@ -76,6 +76,10 @@ function buildFullGameState({ gameId, game, newsfeedRows, turnsRows }) {
       decree: r.player_input || null,
       actionMode: r.action_mode || null,
       statDeltas: r.stat_deltas || null,
+      // Категория хода (mil_operational_offensive, diplo_peace, ...) — нужна тактической карте
+      // (TacticalFrontView, App.jsx) для журнала событий с иконками по типу действия. Уже
+      // писалась в turns.gm_classification (см. turns.js) для советников, здесь просто читается.
+      actionType: r.action_type || null,
     })),
   ];
 
@@ -385,7 +389,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
     );
 
     const turnsRes = await db.query(
-      `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at
+      `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at, gm_classification->>'action_type' AS action_type
        FROM turns WHERE game_id = $1 ORDER BY turn_n ASC`,
       [gameId]
     );
@@ -443,7 +447,7 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
       [gameId]
     );
     const turnsRes = await db.query(
-      `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at
+      `SELECT turn_n, player_input, action_mode, narrative_text, stat_deltas, created_at, gm_classification->>'action_type' AS action_type
        FROM turns WHERE game_id = $1 ORDER BY turn_n ASC`,
       [gameId]
     );

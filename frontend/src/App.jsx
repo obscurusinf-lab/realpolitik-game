@@ -5781,6 +5781,121 @@ function MapTab({ state }) {
   );
 }
 
+// Журнал событий тактической карты (Петя, 2026-07-18: "показывались все события, что были
+// сделаны мной, и Украиной"). Компактная таксономия поверх ACTION_TYPE_LABEL (тот текст остаётся
+// как есть — здесь только группировка в 10 иконок вместо 33+ отдельных категорий) — те же иконки,
+// что уже использует MINISTER_DOMAINS (⚔️/🏛/🤝/💰/🕵️/📰), чтобы не плодить второй визуальный
+// язык для одних и тех же категорий в разных вкладках.
+const EVENT_CATEGORY_META = {
+  offensive: { icon: "⚔️", color: "#c0505a", label: "Наступление" },
+  defensive: { icon: "🛡", color: "#5a7ba0", label: "Оборона" },
+  recon:     { icon: "🔭", color: "#8a94a6", label: "Разведка" },
+  covert:    { icon: "🕵️", color: "#9a6ac0", label: "Тайная операция" },
+  diplomacy: { icon: "🤝", color: "#5aa08c", label: "Дипломатия" },
+  economy:   { icon: "💰", color: "#c0a050", label: "Экономический указ" },
+  admin:     { icon: "🏛", color: "#a08c60", label: "Административный указ" },
+  info:      { icon: "📰", color: "#6a80a8", label: "Информационная политика" },
+  regroup:   { icon: "🔄", color: "#7a8090", label: "Перегруппировка" },
+  nuclear:   { icon: "☢", color: "#ff5a30", label: "Ядерный удар" },
+  ukraine:   { icon: "🇺🇦", color: "#5a7ac0", label: "Действие Украины" },
+};
+// Категория хода (turns.gm_classification.action_type, теперь приходит в state.log[].actionType —
+// см. games.js /games/:gameId, gm_classification->>'action_type') → бакет из EVENT_CATEGORY_META
+// выше. Легаси-ключи (military_offensive и т.д.) — партии, начатые до расширения категорий
+// (см. ACTION_TYPE_LABEL, там та же двойная таблица новых+легаси ключей).
+const ACTION_TYPE_EVENT_CATEGORY = {
+  mil_tactical: "offensive", mil_operational_offensive: "offensive", mil_strategic_offensive: "offensive", mil_hybrid: "offensive",
+  mil_operational_defensive: "defensive", mil_strategic_defensive: "defensive",
+  mil_recon: "recon",
+  covert_destabilize: "covert", covert_sabotage: "covert", covert_disinfo: "covert", covert_elimination: "covert",
+  diplo_negotiate: "diplomacy", diplo_treaty: "diplomacy", diplo_pressure: "diplomacy", diplo_multilateral: "diplomacy", diplo_soft_power: "diplomacy", diplo_peace: "diplomacy",
+  econ_stimulus: "economy", econ_austerity: "economy", econ_sanctions_counter: "economy", econ_infrastructure: "economy", econ_tech: "economy",
+  mil_admin_budget: "admin", mil_admin_mobilization: "admin", mil_admin_doctrine: "admin",
+  pol_repression: "admin", pol_elite_consolidation: "admin", pol_social: "admin",
+  pol_liberalization: "info", pol_propaganda: "info",
+  military_regroup: "regroup",
+  nuclear_strike: "nuclear",
+  military_offensive: "offensive", military_defensive: "defensive",
+  diplomacy_outreach: "diplomacy", diplomacy_confrontation: "diplomacy",
+  economic_stimulus: "economy", economic_austerity: "economy",
+  domestic_repression: "admin", domestic_liberalization: "info", info_narrative: "info",
+};
+// null_action ("Бездействие") и неизвестные ключи намеренно возвращают null — не показываем
+// пустой/нераспознанный ход отдельной строкой в журнале, чтобы не засорять список.
+function eventCategoryFor(actionType) {
+  return ACTION_TYPE_EVENT_CATEGORY[actionType] || null;
+}
+
+// Собирает объединённый журнал из уже имеющихся данных хода — БЕЗ новых бэкенд-полей:
+// 1) само решение игрока (actionType → категория выше);
+// 2) движение % контроля по каждому из 5 регионов из statDeltas того же хода. Знак движения —
+//    честный прокси-сигнал "кто сдвинул фронт" (Петя просил показывать события "мои, и Украины"):
+//    рост % — итог наступления игрока, падение — итог сопротивления/контрудара ВСУ
+//    (computeTerritoryDelta уже вычисляет отдельный "counterattack" объект на бэкенде, но он
+//    нигде не персистится по ходам как дискретное событие — пересчитывать это здесь без нового
+//    бэкенд-роута нельзя, а net-дельта уже сохранена и доступна прямо сейчас).
+function buildTacticalEvents(log) {
+  const events = [];
+  for (const entry of (log || [])) {
+    if (!entry.turn) continue; // ход 0 — старт партии, не событие
+    const cat = eventCategoryFor(entry.actionType);
+    if (cat) {
+      events.push({ turn: entry.turn, category: cat, text: entry.decree || entry.body || "" });
+    }
+    for (const { key, label } of TERRITORIES) {
+      const delta = entry.statDeltas?.[key];
+      if (typeof delta !== "number" || Math.round(delta) === 0) continue;
+      const gained = delta > 0;
+      events.push({
+        turn: entry.turn,
+        category: gained ? "offensive" : "ukraine",
+        text: `${label}: ${gained ? "+" : ""}${Math.round(delta)}%`,
+      });
+    }
+  }
+  return events.sort((a, b) => b.turn - a.turn);
+}
+
+// Панель журнала под картой — легенда (только реально встречающиеся категории, не все 11 сразу)
+// + прокручиваемый список, новые ходы сверху (как и остальные ленты в приложении).
+function TacticalEventLog({ events }) {
+  const presentCategories = [...new Set(events.map(e => e.category))];
+  return (
+    <div style={{ background: "#1a1f2c", border: "1px solid #2a3040", borderRadius: 5, padding: "10px 12px" }}>
+      <div className="mono-font" style={{ fontSize: 9, color: "#a8313a", letterSpacing: "0.08em", marginBottom: 8 }}>
+        {t("map.event_log_header")}
+      </div>
+      {events.length === 0 ? (
+        <div className="mono-font" style={{ fontSize: 10, color: "#4a5060" }}>{t("map.event_log_empty")}</div>
+      ) : (
+        <>
+          <div className="mono-font" style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 9, color: "#8a94a6", marginBottom: 10 }}>
+            {presentCategories.map(c => (
+              <span key={c} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span>{EVENT_CATEGORY_META[c].icon}</span>{EVENT_CATEGORY_META[c].label}
+              </span>
+            ))}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7, maxHeight: 320, overflowY: "auto" }}>
+            {events.map((ev, i) => {
+              const meta = EVENT_CATEGORY_META[ev.category];
+              return (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", borderLeft: `2px solid ${meta.color}`, paddingLeft: 8 }}>
+                  <span style={{ fontSize: 13, flexShrink: 0, lineHeight: 1 }}>{meta.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="mono-font" style={{ fontSize: 9, color: meta.color }}>{t("map.event_turn", { n: ev.turn })}</div>
+                    <div className="doc-font" style={{ fontSize: 11, color: "#c8c0b0", lineHeight: 1.4 }}>{ev.text}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Тактическая карта СВО (Петя, 2026-07-13: "подробная тактическая (СВО), с полной информацией
 // о ходе боевых действий"; 2026-07-18: "выглядело так же детализировано, с такими же линиями
 // фронта, цветовым обозначением и тд") — карта, приближенная на Донбасс/юг Украины, с настоящими
@@ -5794,8 +5909,10 @@ function TacticalFrontView({ state, isMobile, nuclearStrike, hotspots }) {
   const stats = { ...TERRITORY_DEFAULTS, ...(state.stats || {}) };
   const RU_MIL_KEYS = ["army_morale", "equipment", "readiness", "veterans"];
   const escalation = state.stats?.war_escalation_counter ?? 0;
+  const tacticalEvents = useMemo(() => buildTacticalEvents(state.log), [state.log]);
 
   return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
     <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
       <div style={{ flex: "1 1 0", width: "100%", minWidth: 0 }}>
         {/* Легенда градиента — отдельной строкой над картой (не поверх неё), чтобы не наезжать
@@ -5915,6 +6032,11 @@ function TacticalFrontView({ state, isMobile, nuclearStrike, hotspots }) {
           </div>
         </div>
       </div>
+    </div>
+
+    {/* Журнал событий — мои ходы + движение фронта, во всю ширину под картой+сайдбаром
+        (Петя, 2026-07-18: "показывались все события, что были сделаны мной, и Украиной"). */}
+    <TacticalEventLog events={tacticalEvents} />
     </div>
   );
 }

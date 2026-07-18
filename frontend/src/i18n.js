@@ -768,6 +768,9 @@ const RU = {
   "map.forces_header": "СИЛЫ СТОРОН",
   "map.forces_russia": "Россия",
   "map.forces_ukraine": "ВСУ",
+  "map.event_log_header": "ЖУРНАЛ СОБЫТИЙ",
+  "map.event_log_empty": "Пока нет событий — они появятся после первого хода.",
+  "map.event_turn": "ХОД {n}",
 };
 
 const EN = {
@@ -1510,6 +1513,9 @@ const EN = {
   "map.forces_header": "FORCES",
   "map.forces_russia": "Russia",
   "map.forces_ukraine": "Ukraine (AFU)",
+  "map.event_log_header": "EVENT LOG",
+  "map.event_log_empty": "No events yet — they'll appear after the first turn.",
+  "map.event_turn": "TURN {n}",
 };
 
 const DICTS = { ru: RU, en: EN };
