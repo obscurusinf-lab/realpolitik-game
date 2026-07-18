@@ -3362,7 +3362,15 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       </div>
 
       <div style={{ background: NK.contentBg, color: NK.contentColor, minHeight: "60vh", padding: "20px 16px 32px" }}>
-        {tab === "overview" && <OverviewTab state={state} gameId={gameId} onRefresh={loadState} />}
+        {tab === "overview" && (
+          <OverviewTab
+            state={state}
+            gameId={gameId}
+            onRefresh={loadState}
+            optimalMove={assistMode === "hardcore" ? null : optimalMove}
+            onOpenAdvisors={() => setTab("advisors")}
+          />
+        )}
         {tab === "kremlin" && (
           <FactionsTab state={state} gameId={gameId} onStateRefresh={loadState} />
         )}
@@ -5072,12 +5080,36 @@ function NewsVideoPanel({ state }) { return <NewsLiveFeed state={state} />; }
 // парчментной светлой темы на тёмную — тем же принципом, что уже применялся к карточкам Ленты
 // (см. коммент у LogDeltaChip): единая карточная тема на одной вкладке выглядит собранно, смесь
 // светлого и тёмного — нет.
-function OverviewTab({ state, gameId, onRefresh }) {
+function OverviewTab({ state, gameId, onRefresh, optimalMove, onOpenAdvisors }) {
   const [modal, setModal] = useState(null);
   const hotspots = state.overview?.hotspots ?? [];
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      {/* Тизер совета аппарата (Петя, 2026-07-18: "непонятно что делать" — сама рекомендация
+          (см. AdvisorsTab) жива, но спрятана за Управление → Кабинет министров, а на Обстановке
+          (первый экран после входа) не было вообще никакого намёка, что она есть и где искать.
+          Одна кликабельная строка сверху — не дублирует текст рекомендации, только заголовок +
+          переход прямо в Кабинет министров. */}
+      {optimalMove && (
+        <div
+          onClick={onOpenAdvisors}
+          style={{ background: "#12241a", border: "1px solid #2a5a3a", borderLeft: "4px solid #3a8a5a", borderRadius: 6, padding: "9px 13px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, cursor: "pointer" }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#5fbf85", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 2 }}>
+              {t("overview.advisor_teaser_label")}
+            </div>
+            <div className="doc-font" style={{ fontSize: 13, fontWeight: 700, color: "#cfeeda", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {optimalMove.title}
+            </div>
+          </div>
+          <span className="doc-font" style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: "#5fbf85", whiteSpace: "nowrap" }}>
+            {t("overview.advisor_teaser_cta")}
+          </span>
+        </div>
+      )}
+
       {modal && (
         <Modal title={modal.region.toUpperCase() + " · ПОДРОБНЕЕ"} onClose={() => setModal(null)}>
           <div className="mono-font" style={{ fontSize: 10, color: "#a8313a", letterSpacing: "0.08em", marginBottom: 10 }}>
