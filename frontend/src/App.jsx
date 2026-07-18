@@ -2552,6 +2552,11 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // Ликбез — отдельная кнопка в шапке (не таб в скролл-баре): всегда на виду независимо от
   // текущей вкладки, на мобильной и десктопной версии одинаково (Петя, 2026-07-04).
   const [showWiki, setShowWiki] = useState(false);
+  // Интерактивный тур по интерфейсу (Петя, 2026-07-18: "наглядно показать какая кнопка за что
+  // отвечает и что в каждой вкладке" — доп. к тултипам ниже, отключаемая функция при старте новой
+  // партии). rp_tour_auto хранит "показывать ли автоматически в НОВЫХ партиях" — сам тур в любой
+  // момент можно перезапустить кнопкой 🎓 в шапке, отдельно от этой настройки.
+  const [showTour, setShowTour] = useState(false);
   // Подтверждение перед перегруппировкой/передышкой — раньше кнопка сразу исполняла действие,
   // игрок узнавал о побочках (блок военных операций и т.п.) постфактум из title-тултипа, который
   // на мобильных вообще не виден (Петя, 2026-07-04). null | { kind: "regroup"|"skip", action: fn }
@@ -3054,6 +3059,18 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     { id: "policies", label: t("tab.policies"), icon: FileText },
     { id: "relations", label: t("tab.relations"), icon: Landmark },
   ];
+  // Однострочные описания "что внутри" (см. рендер под таб-баром ниже) — отдельная карта, не поле
+  // tabs[].label, чтобы не удлинять сами кнопки таб-бара.
+  const TAB_DESCRIPTIONS = {
+    overview: t("tab.desc_overview"),
+    kremlin: t("tab.desc_kremlin"),
+    advisors: t("tab.desc_advisors"),
+    treasury: t("tab.desc_treasury"),
+    map: t("tab.desc_map"),
+    stats: t("tab.desc_stats"),
+    policies: t("tab.desc_policies"),
+    relations: t("tab.desc_relations"),
+  };
   const TAB_GROUPS = [
     { id: "management", label: t("tab.group_management"), icon: Users, tabIds: ["kremlin", "advisors", "treasury"] },
     { id: "world", label: t("tab.world"), icon: Globe2, tabIds: ["map", "relations"] },
@@ -3191,7 +3208,27 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   return (
     <div style={{ minHeight: "100vh", background: NK.pageBg, fontFamily: "'Georgia','Times New Roman',serif", color: "#ece7d8" }}>
       {showWelcome && state && (
-        <WelcomeModal state={state} playerName={playerName} assistMode={assistMode} onClose={() => setShowWelcome(false)} onOpenWiki={() => setShowWiki(true)} />
+        <WelcomeModal
+          state={state}
+          playerName={playerName}
+          assistMode={assistMode}
+          onClose={() => {
+            setShowWelcome(false);
+            // Тур — только для НОВОЙ партии (initialShowWelcome), не при каждой перезагрузке
+            // старой (showWelcome может стать true только один раз, но проверяем явно на всякий
+            // случай), и только если игрок не отключил автопоказ в прошлый раз (см. финальный
+            // шаг тура ниже, чекбокс "показывать автоматически").
+            if (initialShowWelcome && localStorage.getItem("rp_tour_auto") !== "false") setShowTour(true);
+          }}
+          onOpenWiki={() => setShowWiki(true)}
+        />
+      )}
+      {showTour && (
+        <OnboardingTour
+          tab={tab}
+          setTab={setTab}
+          onClose={() => setShowTour(false)}
+        />
       )}
       {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} gameId={gameId} />}
       {showWiki && (
@@ -3257,10 +3294,18 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             {/* Ликбез виден в ОБОИХ режимах (Петя, 2026-07-10: "в хардкоре нужно только ликбез
                 оставить") — раньше прятался в hardcore вместе со всеми подсказками, но это
                 справочник по правилам игры, не подсказка "что сделать сейчас". */}
-            <button onClick={() => setShowWiki(true)}
+            <button onClick={() => setShowWiki(true)} data-tour-target="wiki"
               style={{ background: "transparent", border: `1px solid ${NK.accent}`, borderRadius: 3, color: NK.accent, fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}
             >
               {t("app.wiki_button")}
+            </button>
+            <button onClick={() => setShowTour(true)}
+              title={t("tour.replay_title")}
+              style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#3a4156"; e.currentTarget.style.color = "#5a6070"; }}
+            >
+              {t("tour.replay_button")}
             </button>
             <button onClick={() => setShowFeedback(true)}
               style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 3, color: "#5a6070", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", cursor: "pointer" }}
@@ -3341,6 +3386,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             return (
               <button
                 key={id}
+                data-tab-id={id}
                 onClick={() => setTab(id)}
                 style={{
                   display: "flex", alignItems: "center", gap: 5, padding: "5px 12px",
@@ -3357,6 +3403,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               </button>
             );
           })}
+        </div>
+      )}
+      {/* Однострочное описание текущей вкладки (Петя, 2026-07-18: "наглядно показать... что в
+          каждой вкладке находится") — всегда видно без наведения, не требует клика/ховера. */}
+      {TAB_DESCRIPTIONS[tab] && (
+        <div className="doc-font" style={{ padding: "0 16px 10px", fontSize: 11, color: "#8a8472", lineHeight: 1.4, background: NK.tabBarBg }}>
+          {TAB_DESCRIPTIONS[tab]}
         </div>
       )}
       </div>
@@ -3908,7 +3961,10 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
         </div>
       )}
       <div style={{ marginBottom: 10 }}>
-        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em", marginBottom: 6 }}>{t("advisors.scale_label")}</div>
+        <div className="mono-font" style={{ fontSize: 9, color: "#5a6070", letterSpacing: "0.1em", marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
+          {t("advisors.scale_label")}
+          <InfoTooltip text={t("advisors.scale_tooltip")} />
+        </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {CABINET_TIER_OPTIONS.map((tier) => {
             const b = ACTION_MODE_BADGE[tier];
@@ -4493,6 +4549,111 @@ function WelcomeModal({ state, playerName, assistMode, onClose, onOpenWiki }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Интерактивный тур по интерфейсу (Петя, 2026-07-18) — спотлайт (вырез в затемнении через
+// огромный box-shadow вокруг таргета) + пузырь с текстом рядом. Каждый шаг может переключить
+// вкладку через setTab ПЕРЕД тем, как измерить getBoundingClientRect таргета — переключение
+// React-стейта асинхронное, поэтому измерение — в эффекте с небольшой задержкой (тот же приём,
+// что уже применялся в файле для scrollIntoView после смены стейта), а не синхронно сразу после
+// before(). deps эффекта включают tab, чтобы также пересчитывать после КАЖДОГО реального
+// переключения вкладки, а не только на смену шага.
+const TOUR_STEPS = [
+  { target: null, titleKey: "tour.step0_title", bodyKey: "tour.step0_body" },
+  { target: '[data-tab-id="overview"]', tab: "overview", titleKey: "tour.step1_title", bodyKey: "tour.step1_body" },
+  { target: '[data-tab-id="group:management"]', tab: "advisors", titleKey: "tour.step2_title", bodyKey: "tour.step2_body" },
+  { target: '[data-tab-id="advisors"]', tab: "advisors", titleKey: "tour.step3_title", bodyKey: "tour.step3_body" },
+  { target: '[data-tab-id="kremlin"]', tab: "kremlin", titleKey: "tour.step4_title", bodyKey: "tour.step4_body" },
+  { target: '[data-tab-id="treasury"]', tab: "treasury", titleKey: "tour.step5_title", bodyKey: "tour.step5_body" },
+  { target: '[data-tab-id="group:world"]', tab: "map", titleKey: "tour.step6_title", bodyKey: "tour.step6_body" },
+  { target: '[data-tab-id="group:progress"]', tab: "stats", titleKey: "tour.step7_title", bodyKey: "tour.step7_body" },
+  { target: '[data-tour-target="wiki"]', tab: "overview", titleKey: "tour.step8_title", bodyKey: "tour.step8_body" },
+  { target: null, titleKey: "tour.step9_title", bodyKey: "tour.step9_body", final: true },
+];
+
+function OnboardingTour({ tab, setTab, onClose }) {
+  const [stepIdx, setStepIdx] = useState(0);
+  const [rect, setRect] = useState(null);
+  const [autoNextGame, setAutoNextGame] = useState(localStorage.getItem("rp_tour_auto") !== "false");
+  const step = TOUR_STEPS[stepIdx];
+
+  useEffect(() => {
+    if (step.tab && step.tab !== tab) { setTab(step.tab); return; }
+    if (!step.target) { setRect(null); return; }
+    const measure = () => {
+      const el = document.querySelector(step.target);
+      setRect(el ? el.getBoundingClientRect() : null);
+    };
+    const timer = setTimeout(measure, 80);
+    window.addEventListener("resize", measure);
+    return () => { clearTimeout(timer); window.removeEventListener("resize", measure); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIdx, tab]);
+
+  function finish() {
+    localStorage.setItem("rp_tour_auto", autoNextGame ? "true" : "false");
+    onClose();
+  }
+
+  const pad = 6;
+  const spot = rect ? { top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 } : null;
+  // Пузырь ставим под таргетом, если снизу есть место, иначе над ним — простая эвристика без
+  // сложного позиционирования, тура всего 10 коротких шагов, редкие края экрана не критичны.
+  const calloutTop = spot ? (spot.top + spot.height + 14 + 160 < window.innerHeight ? spot.top + spot.height + 14 : Math.max(14, spot.top - 174)) : null;
+  const calloutLeft = spot ? Math.min(Math.max(spot.left, 14), window.innerWidth - 314) : null;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 6000 }}>
+      <div
+        style={{
+          position: "fixed",
+          ...(spot
+            ? { top: spot.top, left: spot.left, width: spot.width, height: spot.height, borderRadius: 8, boxShadow: "0 0 0 9999px rgba(10,12,18,0.82)", border: "2px solid #9c8347", transition: "top 0.2s, left 0.2s, width 0.2s, height 0.2s" }
+            : { inset: 0, background: "rgba(10,12,18,0.88)" }),
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        className="doc-font"
+        style={{
+          position: "fixed",
+          ...(spot ? { top: calloutTop, left: calloutLeft } : { top: "50%", left: "50%", transform: "translate(-50%,-50%)" }),
+          width: 300, background: "#1a1f2c", border: "1px solid #3a4156", borderRadius: 8,
+          padding: "16px 18px", boxShadow: "0 12px 40px rgba(0,0,0,0.6)", zIndex: 6001,
+        }}
+      >
+        <div className="mono-font" style={{ fontSize: 9, color: "#8a8472", letterSpacing: "0.1em", marginBottom: 6 }}>
+          {t("tour.step_counter", { n: stepIdx + 1, total: TOUR_STEPS.length })}
+        </div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#ece7d8", marginBottom: 6 }}>{t(step.titleKey)}</div>
+        <div style={{ fontSize: 13, color: "#c8c4b8", lineHeight: 1.5, marginBottom: 12 }}>{t(step.bodyKey)}</div>
+        {step.final && (
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "#a8a294", marginBottom: 14, cursor: "pointer" }}>
+            <input type="checkbox" checked={autoNextGame} onChange={e => setAutoNextGame(e.target.checked)} />
+            {t("tour.auto_checkbox")}
+          </label>
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={finish} className="mono-font" style={{ background: "none", border: "none", color: "#5a6070", fontSize: 10, letterSpacing: "0.06em", cursor: "pointer", padding: 0 }}>
+            {t("tour.skip_button")}
+          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {stepIdx > 0 && (
+              <button onClick={() => setStepIdx(i => i - 1)} style={{ background: "transparent", border: "1px solid #3a4156", borderRadius: 4, color: "#a8a294", fontSize: 12, padding: "6px 12px", cursor: "pointer" }}>
+                {t("tour.prev_button")}
+              </button>
+            )}
+            <button
+              onClick={() => step.final ? finish() : setStepIdx(i => i + 1)}
+              style={{ background: "#9c8347", border: "none", borderRadius: 4, color: "#1a1f2c", fontSize: 12, fontWeight: 700, padding: "6px 14px", cursor: "pointer" }}
+            >
+              {step.final ? t("tour.finish_button") : t("tour.next_button")}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -8461,6 +8622,33 @@ function ExpandableText({ text, lines = 3, className, style, toggleColor = "#8a8
         </button>
       )}
     </div>
+  );
+}
+
+// Тот же ⓘ-hover паттерн, что уже был локально в WidgetCard (Казна) — вынесен в переиспользуемый
+// компонент, чтобы не копировать его вручную на каждую новую подсказку (Петя, 2026-07-18:
+// "наглядно показать какая кнопка за что отвечает"). onClick с stopPropagation — чтобы тап по ⓘ
+// на мобильном не проваливался в клик родителя (например, кнопки вкладки под ним).
+function InfoTooltip({ text, width = 240 }) {
+  const [show, setShow] = useState(false);
+  if (!text) return null;
+  return (
+    <span
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onClick={(e) => { e.stopPropagation(); setShow(v => !v); }}
+      style={{ color: "#8a8472", cursor: "help", fontSize: 11, lineHeight: 1, position: "relative", display: "inline-flex", verticalAlign: "middle" }}
+    >
+      ⓘ
+      {show && (
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{ position: "absolute", top: "130%", left: 0, zIndex: 200, background: "#1a2030", border: "1px solid #2a3848", borderRadius: 6, padding: "9px 12px", width, boxShadow: "0 4px 16px #00000080", cursor: "default" }}
+        >
+          <div className="doc-font" style={{ fontSize: 11.5, color: "#a0a8b8", lineHeight: 1.5 }}>{text}</div>
+        </div>
+      )}
+    </span>
   );
 }
 
