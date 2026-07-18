@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp, Minus, Send, AlertTriangle, Users, FileText } from "lucide-react";
-import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
+import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, bankSurplus, convertReserves, setReservesYieldTarget, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma, setReadOnlyMode } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
 import UA_OBLASTS_GEO from "./assets/ua-oblasts.json";
@@ -4771,6 +4771,14 @@ const COUNTRY_INFO = {
 function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, center = [20, 15], actionMarkers = [], nuclearStrike = null, oblastStats = null, projection = "geoEqualEarth", newsPins = [], onNewsPinClick = null }) {
   const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
+  // Пете, 2026-07-19: карта была "обрезана" — react-simple-maps без ZoomableGroup не даёт ни
+  // подвинуть, ни приблизить, viewBox жёстко фиксирован projectionConfig'ом. ZoomableGroup даёт
+  // drag-панораму + колесо мыши/pinch "из коробки"; кнопки ниже — для discoverability и мобилок,
+  // где просто взять и покрутить колесо неочевидно. position сбрасывается при смене center/scale
+  // (переключение общая↔тактическая карта передаёт новые props — не должны наследовать зум друг от друга).
+  const [zoomPos, setZoomPos] = useState({ coordinates: center, zoom: 1 });
+  useEffect(() => { setZoomPos({ coordinates: center, zoom: 1 }); }, [center[0], center[1], scale]);
+
   function getCountryFill(geoName) {
     const ruName = COUNTRY_NAME_MAP[geoName];
     if (!ruName) return "#1f2d3d";
@@ -4808,6 +4816,7 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
           projectionConfig={{ scale, center }}
           style={{ width: "100%", height: "auto", aspectRatio: "800/340", background: "transparent", display: "block", filter: nuclearStrike ? "grayscale(0.7) sepia(0.35) brightness(0.75)" : "none" }}
         >
+        <ZoomableGroup center={zoomPos.coordinates} zoom={zoomPos.zoom} minZoom={1} maxZoom={8} onMoveEnd={setZoomPos}>
           <Geographies geography={GEO_URL}>
             {({ geographies }) =>
               geographies.map(geo => {
@@ -4932,7 +4941,19 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               )}
             </Marker>
           )}
+        </ZoomableGroup>
         </ComposableMap>
+        <div style={{ position: "absolute", right: 8, bottom: 8, display: "flex", flexDirection: "column", gap: 3, zIndex: 3 }}>
+          <button onClick={() => setZoomPos(z => ({ ...z, zoom: Math.min(8, z.zoom * 1.5) }))}
+            title={t("map.zoom_in")} aria-label={t("map.zoom_in")}
+            style={{ width: 26, height: 26, background: "#1a1f2c", border: "1px solid #3a4156", borderRadius: 4, color: "#ece7d8", fontSize: 14, cursor: "pointer", lineHeight: 1 }}>+</button>
+          <button onClick={() => setZoomPos(z => ({ ...z, zoom: Math.max(1, z.zoom / 1.5) }))}
+            title={t("map.zoom_out")} aria-label={t("map.zoom_out")}
+            style={{ width: 26, height: 26, background: "#1a1f2c", border: "1px solid #3a4156", borderRadius: 4, color: "#ece7d8", fontSize: 14, cursor: "pointer", lineHeight: 1 }}>−</button>
+          <button onClick={() => setZoomPos({ coordinates: center, zoom: 1 })}
+            title={t("map.zoom_reset")} aria-label={t("map.zoom_reset")}
+            style={{ width: 26, height: 26, background: "#1a1f2c", border: "1px solid #3a4156", borderRadius: 4, color: "#8a94a6", fontSize: 11, cursor: "pointer", lineHeight: 1 }}>⤾</button>
+        </div>
       </div>
     </div>
   );
