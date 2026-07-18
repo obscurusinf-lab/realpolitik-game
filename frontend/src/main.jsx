@@ -378,15 +378,12 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                 );
               })()}
 
-              {/* Зрительский режим (2026-07-11) — доступен БЕЗ регистрации, специально для
-                  посетителей, у которых нет кода приглашения (Петя: "дам доступ немногим, но
-                  зрители — бесплатная конверсия, читать чужую партию не стоит ни одного вызова ИИ"). */}
-              <button onClick={() => onSpectate?.()}
-                style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #2a3040", borderRadius: 4, color: "#5a6070", padding: "10px", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer", letterSpacing: "0.06em" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "#9c8347"; e.currentTarget.style.color = "#9c8347"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a3040"; e.currentTarget.style.color = "#5a6070"; }}>
-                {t("start.spectate")}
-              </button>
+              {/* Зрительский режим (2026-07-11) доступен БЕЗ регистрации — кнопка не дублируется
+                  здесь: она уже есть в постоянном ряду ниже (ЗАЛ СЛАВЫ / БАГ-ФИДБЕК / СМОТРЕТЬ
+                  ПАРТИИ), который рендерится независимо от того, залогинен посетитель или нет.
+                  БАГ (Петя, 2026-07-18, скриншот: "видно, что есть две кнопки смотреть партии") —
+                  раньше здесь стояла ВТОРАЯ такая же кнопка, так что незалогиненный посетитель
+                  видел её дважды подряд. */}
             </div>
           ) : (
             /* ——— GAME SELECTION (after auth) ——— */

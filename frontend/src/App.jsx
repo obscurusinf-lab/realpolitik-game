@@ -4810,8 +4810,20 @@ function OnboardingTour({ tab, setTab, onClose }) {
       setRect(el ? el.getBoundingClientRect() : null);
     };
     const timer = setTimeout(measure, 80);
+    // БАГ (Петя, 2026-07-18, скриншот с телефона: "область выделяющая нужную кнопку не долезает
+    // на неё") — подсветка мерилась ОДИН раз через 80мс и больше не пересчитывалась. Смена вкладки
+    // сильно меняет высоту контента выше таргета, и браузер сам чуть докручивает страницу уже
+    // ПОСЛЕ этого замера (scroll anchoring) — getBoundingClientRect() возвращает координаты
+    // относительно viewport, так что зафиксированная рамка остаётся там, где кнопка была ДО
+    // докрутки, а не там, где она оказалась на самом деле. Слушаем scroll (не только resize) —
+    // capture: true ловит докрутку и во вложенном скролл-контейнере, не только на window.
     window.addEventListener("resize", measure);
-    return () => { clearTimeout(timer); window.removeEventListener("resize", measure); };
+    window.addEventListener("scroll", measure, { passive: true, capture: true });
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, { capture: true });
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIdx, tab]);
 
