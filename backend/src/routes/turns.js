@@ -60,7 +60,7 @@ function inflationPercent(score) {
  * Возвращает строку-статус или null если игра продолжается.
  *
  * Условия победы (ход 24):
- *   - peace_progress >= 100 + economy >= 55 + approval >= 60 + stability >= 60 → "victory"
+ *   - peace_progress >= 100 + economy >= 65 + approval >= 65 + stability >= 65 → "victory"
  *   - peace_progress < 100 но economy/approval/stability в норме → "partial"
  *   - peace_progress >= 100 но статы не дотянули → "partial_peace"
  *

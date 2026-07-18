@@ -204,8 +204,6 @@ const RU = {
   "welcome.cta": "Приступить к работе →",
   "welcome.wiki_banner": "📖 Этот брифинг — только обзор. Прежде чем действовать, откройте **Ликбез** — там вся механика по разделам и разбор того, что реально работает.",
   "welcome.wiki_banner_btn": "Открыть Ликбез →",
-  "welcome.howto_step7_title": "Прочитайте Ликбез",
-  "welcome.howto_step7_desc": "Обязательно — кнопка «📖 ЛИКБЕЗ» в шапке. Там систематизированы все механики по разделам и отдельно разобран рекомендуемый стиль игры, выведенный из уже сыгранных партий.",
 
   // ---- App.jsx: WikiTab (Ликбез) ----
   "wiki.title": "📖 ЛИКБЕЗ — КАК РАБОТАЕТ ИГРА",
@@ -295,7 +293,7 @@ const RU = {
   "wiki.policies.p1": "Реформы и программы (в т.ч. уже действующие на старте партии — например, повышение НДС до 22% и утилизационного сбора) отображаются во вкладке **Политики**. Пока политика активна, она может каждый месяц пополнять казну и/или требовать содержания — это видно прямо на карточке («пока действует: казна +X/мес.»). Непопулярные, но доходные меры (вроде НДС) вдобавок вызывают постоянное недовольство — небольшой минус к рейтингу каждый месяц, отдельно от штрафа за отмену. Часть политик имеет срок (реформа/программа с конкретным ходом завершения), часть — бессрочна, пока её явно не отменить. Отмена даёт свои последствия (обычно рост рейтинга/стабильности, но потерю дохода) — они всегда показаны заранее, прежде чем подтвердить отмену.",
 
   "wiki.victory.h": "ПУТИ К ПОБЕДЕ И УСЛОВИЯ ПОРАЖЕНИЯ",
-  "wiki.victory.p1": "**🏆 Военная победа** — взять Донецк и Луганск (100%), ещё 2 из 3 регионов, армия ≥85, все показатели выше 52.",
+  "wiki.victory.p1": "**🏆 Военная победа** — взять Донецк и Луганск (100%), ещё 2 из 3 регионов (Запорожье ≥85%, Херсон ≥65%, Харьков ≥50%), армия ≥85, боевой дух и боеготовность ≥70, тыл (стабильность и рейтинг) ≥52, экономика ≥36.",
   "wiki.victory.p2": "**🕊 Дипломатическая победа** — мирный трек 100% + экономика/рейтинг/стабильность ≥65. Доступна с хода 12.",
   "wiki.victory.p3": "**⚡ Принуждение к миру** — военное доминирование + мирный трек ≥40. Победа с позиции силы.",
   "wiki.victory.p4": "Партия проверяется на поражение каждый месяц — если один из показателей рушится ниже критической черты, игра заканчивается немедленно:",
@@ -950,8 +948,6 @@ const EN = {
   "welcome.cta": "Get to work →",
   "welcome.wiki_banner": "📖 This briefing is just an overview. Before you act, open the **Guide** — it covers every mechanic by topic and breaks down what actually works.",
   "welcome.wiki_banner_btn": "Open the Guide →",
-  "welcome.howto_step7_title": "Read the Guide",
-  "welcome.howto_step7_desc": "Mandatory — the \"📖 GUIDE\" button in the header. It systematizes every mechanic by topic and separately breaks down the recommended playstyle, drawn from games already played.",
 
   // ---- App.jsx: WikiTab (in-game guide) ----
   "wiki.title": "📖 GUIDE — HOW THE GAME WORKS",
@@ -1041,7 +1037,7 @@ const EN = {
   "wiki.policies.p1": "Reforms and programs (including ones already active at game start — e.g. the VAT hike to 22% and the recycling fee) appear in the **Policies** tab. While a policy is active, it may add to the treasury and/or require upkeep every month — visible right on the card (\"while active: treasury +X/mo.\"). Unpopular but lucrative measures (like VAT) also cause ongoing discontent — a small approval penalty every month, separate from the cancellation penalty. Some policies have a term (a reform/program with a specific completion turn), others are indefinite until explicitly canceled. Cancellation has its own consequences (usually a rise in approval/stability, but a loss of income) — always shown in advance, before you confirm the cancellation.",
 
   "wiki.victory.h": "PATHS TO VICTORY AND DEFEAT CONDITIONS",
-  "wiki.victory.p1": "**🏆 Military victory** — take Donetsk and Luhansk (100%), 2 more of 3 regions, army ≥85, all stats above 52.",
+  "wiki.victory.p1": "**🏆 Military victory** — take Donetsk and Luhansk (100%), 2 more of 3 regions (Zaporizhzhia ≥85%, Kherson ≥65%, Kharkiv ≥50%), army ≥85, morale and readiness ≥70, home front (stability and approval) ≥52, economy ≥36.",
   "wiki.victory.p2": "**🕊 Diplomatic victory** — peace track 100% + economy/approval/stability ≥65. Available from turn 12.",
   "wiki.victory.p3": "**⚡ Forced peace** — military dominance + peace track ≥40. Victory from a position of strength.",
   "wiki.victory.p4": "The game checks for defeat every month — if any stat collapses below a critical threshold, the game ends immediately:",
