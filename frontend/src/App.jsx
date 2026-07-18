@@ -3,6 +3,7 @@ import { Shield, Swords, Landmark, Globe2, ScrollText, TrendingDown, TrendingUp,
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { fetchGameState, previewTurn, confirmTurn, cancelTurn, consultAdvisor, fetchOptimalMove, argueWithAdvisor, skipTurn, regroupTurn, endMonth, fetchStatHistory, fetchPolicyNews, cancelPolicy, fetchLegacy, sendWorldResponse, sendUkraineResponse, respondToUkraineEvent, issueBonds, repayBonds, cbPressure, cbReplace, antiCorruptionCampaign, emergencyStimulus, investSurplus, bankSurplus, convertReserves, setReservesYieldTarget, toggleFxRegime, pingGame, updateGameLanguage, resolveFactionDilemma, setReadOnlyMode } from "./api";
 import { FeedbackModal } from "./FeedbackModal";
+import UA_OBLASTS_GEO from "./assets/ua-oblasts.json";
 import { t, getLang, useLang, LangToggle, statLabel, advisorToneLabel, directionLabel, actionModeLabel, actionScaleLabel, advisorRoleLabel, advisorGreeting, substatDesc, actionTypeLabel, policyCategoryLabel, policyCategorySection, kremlinDomainLabel, kremlinTierLabel, kremlinSubdomainLabel, kremlinCategoryTitle, kremlinCategoryDesc, useForceDesktop, DesktopViewToggle } from "./i18n";
 
 // БАЛАНС (2026-07-04): иконка вкладки «Кремль» — раньше lucide Landmark (греческие колонны,
@@ -2122,6 +2123,19 @@ function territoryColor(pct, req) {
   if (pct >= req) return "#7a9c7a";      // выполнено — приглушённый зелёный
   if (pct >= req * 0.75) return "#8a8060"; // близко — тёмное золото
   return "#7a5050";                        // далеко — тёмный красный
+}
+
+// Заливка областей на тактической карте (Петя, 2026-07-18: "выглядело так же детализировано,
+// с такими же линиями фронта, цветовым обозначением" — как на референсе с картой СВО, где
+// территория закрашена по тому, чья она: красный = под контролем России, синий = под контролем
+// Украины). pct — то же число 0-100, что уже хранится в donetsk_control и т.д. (% под Россией).
+// Линейная интерполяция между двумя цветами через RGB, без внешних зависимостей.
+const OBLAST_COLOR_RU = [168, 49, 58];   // #a8313a — уже используется как акцентный красный в UI
+const OBLAST_COLOR_UA = [42, 74, 112];   // приглушённый синий — цвет украинского контроля
+function oblastControlColor(pct) {
+  const f = Math.max(0, Math.min(100, pct)) / 100;
+  const rgb = OBLAST_COLOR_UA.map((ua, i) => Math.round(ua + (OBLAST_COLOR_RU[i] - ua) * f));
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
 }
 
 const TERRITORY_DEFAULTS = {
@@ -4864,7 +4878,7 @@ const COUNTRY_INFO = {
   "Папуа Новая Гвинея": { capital: "Порт-Морсби", gov: "Конституционная монархия", flag: "🇵🇬", desc: "Богатая ресурсами страна Тихоокеанского региона. США усиливают военное присутствие на фоне конкуренции с Китаем за влияние в регионе." },
 };
 
-function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, center = [20, 15], actionMarkers = [], territoryMarkers = [], nuclearStrike = null }) {
+function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, center = [20, 15], actionMarkers = [], nuclearStrike = null, oblastStats = null, projection = "geoEqualEarth" }) {
   const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
   function getCountryFill(geoName) {
@@ -4900,6 +4914,7 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
         <ComposableMap
           width={800}
           height={340}
+          projection={projection}
           projectionConfig={{ scale, center }}
           style={{ width: "100%", height: "auto", aspectRatio: "800/340", background: "transparent", display: "block", filter: nuclearStrike ? "grayscale(0.7) sepia(0.35) brightness(0.75)" : "none" }}
         >
@@ -4949,21 +4964,54 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               </Marker>
             );
           })}
-          {/* Маркеры территорий Донбасса — тактический режим (см. MapTab, "Тактическая (СВО)").
-              Радиус и цвет — от % контроля (territoryColor из TerritoryPanel), не декоративные:
-              то же деление на "выполнено/близко/далеко", что уже есть в панели территорий. */}
-          {territoryMarkers.map((m, i) => (
-            <Marker key={"tm" + i} coordinates={m.coords}>
-              <g onClick={() => m.onClick && m.onClick()} style={{ cursor: m.onClick ? "pointer" : "default" }}>
-                <circle r={11} fill={m.color} fillOpacity={0.18} />
-                <circle r={7} fill={m.color} fillOpacity={0.9} stroke="#0d1420" strokeWidth={1} />
-                <text textAnchor="middle" y={-13} fontSize={9} fill="#ece7d8" fontWeight="bold" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 3 }}>
-                  {m.short}
+          {/* Реальные контуры областей — тактическая карта (Петя, 2026-07-18: "выглядело так же
+              детализировано, с такими же линиями фронта, цветовым обозначением, и тд"). oblastStats
+              (donetsk_control и т.д.) передаётся только в тактическом режиме (см. TacticalFrontView).
+              Заливка отслеживаемых областей — красный↔синий градиент по % контроля России
+              (oblastControlColor); соседние области без игровых данных — нейтральный серый, просто
+              для географического контекста вокруг. Контур области ниже порога поражения
+              (TERRITORY_DEFEAT_FLOOR) дополнительно подсвечен ярко-красной обводкой — это тревожный
+              сигнал независимо от того, в какой цвет сейчас окрашена сама заливка на градиенте.
+              Источник контуров: geoBoundaries.org (CC BY 4.0), см. атрибуцию под картой. */}
+          {oblastStats && (
+            <Geographies geography={UA_OBLASTS_GEO}>
+              {({ geographies }) =>
+                geographies.map(geo => {
+                  const { key, tracked } = geo.properties;
+                  const pct = key ? (oblastStats[key] ?? 0) : null;
+                  const fill = tracked ? oblastControlColor(pct) : "#242c3a";
+                  const floor = key ? TERRITORY_DEFEAT_FLOOR[key] : null;
+                  const belowFloor = floor != null && pct < floor;
+                  return (
+                    <Geography
+                      key={geo.properties.name}
+                      geography={geo}
+                      style={{
+                        default: { fill, stroke: belowFloor ? "#ff5050" : "#0d1420", strokeWidth: belowFloor ? 1.4 : 0.6, outline: "none" },
+                        hover:   { fill, stroke: "#ece7d8", strokeWidth: 0.8, outline: "none" },
+                        pressed: { fill, outline: "none" },
+                      }}
+                    />
+                  );
+                })
+              }
+            </Geographies>
+          )}
+          {oblastStats && UA_OBLASTS_GEO.features.filter(f => f.properties.tracked).map(f => {
+            const { key, name, centroid } = f.properties;
+            const pct = oblastStats[key] ?? 0;
+            const short = TERRITORIES.find(tr => tr.key === key)?.short || name;
+            return (
+              <Marker key={"ob" + key} coordinates={centroid}>
+                <text textAnchor="middle" y={-4} fontSize={8} fill="#ece7d8" fontWeight="bold" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 3 }}>
+                  {short}
                 </text>
-                <text textAnchor="middle" y={3} fontSize={7} fill="#fff" fontWeight="bold">{Math.round(m.pct)}</text>
-              </g>
-            </Marker>
-          ))}
+                <text textAnchor="middle" y={7} fontSize={7.5} fill="#fff" fontWeight="bold" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 3 }}>
+                  {Math.round(pct)}%
+                </text>
+              </Marker>
+            );
+          })}
           {/* Маркер ядерного удара */}
           {nuclearStrike?.coords && (
             <Marker coordinates={nuclearStrike.coords}>
@@ -5417,18 +5465,6 @@ function useIsMobile() {
   return forced ? false : raw;
 }
 
-// Координаты 5 регионов Донбасса/юга для тактической карты (Петя, 2026-07-13: "подробная
-// тактическая (СВО), с полной информацией о ходе боевых действий") — те же точки, что уже
-// использует resolveCoords/REGION_COORDS для очагов ИИ, просто явно сведены к ключам статов
-// территориального контроля.
-const TERRITORY_COORDS = {
-  donetsk_control: REGION_COORDS["донецк"],
-  luhansk_control: REGION_COORDS["луганск"],
-  zaporizhzhia_control: REGION_COORDS["запорожье"],
-  kherson_control: REGION_COORDS["херсон"],
-  kharkiv_control: REGION_COORDS["харьков"],
-};
-
 function MapTab({ state }) {
   const [activeHotspotIdx, setActiveHotspotIdx] = useState(null);
   const [hotspotModal, setHotspotModal] = useState(null);
@@ -5653,44 +5689,49 @@ function MapTab({ state }) {
 }
 
 // Тактическая карта СВО (Петя, 2026-07-13: "подробная тактическая (СВО), с полной информацией
-// о ходе боевых действий") — карта, приближенная на Донбасс/юг Украины с маркерами контроля по
-// 5 регионам, плюс развёрнутая (не свёрнутая, в отличие от TerritoryPanel) сводка контроля и
-// сравнение военных показателей России/ВСУ. Переиспользует TERRITORIES/territoryColor/
-// TERRITORY_DEFAULTS/MIL_VICTORY_REQS/TERRITORY_DEFEAT_FLOOR — те же формулы и пороги, что уже
-// в TerritoryPanel (панель под экшн-баром), просто в развёрнутом виде и привязанные к карте.
+// о ходе боевых действий"; 2026-07-18: "выглядело так же детализировано, с такими же линиями
+// фронта, цветовым обозначением и тд") — карта, приближенная на Донбасс/юг Украины, с настоящими
+// контурами 5 отслеживаемых областей (заливка по % контроля через GeoMap/oblastStats — см.
+// oblastControlColor) плюс соседние области серым для географического контекста, плюс развёрнутая
+// (не свёрнутая, в отличие от TerritoryPanel) сводка контроля и сравнение военных показателей
+// России/ВСУ. Переиспользует TERRITORIES/TERRITORY_DEFAULTS/MIL_VICTORY_REQS/
+// TERRITORY_DEFEAT_FLOOR — те же формулы и пороги, что уже в TerritoryPanel (панель под
+// экшн-баром), просто в развёрнутом виде и привязанные к карте.
 function TacticalFrontView({ state, isMobile, nuclearStrike, hotspots }) {
   const stats = { ...TERRITORY_DEFAULTS, ...(state.stats || {}) };
-  const territoryMarkers = TERRITORIES
-    .map(({ key, short }) => {
-      const coords = TERRITORY_COORDS[key];
-      if (!coords) return null;
-      const pct = stats[key] ?? 0;
-      const req = MIL_VICTORY_REQS[key];
-      const floor = TERRITORY_DEFEAT_FLOOR[key];
-      const color = floor != null && pct < floor ? "#c03030" : territoryColor(pct, req);
-      return { coords, short, pct, color };
-    })
-    .filter(Boolean);
-
   const RU_MIL_KEYS = ["army_morale", "equipment", "readiness", "veterans"];
   const escalation = state.stats?.war_escalation_counter ?? 0;
 
   return (
     <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: "flex-start" }}>
-      <div style={{ flex: "1 1 0", width: "100%", minWidth: 0, background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, position: "relative" }}>
-        <GeoMap
-          hotspots={hotspots}
-          activeHotspotIdx={null}
-          onMarkerClick={() => {}}
-          onCountryClick={() => {}}
-          relations={state.relations ?? []}
-          scale={isMobile ? 900 : 1400}
-          center={[36, 48.3]}
-          territoryMarkers={territoryMarkers}
-          nuclearStrike={nuclearStrike}
-        />
-        <div className="mono-font" style={{ position: "absolute", bottom: 5, left: 8, fontSize: 8, color: "#2a3a4d" }}>
-          {t("map.tactical_hint")}
+      <div style={{ flex: "1 1 0", width: "100%", minWidth: 0 }}>
+        {/* Легенда градиента — отдельной строкой над картой (не поверх неё), чтобы не наезжать
+            на подписи областей на узких экранах (см. общую карту — та же схема с точками-легендой
+            над GeoMap). */}
+        <div className="mono-font" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6, fontSize: 9, color: "#8a94a6", marginBottom: 6 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 24, height: 8, borderRadius: 2, background: "linear-gradient(90deg, rgb(42,74,112), rgb(168,49,58))", display: "inline-block" }} />
+            {t("map.tactical_hint")}
+          </span>
+          <span style={{ color: "#3a4556" }}>{t("map.oblast_attribution")}</span>
+        </div>
+        <div style={{ background: nuclearStrike ? "#0a0a0a" : "#0d1420", borderRadius: 6, position: "relative" }}>
+          <GeoMap
+            hotspots={hotspots}
+            activeHotspotIdx={null}
+            onMarkerClick={() => {}}
+            onCountryClick={() => {}}
+            relations={state.relations ?? []}
+            // geoMercator, не дефолтный geoEqualEarth общей карты — при таком масштабе (область,
+            // а не весь мир) equal-earth ломает d3-клиппинг полигонов: к каждой области
+            // добавляется один и тот же "хвост" из координат угла проекции, области рендерятся
+            // без видимой заливки. Mercator — стандартный выбор именно для регионального зума.
+            projection="geoMercator"
+            scale={isMobile ? 2800 : 4200}
+            center={[36, 48.3]}
+            oblastStats={stats}
+            nuclearStrike={nuclearStrike}
+          />
         </div>
       </div>
 
