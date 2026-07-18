@@ -77,6 +77,17 @@ const SUBSTAT_DEFAULTS = {
   ua_army: 65,         // военная мощь ВСУ (растёт от западных поставок, падает от ударов)
   ua_west_support: 75, // поддержка Запада (падает от дипломатических успехов России)
   ua_morale: 65,       // боевой дух (зависит от военного баланса)
+  // Петя, 2026-07-19: у России военный блок раскрыт на 4 подстата (army_morale/equipment/
+  // readiness/veterans), у Украины было только 3 РАЗНЫХ по смыслу стата в сравнительной панели
+  // "Силы сторон" (ua_army/ua_west_support/ua_morale) — не баг рендера, а реальный пробел модели
+  // ("полная симметрия" 2026-07-06 зеркалила только 5 БАЗОВЫХ статов, не подстаты военного блока).
+  // Добавляем недостающие 3 — та же механика, что уже двигает ua_army/ua_morale (см.
+  // UA_IMPACT_FROM_PLAYER ниже), не новый слой. Снаряжение ниже дефолта ua_army (65) — под
+  // давлением дефицита западных поставок; боеготовность и опыт войск — выше: ВСУ воюют 4-й год,
+  // закалённая армия на реальных боевых позициях.
+  ua_equipment: 55,
+  ua_readiness: 72,
+  ua_veterans: 75,
   // Башни Кремля (см. FACTION_DEFAULTS/computeFactionReactions ниже) + счётчик коалиционной
   // стабильности за выбор компромисса в карточках-дилеммах.
   // Петя, 2026-07-11 (третья правка старта подряд): плоский старт 55/55/55/55 всё ещё "все
@@ -273,17 +284,23 @@ const MAX_RELATION_DELTA_SPILLOVER = 3;
 // ua_morale/ua_stability от военных и тайных операций, нацеленных на Украину — раньше единственной
 // связью было отложенное, недискриминирующее категорию пороговое изменение по абсолютному уровню
 // статов России (см. блок с westDelta/armyDelta в /turns/regroup и runUkraineTurn).
-const UA_IMPACT_MAX_DELTA_PER_TURN = { ua_army: 10, ua_morale: 8, ua_stability: 6, ua_west_support: 5 };
+// ua_equipment/ua_readiness/ua_veterans (добавлены 2026-07-19, см. комментарий у SUBSTAT_DEFAULTS)
+// расширяют только те строки, что уже трогают ua_army — те же категории, тот же генеричный цикл
+// ниже (for stat of Object.keys(uaImpactTable)), новой логики не требуется. Пропорции ориентированы
+// на то, как те же action_type-строки в основном RULES_TABLE (~строка 518+) трогают РОССИЙСКИЕ
+// equipment/readiness/veterans для тех же категорий — знак зеркальный (по Украине бьют), порядок
+// величины сопоставим с уже существующим ua_morale в той же строке.
+const UA_IMPACT_MAX_DELTA_PER_TURN = { ua_army: 10, ua_morale: 8, ua_stability: 6, ua_west_support: 5, ua_equipment: 10, ua_readiness: 8, ua_veterans: 8 };
 const UA_IMPACT_FROM_PLAYER = {
-  mil_tactical:               { ua_army: [-4, -2], ua_morale: [-2, -1] },
-  mil_operational_offensive:  { ua_army: [-6, -3], ua_morale: [-4, -2] },
-  mil_strategic_offensive:    { ua_army: [-9, -5], ua_morale: [-6, -3] },
-  mil_hybrid:                 { ua_army: [-3, -1], ua_stability: [-2, -1] },
+  mil_tactical:               { ua_army: [-4, -2], ua_morale: [-2, -1], ua_equipment: [-2, -1], ua_readiness: [-2, -1], ua_veterans: [-1, 0] },
+  mil_operational_offensive:  { ua_army: [-6, -3], ua_morale: [-4, -2], ua_equipment: [-3, -1], ua_readiness: [-3, -2], ua_veterans: [-2, -1] },
+  mil_strategic_offensive:    { ua_army: [-9, -5], ua_morale: [-6, -3], ua_equipment: [-5, -2], ua_readiness: [-4, -2], ua_veterans: [-3, -2] },
+  mil_hybrid:                 { ua_army: [-3, -1], ua_stability: [-2, -1], ua_equipment: [-1, 0], ua_readiness: [-2, -1] },
   covert_disinfo:             { ua_morale: [-2, -1] },
   covert_destabilize:         { ua_stability: [-4, -2] },
-  covert_sabotage:            { ua_army: [-4, -2] },
+  covert_sabotage:            { ua_army: [-4, -2], ua_equipment: [-4, -2], ua_readiness: [-1, 0] },
   covert_elimination:         { ua_stability: [-5, -3], ua_morale: [-3, -1] },
-  nuclear_strike:             { ua_army: [-10, -8], ua_morale: [-8, -6], ua_stability: [-8, -5] },
+  nuclear_strike:             { ua_army: [-10, -8], ua_morale: [-8, -6], ua_stability: [-8, -5], ua_equipment: [-8, -6], ua_readiness: [-6, -4], ua_veterans: [-6, -4] },
 };
 // Страны-союзники Украины (Запад) — удар по отношениям с ними бьёт по её западной поддержке
 // (ua_west_support), даже когда указ сам по себе не военный (санкционный обход, давление и т.п.).

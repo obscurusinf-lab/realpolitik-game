@@ -1410,6 +1410,12 @@ const UA_STAT_META = {
   ua_army:         { label: "Армия ВСУ",          icon: Swords,   color: "#7a8fae", desc: "Боевая мощь ВСУ — растёт от западных поставок, падает от ударов" },
   ua_west_support: { label: "Поддержка Запада",   icon: Globe2,   color: "#8c6b3a", desc: "Готовность Запада поставлять оружие и деньги Киеву" },
   ua_morale:       { label: "Боевой дух ВСУ",     icon: Shield,   color: "#6b8c6b", desc: "Моральное состояние — зависит от военного баланса на фронте" },
+  // Довели военный блок ВСУ до 4 подстатов, как у России (см. SUBSTAT_DEFAULTS в rules-engine.js,
+  // 2026-07-19) — раньше сравнение "Силы сторон" сопоставляло 4 российских подстата с 3 разными
+  // по смыслу украинскими, путая игрока.
+  ua_equipment:    { label: "Снаряжение ВСУ",     icon: Swords,   color: "#8c6a5a", desc: "Западная техника и боеприпасы — под давлением дефицита поставок" },
+  ua_readiness:    { label: "Боеготовность ВСУ",  icon: Shield,   color: "#a8695a", desc: "Постоянный боевой контакт четвёртый год подряд — высокая тактическая готовность" },
+  ua_veterans:     { label: "Опыт войск ВСУ",     icon: Users,    color: "#7a5a5a", desc: "Закалённая в боях армия — большой практический опыт после лет активной войны" },
   // "Полная симметрия" (2026-07-06) — зеркалит 5 базовых статов России для Украины. Аддитивно:
   // старые сейвы без этих полей подхватят дефолт из SUBSTAT_DEFAULTS на бэкенде (?? в рендере).
   ua_economy:   { label: "Экономика Украины", icon: Landmark,   color: "#7a9e7a", desc: "Устойчивость экономики под санкционным давлением и войной" },
@@ -5928,7 +5934,7 @@ function TacticalFrontView({ state, isMobile, nuclearStrike, hotspots }) {
           </div>
           <div className="mono-font" style={{ fontSize: 9.5, color: "#8c6b3a", marginBottom: 4 }}>🇺🇦 {t("map.forces_ukraine")}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            {Object.entries(UA_STAT_META).filter(([k]) => ["ua_army", "ua_west_support", "ua_morale"].includes(k)).map(([k, meta]) => {
+            {Object.entries(UA_STAT_META).filter(([k]) => ["ua_army", "ua_equipment", "ua_readiness", "ua_veterans"].includes(k)).map(([k, meta]) => {
               const value = state.stats?.[k] ?? 50;
               return (
                 <div key={k}>
