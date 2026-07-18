@@ -213,6 +213,18 @@ const TIER_MULTIPLIER = {
   decree_program: 1.45,
 };
 
+// Часть эффекта Реформы/Программы приходит не сразу, а позже — делает срок действия
+// (DECREE_DURATION) реальным процессом, а не косметическим таймером (Петя, 2026-07-18:
+// "может быть дать больше плюшек от реформ и программ... получу их в конце или в процессе?").
+// Быстрый указ — весь эффект сразу, соответствует своему названию, не участвует здесь.
+// Триггер — примерно середина срока действия: не размазываем эффект на каждый ход, потому что
+// большинство дельт RULES_TABLE (обычно 1-4 пункта) слишком малы, чтобы пережить дробление на
+// много частей без обнуления округлением — один заметный "довесок" вместо невидимой пыли.
+const TIER_SPLIT = {
+  decree_reform:  { immediateShare: 0.6, offsetTurns: Math.ceil(DECREE_DURATION.decree_reform / 2) },
+  decree_program: { immediateShare: 0.5, offsetTurns: Math.ceil(DECREE_DURATION.decree_program / 2) },
+};
+
 // Бонус «разведка готовит почву»: mil_recon усиливает следующую боевую операцию.
 const INTEL_BOOST_FACTOR = 1.3;
 
@@ -825,6 +837,10 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
   const seed = `${gameId}:${turnNumber}:${action_type}`;
 
   const statDeltas = {};
+  // Часть эффекта Реформы/Программы, отложенная на потом — см. TIER_SPLIT. Заполняется в
+  // основном цикле по RULES_TABLE ниже, возвращается вызывающему коду (turns.js), который
+  // сохраняет их в тот же delayed_effects, что уже используют "эхо"-эффекты от ИИ.
+  const tierDelayedEffects = [];
   // Инициализируем субметрики дефолтами если отсутствуют
   const newStats = { ...SUBSTAT_DEFAULTS, ...state.stats };
 
@@ -935,6 +951,28 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
 
       statDeltas[stat] = delta;
       newStats[stat] = applyClamped(state.stats[stat], delta);
+    }
+  }
+
+  // Реформа/Программа: часть эффекта откладывается на потом — см. TIER_SPLIT выше. Работает
+  // ПОСЛЕ основного цикла (не внутри него), чтобы взять только 3 самых заметных стата вместо
+  // всех подряд — тот же порог заметности (|delta|>=2, топ-3 по модулю), что уже использует
+  // "Цена вопроса" в советах (describeSideEffects, advisors.js) — иначе на одну реформу
+  // приходилось бы по 6-8 отдельных будущих анонсов в Ленте, а не понятный один-два.
+  const tierSplit = TIER_SPLIT[actionMode];
+  if (tierSplit) {
+    const candidates = Object.keys(MAX_DELTA_PER_TURN)
+      .filter(stat => stat !== "peace_progress" && Math.abs(statDeltas[stat] ?? 0) >= 2)
+      .sort((a, b) => Math.abs(statDeltas[b]) - Math.abs(statDeltas[a]))
+      .slice(0, 3);
+    for (const stat of candidates) {
+      const delta = statDeltas[stat];
+      const immediateDelta = Math.round(delta * tierSplit.immediateShare);
+      const delayedDelta = delta - immediateDelta;
+      if (delayedDelta === 0) continue;
+      statDeltas[stat] = immediateDelta;
+      newStats[stat] = applyClamped(state.stats[stat], immediateDelta);
+      tierDelayedEffects.push({ stat, delta: delayedDelta, trigger_turn: turnNumber + tierSplit.offsetTurns });
     }
   }
 
@@ -1076,11 +1114,20 @@ function applyTurn({ state, gmClassification, gameId, turnNumber, actionMode = "
     }
   }
 
+  // Заголовок политики (если ИИ зарегистрировал новую — почти всегда так для decree_reform/
+  // decree_program) как текст для будущего анонса в Ленте, когда tierDelayedEffects сработают
+  // (см. turns.js) — тот же принцип, что уже есть у "эхо"-эффектов ИИ (у них есть свой reason).
+  if (tierDelayedEffects.length > 0) {
+    const policyTitle = gmClassification.policy_update?.title || null;
+    for (const e of tierDelayedEffects) e.reason = policyTitle;
+  }
+
   return {
     newStats,
     newRelations,
     statDeltas,
     relationDeltas,
+    tierDelayedEffects,
   };
 }
 
@@ -1416,4 +1463,6 @@ module.exports = {
   COALITION_STABILITY_MAX,
   computeFactionDebuffs,
   computeFactionBuffs,
+  TIER_MULTIPLIER,
+  TIER_SPLIT,
 };

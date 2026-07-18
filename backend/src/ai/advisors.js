@@ -772,4 +772,4 @@ function fallbackConsult(advisorId, optimalMove) {
   };
 }
 
-module.exports = { consultAdvisor, computeOptimalMove, ADVISORS };
+module.exports = { consultAdvisor, computeOptimalMove, ADVISORS, STAT_LABELS_RU };

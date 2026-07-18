@@ -226,6 +226,7 @@ function computeGameScore(stats, outcome) {
 const { applyTurn, computeDelayedEffectDelta, computeTerritoryDelta, checkWesternArmsEscalation, WESTERN_ARMS_ARMY_BOOST, WESTERN_ARMS_SUPPORT_BOOST, WESTERN_ARMS_PERK_TURNS, DECREE_DURATION, CRISIS_TURN_WEEKS, NORMAL_TURN_WEEKS, CATEGORY_GROUP, UKRAINE_FULL_SYMMETRY, rollExposure } = require("../rules/rules-engine");
 const { generateWorldUpdate } = require("../ai/worldUpdate");
 const { decideAiCounterattack, isEnabled: isEnabledUkraineAi } = require("../ai/ukraine-counterattack-ai");
+const { STAT_LABELS_RU } = require("../ai/advisors");
 const { getBoolSetting } = require("../lib/app-settings");
 
 // Варианты ответа на "реакцию мира" (Петя: "варианты ответа однотипные... пусть будут
@@ -1284,7 +1285,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
     // без этого preview в мульти-режиме показывал заниженную (на величину regen) цену
     // хода, расходясь с тем, что реально спишется при confirm. Найдено при тестировании.
     const { MULTI_ACTION_TURNS: previewMultiAction } = require("../rules/rules-engine");
-    const { newStats: previewNewStats, statDeltas, relationDeltas } = applyTurn({
+    const { newStats: previewNewStats, statDeltas, relationDeltas, tierDelayedEffects: tierDelayedEffectsPreview } = applyTurn({
       state: { stats: statsAfterDelayed, relations: game.relations },
       gmClassification,
       gameId,
@@ -1347,6 +1348,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       turnNumber: nextTurnNumber,
       statsAfterDelayed,
       remainingEffects,
+      // dueEffects — для анонса в Ленте на confirm (см. ниже), когда часть эффекта прошлого
+      // указа/реформы наконец "созрела". Считаются здесь же (не пересчитываются на confirm) —
+      // тот же принцип детерминизма из preview→confirm, что уже применяется к statsAfterDelayed.
+      dueEffects,
       actionMode,
       aiCounterattackDecision,
       // playerInput жил только в теле /preview — /confirm шлёт пустой body {} и пытался читать
@@ -1368,6 +1373,10 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       gmActionType: gmClassification.action_type,
       corruptionLeak: statDeltas._corruption_leak || 0,
       militaryStreak: typeof statDeltas.military_streak === "number" ? statDeltas.military_streak : null,
+      // Часть эффекта Реформы/Программы, которая придёт позже (см. TIER_SPLIT в rules-engine.js) —
+      // игрок видит это ДО подтверждения, а не узнаёт постфактум (Петя, 2026-07-18: "буду ли
+      // получать плюшки в процессе, или в конце?").
+      tierEffectsPreview: tierDelayedEffectsPreview || [],
       requiresConfirmation: true,
     });
   });
@@ -1405,7 +1414,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         });
       }
 
-      const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, actionMode: pendingActionMode = "decree", playerInput: pendingPlayerInput } = pending;
+      const { gmClassification, turnNumber, statsAfterDelayed, remainingEffects, dueEffects: pendingDueEffects = [], actionMode: pendingActionMode = "decree", playerInput: pendingPlayerInput } = pending;
 
       // Военный лимит: повторная проверка (защита от race condition)
       const confirmAt = gmClassification.action_type;
@@ -1437,7 +1446,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
       const { MULTI_ACTION_TURNS } = require("../rules/rules-engine");
       const multiAction = MULTI_ACTION_TURNS;
 
-      const { newStats, newRelations, statDeltas, relationDeltas } = applyTurn({
+      const { newStats, newRelations, statDeltas, relationDeltas, tierDelayedEffects } = applyTurn({
         state: { stats: statsAfterDelayed, relations: game.relations },
         gmClassification,
         gameId,
@@ -1570,7 +1579,16 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         };
       });
 
-      const updatedDelayedEffects = [...remainingEffects, ...newDelayedEffects];
+      // Отложенная доля эффекта Реформы/Программы (см. TIER_SPLIT, rules-engine.js) — та же
+      // форма записи {trigger_turn, effect, reason}, что и "эхо"-эффекты ИИ выше, попадает
+      // в тот же общий список и анонсируется тем же кодом ниже, когда придёт срок.
+      const newTierEffects = (tierDelayedEffects || []).map((e) => ({
+        trigger_turn: e.trigger_turn,
+        effect: { [e.stat]: e.delta },
+        reason: e.reason,
+      }));
+
+      const updatedDelayedEffects = [...remainingEffects, ...newDelayedEffects, ...newTierEffects];
 
       await client.query(
         `INSERT INTO turns (game_id, turn_n, player_input, action_mode, gm_classification, stat_deltas, relation_deltas, narrative_text, advisor_objection, stats_snapshot)
@@ -1588,6 +1606,22 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
           JSON.stringify(newStats),
         ]
       );
+
+      // Анонс отложенных эффектов, созревших к этому ходу (см. dueEffects выше) — раньше эти
+      // "эхо"-эффекты (и от ИИ, и теперь от TIER_SPLIT реформ/программ) применялись к статам
+      // молча, без единой строки в Ленте: игрок никак не мог связать изменение стата с указом,
+      // подписанным несколько ходов назад. Один анонс на эффект — при 3 отложенных эффектах
+      // от одной реформы (см. лимит топ-3 в rules-engine.js) это максимум 3 строки, не поток.
+      for (const effect of pendingDueEffects) {
+        const [stat, delta] = Object.entries(effect.effect || {})[0] || [];
+        if (!stat || !delta) continue;
+        const label = STAT_LABELS_RU[stat] || stat;
+        const title = effect.reason ? `«${effect.reason}»` : "Ранее принятое решение";
+        await client.query(
+          `INSERT INTO newsfeed_items (game_id, turn_n, item_type, source, text, reactions) VALUES ($1,$2,'news',$3,$4,$5)`,
+          [gameId, turnNumber, "Правительство", `${title} продолжает действовать: ${label} ${delta >= 0 ? "+" : ""}${delta}.`, JSON.stringify([{ stat_delta: { [stat]: delta } }])]
+        );
+      }
 
       let updatedPolicies = game.policies || [];
       if (gmClassification.policy_update?.is_new_policy) {

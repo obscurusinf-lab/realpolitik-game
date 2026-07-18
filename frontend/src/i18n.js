@@ -378,7 +378,7 @@ const RU = {
 
   // ---- AdvisorsTab ----
   "advisors.scale_label": "МАСШТАБ РЕШЕНИЯ:",
-  "advisors.scale_tooltip": "Быстрый указ — слабый, но мгновенный эффект (1–2 мес). Реформа — эффект сильнее, но проявляется с задержкой в несколько ходов (3–6 мес). Крупная программа — самый мощный эффект из трёх, самая долгая реализация (7–12 мес).",
+  "advisors.scale_tooltip": "Быстрый указ (×0.7 к эффекту) — весь эффект сразу, но самый слабый (1–2 мес). Реформа (×1.0) — эффект сильнее: 60% сразу, 40% придёт позже, примерно на середине срока (3–6 мес). Крупная программа (×1.45) — самый мощный эффект из трёх: 50% сразу, 50% позже (7–12 мес). Цена и инициатива растут в том же порядке.",
   "advisors.mode_advice_label": "СОВЕТ ПО РЕЖИМУ:",
   "advisors.optimal_tooltip": "Этот совет совпадает с математически рассчитанным оптимальным ходом (детерминированный расчёт по формулам игры, не мнение ИИ)",
   "advisors.optimal_badge": "📐 РАСЧЁТ: ОПТИМАЛЬНЫЙ ХОД",
@@ -692,6 +692,8 @@ const RU = {
   "endturn.counterattack_weak_bold": "не сдержала удар",
   "endturn.counterattack_weak_post": ", фронт отступил на −{n}% суммарно.",
   "endturn.counterattack_western_arms_note": "Новые западные поставки усиливают контрудары ВСУ.",
+  "preview.delayed_effect_label": "⏳ ПРИДЁТ ПОЗЖЕ",
+  "preview.delayed_effect_turn": "ход {turn}",
   "preview.counterattack_label": "🇺🇦 ВСУ контратакует (интенсивность {n}/{max})",
   "preview.counterattack_blunted": "Боеготовность вашей армии ({q}) сдержит удар — суммарный откат фронта всего −{n}%.",
   "preview.counterattack_weak": "Слабая подготовка армии ({q}) не сдержит удар — фронт отступит на −{n}%.",
@@ -1092,7 +1094,7 @@ const EN = {
 
   // ---- AdvisorsTab ----
   "advisors.scale_label": "DECISION SCALE:",
-  "advisors.scale_tooltip": "Fast decree — weak but instant effect (1–2 mo). Reform — stronger effect, but delayed a few turns (3–6 mo). Major program — the strongest of the three, slowest to implement (7–12 mo).",
+  "advisors.scale_tooltip": "Fast decree (×0.7 to effect) — full effect right away, but the weakest (1–2 mo). Reform (×1.0) — stronger: 60% now, 40% arrives later, roughly midway through (3–6 mo). Major program (×1.45) — the strongest of the three: 50% now, 50% later (7–12 mo). Cost and initiative scale the same way.",
   "advisors.mode_advice_label": "ADVICE FOR THIS MODE:",
   "advisors.optimal_tooltip": "This advice matches the mathematically calculated optimal move (a deterministic calculation from the game's formulas, not an AI opinion)",
   "advisors.optimal_badge": "📐 CALCULATED: OPTIMAL MOVE",
@@ -1406,6 +1408,8 @@ const EN = {
   "endturn.counterattack_weak_bold": "did not hold",
   "endturn.counterattack_weak_post": ", the front retreated −{n}% overall.",
   "endturn.counterattack_western_arms_note": "New Western arms shipments are strengthening Ukraine's counterattacks.",
+  "preview.delayed_effect_label": "⏳ COMING LATER",
+  "preview.delayed_effect_turn": "turn {turn}",
   "preview.counterattack_label": "🇺🇦 Ukraine counterattacking (intensity {n}/{max})",
   "preview.counterattack_blunted": "Your army's readiness ({q}) will hold the line — the front will only pull back −{n}% overall.",
   "preview.counterattack_weak": "Weak army preparation ({q}) won't hold the line — the front will retreat −{n}%.",

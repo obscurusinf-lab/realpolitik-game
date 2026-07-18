@@ -1888,6 +1888,23 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
             (econNotes.total) — не повторяется под каждым статом ниже, это и было главным
             источником "перегруженности" (Петя, 2026-07-07). */}
         <PrimarySecondaryDeltas deltas={deltas} current={currentStats} showSecondary={showSecondary} toggleSecondary={() => setShowSecondary(v => !v)} />
+        {/* Часть эффекта Реформы/Программы приходит не сразу (см. TIER_SPLIT, rules-engine.js) —
+            игрок видит это ДО подтверждения, а не узнаёт постфактум из Ленты (Петя, 2026-07-18:
+            "буду ли получать плюшки в процессе, или в конце?"). */}
+        {preview.tierEffectsPreview && preview.tierEffectsPreview.length > 0 && (
+          <div style={{ marginTop: 10, background: "#161b26", border: "1px solid #3a4156", borderRadius: 4, padding: "8px 10px" }}>
+            <span className="mono-font" style={{ fontSize: 11, fontWeight: 700, color: "#c8a857" }}>
+              {t("preview.delayed_effect_label")}
+            </span>
+            <div style={{ marginTop: 4, display: "grid", gap: 3 }}>
+              {preview.tierEffectsPreview.map((e, i) => (
+                <div key={i} className="mono-font" style={{ fontSize: 10.5, color: "#a0a8b8" }}>
+                  {EXTRA_BAR_META[e.stat]?.label || STAT_LABEL[e.stat] || e.stat} {e.delta >= 0 ? "+" : ""}{e.delta} — {t("preview.delayed_effect_turn", { turn: e.trigger_turn })}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Контратака ВСУ — та же плашка, что в EndTurnScreen, но уже в превью (значения
             детерминированы тем же сидом, что и confirm — см. computeTerritoryDelta). */}
         {preview.territoryCounterattack && preview.territoryCounterattack.totalPushback > 0 && (() => {
