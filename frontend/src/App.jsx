@@ -2642,9 +2642,40 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const [confirmSpecialAction, setConfirmSpecialAction] = useState(null);
   const [loadError, setLoadError] = useState(null);
 
-  const [draftInput, setDraftInput] = useState("");
-  const [actionMode, setActionMode] = useState("decree_fast");
-  const [preview, setPreview] = useState(null);
+  // Черновик указа + превью переживают перезагрузку страницы (Петя, 2026-07-19, по мотивам
+  // отзыва игрока Кэп: "текст указа и превью не терялись — текст оставался там же вместе с
+  // превью — я так понимаю, это у Кэпа и случилось"). Раньше это была обычная component-state,
+  // закрыл вкладку/обновил страницу — всё пропало без следа, даже если превью уже реально
+  // посчитано и ждёт только подтверждения. Ключ — per-game (rp_draft_{gameId}), чтобы черновик
+  // одной партии не всплывал в другой. Не восстанавливаем сами делаем НОВЫЙ вызов ИИ — просто
+  // возвращаем ТОТ ЖЕ React-стейт, что уже был посчитан; если к моменту подтверждения backend'овый
+  // pendingTurnStore (Redis, TTL 30 минут) уже истёк — это отдельный, уже существующий путь
+  // обработки ошибки (см. handleConfirm), не новый риск.
+  function loadDraftFromStorage(key, gid) {
+    if (readOnly || !gid) return null;
+    try {
+      const raw = localStorage.getItem(`rp_draft_${gid}`);
+      if (!raw) return null;
+      const saved = JSON.parse(raw);
+      return saved?.[key] ?? null;
+    } catch { return null; }
+  }
+  const [draftInput, setDraftInput] = useState(() => loadDraftFromStorage("draftInput", gameId) || "");
+  const [actionMode, setActionMode] = useState(() => loadDraftFromStorage("actionMode", gameId) || "decree_fast");
+  const [preview, setPreview] = useState(() => loadDraftFromStorage("preview", gameId));
+  // Пустой черновик без превью не стоит сохранять (незачем плодить localStorage-записи на каждый
+  // символ, если человек просто открыл поле и ничего не написал) — пишем, только если есть что
+  // реально терять: текст ИЛИ уже посчитанное превью.
+  useEffect(() => {
+    if (readOnly || !gameId) return;
+    if (!draftInput && !preview) {
+      localStorage.removeItem(`rp_draft_${gameId}`);
+      return;
+    }
+    try {
+      localStorage.setItem(`rp_draft_${gameId}`, JSON.stringify({ draftInput, actionMode, preview }));
+    } catch { /* localStorage переполнен/недоступен — черновик просто не переживёт перезагрузку, не критично */ }
+  }, [draftInput, actionMode, preview, gameId, readOnly]);
   const [previewing, setPreviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [turnError, setTurnError] = useState(null);
@@ -2843,7 +2874,13 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         }
       } else {
         setPreview(null);
-        setTurnError(err.message);
+        // Пете, 2026-07-19: раз черновик+превью теперь переживают перезагрузку страницы (см.
+        // выше), сценарий "нажал подтвердить, а pendingTurnStore на бэкенде уже истёк за 30
+        // минут" стал заметно вероятнее — та же дружелюбная формулировка, что уже была только на
+        // ядерном экране. Текст указа (draftInput) НЕ стираем — переписывать заново не нужно,
+        // достаточно нажать «Рассмотреть» ещё раз.
+        const expired = err.message.includes("Call /turns/preview") || err.message.includes("expired") || err.message.includes("No pending");
+        setTurnError(expired ? "Черновик указа истёк — нажмите «Рассмотреть» ещё раз, текст сохранён." : err.message);
       }
     } finally {
       setConfirming(false);
@@ -5006,7 +5043,10 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               2026-07-19: "подписи населённых пунктов Украины, включая мелкие"). oblastKey/raionName
               посчитаны ЗАРАНЕЕ в скрипте подготовки (не point-in-polygon на 1060 точек в рантайме
               каждый рендер — дорого при пане/зуме). */}
-          {oblastStats && UA_SETTLEMENTS.filter(s => zoomPos.zoom >= SETTLEMENT_TIER_MIN_ZOOM[s.tier]).map((s, i) => {
+          {oblastStats && thinSettlementsForDisplay(
+            UA_SETTLEMENTS.filter(s => zoomPos.zoom >= SETTLEMENT_TIER_MIN_ZOOM[s.tier]),
+            zoomPos.zoom
+          ).map((s, i) => {
             const fill = raionFills[`${s.oblastKey}|${s.raionName}`] || "#8a94a6";
             return (
               <Marker key={"settle" + i} coordinates={s.coords}>
@@ -5090,6 +5130,27 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
 // tierForPopulation в backend/scripts/prepare-ua-settlements.js) — tier 1 (крупные города) видны
 // почти сразу, tier 4 (сёла) только на сильном приближении.
 const SETTLEMENT_TIER_MIN_ZOOM = { 1: 0.5, 2: 1.5, 3: 3, 4: 5 };
+
+// Пете, 2026-07-19 (скриншот): "на карте каша из названий" — при 1060 НП одного только тирного
+// фильтра по зуму недостаточно, соседние подписи всё равно накладываются друг на друга. Простое
+// прореживание по расстоянию (в градусах, не в пикселях — своя d3-проекция тут не нужна): идём по
+// уже отфильтрованному по зуму списку от крупных к мелким (тир, потом население), берём точку,
+// только если она достаточно далеко от УЖЕ взятых — иначе пропускаем её целиком (кружок+подпись
+// вместе, не только текст). minDist уменьшается с зумом — чем ближе камера, тем гуще можно класть
+// подписи, не сливаясь.
+function thinSettlementsForDisplay(settlements, zoom) {
+  const minDist = 0.4 / Math.max(zoom, 0.5);
+  const sorted = [...settlements].sort((a, b) => {
+    if (a.tier !== b.tier) return a.tier - b.tier;
+    return (b.population ?? Infinity) - (a.population ?? Infinity);
+  });
+  const kept = [];
+  for (const s of sorted) {
+    const tooClose = kept.some(k => Math.abs(k.coords[0] - s.coords[0]) < minDist && Math.abs(k.coords[1] - s.coords[1]) < minDist);
+    if (!tooClose) kept.push(s);
+  }
+  return kept;
+}
 
 // Подписи стран на тактической карте — точки подобраны так, чтобы попадать В КАДР при базовом
 // масштабе (не centroid всей страны, как в REGION_COORDS ниже: например "россия" там [60,55] —
