@@ -2186,28 +2186,6 @@ function computeRaionFills(raionFeatures, oblastStats) {
   return fills;
 }
 
-// Точка в полигоне (ray casting) — тот же алгоритм, что и в backend/scripts/prepare-ua-raions.js
-// при подготовке данных, только тут нужен в рантайме: города/сёла (ua-settlements.json) хранят
-// только координаты, без привязки к району — привязка вычисляется на лету, самокорректирующе
-// (если координата чуть неточна, попадёт в реально ближайший по геометрии район, а не в
-// заранее вручную вписанный, который мог быть ошибочным).
-function pointInRing(pt, ring) {
-  const [x, y] = pt;
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i], [xj, yj] = ring[j];
-    const intersect = (yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-function findRaionAt(coords) {
-  return UA_RAIONS_GEO.features.find(f => {
-    const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
-    return polys.some(poly => pointInRing(coords, poly[0]));
-  }) || null;
-}
-
 const TERRITORY_DEFAULTS = {
   donetsk_control: 78, luhansk_control: 96,
   zaporizhzhia_control: 68, kherson_control: 58, kharkiv_control: 12,
@@ -4890,7 +4868,12 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
           projectionConfig={{ scale, center }}
           style={{ width: "100%", height: "auto", aspectRatio: "800/340", background: "transparent", display: "block", filter: nuclearStrike ? "grayscale(0.7) sepia(0.35) brightness(0.75)" : "none" }}
         >
-        <ZoomableGroup center={zoomPos.coordinates} zoom={zoomPos.zoom} minZoom={1} maxZoom={8} onMoveEnd={setZoomPos}>
+        {/* minZoom 0.5 (не 1) — Петя, 2026-07-19: "при отзуммировании все области были видны,
+            просто дальше всей Украины не надо отзуммировать" — от базового кадра (уже подобран
+            так, что все 5 отслеживаемых областей видны БЕЗ зума, см. scale в TacticalFrontView)
+            0.5x даёт увидеть ещё и соседей (Россию/Беларусь/Польшу и т.д. с подписями стран, см.
+            ниже) без ухода на весь мир. */}
+        <ZoomableGroup center={zoomPos.coordinates} zoom={zoomPos.zoom} minZoom={0.5} maxZoom={8} onMoveEnd={setZoomPos}>
           <Geographies geography={GEO_URL}>
             {({ geographies }) =>
               geographies.map(geo => {
@@ -5012,18 +4995,18 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               }
             </Geographies>
           )}
-          {/* Города/сёла — только при достаточном приближении (иначе на дефолтном масштабе ~35
-              подписей превратятся в кашу, см. Петя 2026-07-19: "нужна карта с городами, сёлами").
-              Цвет — по тому, в какой район попадает координата (тот же расчёт, что уже даёт
-              заливку района), не отдельный игровой стат на населённый пункт. */}
-          {oblastStats && zoomPos.zoom >= 2 && UA_SETTLEMENTS.map((s, i) => {
-            const raion = findRaionAt(s.coords);
-            if (!raion) return null;
-            const fill = raionFills[`${raion.properties.oblastKey}|${raion.properties.shapeName}`] || "#8a94a6";
+          {/* Города/сёла — ~1060 НП (35 крупных вручную на русском + ~1025 из GeoNames, включая
+              мелкие, см. backend/scripts/prepare-ua-settlements.js), тиры по населению определяют
+              зум появления (иначе тысяча подписей — каша на любом разумном масштабе; Петя,
+              2026-07-19: "подписи населённых пунктов Украины, включая мелкие"). oblastKey/raionName
+              посчитаны ЗАРАНЕЕ в скрипте подготовки (не point-in-polygon на 1060 точек в рантайме
+              каждый рендер — дорого при пане/зуме). */}
+          {oblastStats && UA_SETTLEMENTS.filter(s => zoomPos.zoom >= SETTLEMENT_TIER_MIN_ZOOM[s.tier]).map((s, i) => {
+            const fill = raionFills[`${s.oblastKey}|${s.raionName}`] || "#8a94a6";
             return (
               <Marker key={"settle" + i} coordinates={s.coords}>
-                <circle r={2} fill={fill} stroke="#0d1420" strokeWidth={0.4} />
-                <text textAnchor="middle" y={-4} fontSize={5.5} fill="#ece7d8" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 2 }}>
+                <circle r={s.tier === 1 ? 2.2 : 1.4} fill={fill} stroke="#0d1420" strokeWidth={0.4} />
+                <text textAnchor="middle" y={-4} fontSize={s.tier === 1 ? 6 : 5} fill="#ece7d8" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 2 }}>
                   {s.name}
                 </text>
               </Marker>
@@ -5044,6 +5027,18 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               </Marker>
             );
           })}
+          {/* Подписи стран на тактической карте (Петя, 2026-07-19: "должны быть подписи названий
+              других стран") — заливка соседних государств уже есть через общий слой Geographies
+              выше (getCountryFill), тут только текст. Небольшой рукописный набор — при таком зуме
+              (даже с учётом minZoom 0.5) видны только Россия/Украина и ближайшие соседи, не весь
+              мир, полный словарь COUNTRY_INFO тут не нужен. */}
+          {oblastStats && TACTICAL_COUNTRY_LABELS.map(c => (
+            <Marker key={"cl" + c.name} coordinates={c.coords}>
+              <text textAnchor="middle" fontSize={11} fill="#8a94a6" fontWeight="bold" letterSpacing="1" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 3 }}>
+                {c.name.toUpperCase()}
+              </text>
+            </Marker>
+          ))}
           {/* Маркер ядерного удара */}
           {nuclearStrike?.coords && (
             <Marker coordinates={nuclearStrike.coords}>
@@ -5075,6 +5070,23 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
 }
 
 // Fallback coords for regions without lat/lon (used until AI generates them)
+// Минимальный zoom (ZoomableGroup), при котором видны населённые пункты каждого тира (см.
+// tierForPopulation в backend/scripts/prepare-ua-settlements.js) — tier 1 (крупные города) видны
+// почти сразу, tier 4 (сёла) только на сильном приближении.
+const SETTLEMENT_TIER_MIN_ZOOM = { 1: 0.5, 2: 1.5, 3: 3, 4: 5 };
+
+// Подписи стран на тактической карте — точки подобраны так, чтобы попадать В КАДР при базовом
+// масштабе (не centroid всей страны, как в REGION_COORDS ниже: например "россия" там [60,55] —
+// это Урал, далеко за пределами видимой на тактической карте части России).
+const TACTICAL_COUNTRY_LABELS = [
+  { name: "Россия", coords: [41, 51.5] },
+  { name: "Украина", coords: [29.5, 49.8] },
+  { name: "Беларусь", coords: [28.5, 53.3] },
+  { name: "Польша", coords: [21.5, 51.8] },
+  { name: "Молдова", coords: [28.4, 47.2] },
+  { name: "Румыния", coords: [25, 45.9] },
+];
+
 const REGION_COORDS = {
   // Страны
   "украина": [31.2, 48.4], "ukraine": [31.2, 48.4],
@@ -5962,8 +5974,14 @@ function TacticalFrontView({ state, isMobile, nuclearStrike, hotspots }) {
             // а не весь мир) equal-earth ломает d3-клиппинг полигонов: к каждой области
             // добавляется один и тот же "хвост" из координат угла проекции, области рендерятся
             // без видимой заливки. Mercator — стандартный выбор именно для регионального зума.
+            // scale 2800 (не 4200) — Петя, 2026-07-19: старое значение обрезало Харьков сверху
+            // и юг Херсона снизу по вертикали (ширина 800×340 — вертикаль всегда была узким
+            // местом, не горизонталь). Пересчитано так, чтобы все 5 отслеживаемых областей
+            // помещались БЕЗ зума (было: видимый диапазон широт ≈3.1°, нужно ≈4.2° — теперь ≈4.7°
+            // с запасом). Раньше отличалось для мобильного/десктопа без географической причины
+            // (аспект SVG 800:340 фиксирован независимо от контейнера) — единое значение для обоих.
             projection="geoMercator"
-            scale={isMobile ? 2800 : 4200}
+            scale={2800}
             center={[36, 48.3]}
             oblastStats={stats}
             nuclearStrike={nuclearStrike}
