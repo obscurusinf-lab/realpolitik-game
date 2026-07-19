@@ -2695,6 +2695,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // просто ничего с этим не делал. Показываем ТОЛЬКО когда месяц реально плохой, не каждый раз.
   const [financeWarning, setFinanceWarning] = useState(null);
   const [lastActionResult, setLastActionResult] = useState(null); // результат последнего действия (не завершает ход)
+  // "Я сделал приказ — и развёрнутого результата не увидел" (Петя, 2026-07-20, живой скриншот) —
+  // баннер "✓ РЕШЕНИЕ ПРИНЯТО" показывал только нарратив, statDeltasPreview/relationDeltas уже
+  // считались и лежали в lastActionResult, но нигде не рендерились (данные для показателей
+  // Разбивка/Отношения были готовы, просто не подключены к этому конкретному баннеру — они
+  // используются только в EndTurnScreen в конце месяца). Сбрасывается вместе с баннером.
+  const [showLastActionDetails, setShowLastActionDetails] = useState(false);
   // Все решения текущего месяца (Петя, 2026-07-07: "в конце хода показан только последний
   // указ, а не все") — lastActionResult перезаписывается на каждое решение, поэтому по
   // «Завершить месяц» до сих пор долетал только самый последний. Копим отдельно, чтобы
@@ -2864,6 +2870,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
         territoryCounterattack: confirmResult?.territoryCounterattack || null,
       };
       setLastActionResult(confirmedActionResult);
+      setShowLastActionDetails(false);
       if (state?.multiActionTurns) setMonthActions(prev => [...prev, confirmedActionResult]);
       if (confirmResult?.gameOutcome) {
         setGameOutcome(confirmResult.gameOutcome);
@@ -2981,7 +2988,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       const r = { narrative: result.narrative || "Гражданская передышка.", statDeltasPreview: result.statDeltas || {}, actionMode: "skip" };
       if (state?.multiActionTurns) {
         // Внутри месяца — остаёмся, обновляем состояние
-        setLastActionResult(r); setMonthActions(prev => [...prev, r]); setDraftInput(""); await loadState();
+        setLastActionResult(r); setShowLastActionDetails(false); setMonthActions(prev => [...prev, r]); setDraftInput(""); await loadState();
       } else {
         setEndTurnResult(r); setDraftInput("");
       }
@@ -3000,7 +3007,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       const result = await regroupTurn(gameId);
       const r = { narrative: result.narrative || "Войска переформированы.", statDeltasPreview: result.statDeltas || {}, actionMode: "regroup" };
       if (state?.multiActionTurns) {
-        setLastActionResult(r); setMonthActions(prev => [...prev, r]); setDraftInput(""); await loadState();
+        setLastActionResult(r); setShowLastActionDetails(false); setMonthActions(prev => [...prev, r]); setDraftInput(""); await loadState();
       } else {
         setEndTurnResult(r); setDraftInput("");
       }
@@ -3020,7 +3027,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       try {
         const res = await endMonth(gameId);
         setConfirming(false);
-        if (res.gameOutcome) { setLastActionResult(null); setMonthActions([]); setGameOutcome(res.gameOutcome); return; }
+        if (res.gameOutcome) { setLastActionResult(null); setShowLastActionDetails(false); setMonthActions([]); setGameOutcome(res.gameOutcome); return; }
         // Предупреждение Силина — только если месяц реально плохой (заметный спад ИЛИ уже
         // приближаемся к порогу поражения economy<30), не на каждое небольшое колебание.
         const es = res.economySummary;
@@ -3058,6 +3065,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           territoryCounterattack: pickTerritoryCounterattack(monthActions),
         });
         setLastActionResult(null);
+        setShowLastActionDetails(false);
         setMonthActions([]);
       } catch (err) {
         setTurnError(err.message);
@@ -3069,6 +3077,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
     if (lastActionResult) {
       setEndTurnResult(lastActionResult);
       setLastActionResult(null);
+      setShowLastActionDetails(false);
     } else {
       handleSkipTurn();
     }
@@ -3646,8 +3655,28 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                     : "✓ РЕШЕНИЕ ВЫПОЛНЕНО · МОЖЕТЕ ДЕЙСТВОВАТЬ ЕЩЁ"}
                 </div>
                 <div className="doc-font" style={{ fontSize: 12.5, color: "#a0c090", lineHeight: 1.5 }}>{lastActionResult.narrative}</div>
+                {/* Разбивка по показателям (Петя, 2026-07-20, живой скриншот: "сделал приказ — и
+                    развёрнутого результата не увидел") — statDeltasPreview уже считался и лежал в
+                    lastActionResult, просто не был подключён к этому баннеру (только к итоговому
+                    экрану конца месяца). current — снимок СТАТОВ ДО этого решения (actualPrevStats),
+                    не текущий state.stats — тот уже включает применённую дельту, иначе бар посчитал
+                    бы её дважды. */}
+                {(() => {
+                  const deltas = Object.entries(lastActionResult.statDeltasPreview || {}).filter(([, d]) => d !== 0);
+                  if (deltas.length === 0) return null;
+                  return (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #1a3020" }}>
+                      <PrimarySecondaryDeltas
+                        deltas={deltas}
+                        current={lastActionResult.actualPrevStats || state?.stats}
+                        showSecondary={showLastActionDetails}
+                        toggleSecondary={() => setShowLastActionDetails(v => !v)}
+                      />
+                    </div>
+                  );
+                })()}
               </div>
-              <button onClick={() => setLastActionResult(null)} style={{ background: "none", border: "none", color: "#4a6050", cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0, padding: "0 0 0 4px" }}>×</button>
+              <button onClick={() => { setLastActionResult(null); setShowLastActionDetails(false); }} style={{ background: "none", border: "none", color: "#4a6050", cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0, padding: "0 0 0 4px" }}>×</button>
             </div>
           )}
 
