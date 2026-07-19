@@ -3591,6 +3591,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             optimalMove={optimalMove}
             onConsultAdvisor={handleConsultAdvisor}
             onSelectMode={setActionMode}
+            onOpenMilitary={() => setTab("military")}
             onSelectCategory={(template, mode) => {
               // Форма подписи (композер/предпросмотр) рендерится ниже вкладок независимо от
               // того, какая вкладка активна — менять вкладку не нужно. Прокручиваем к полю.
@@ -4037,7 +4038,7 @@ function pickGreeting(id, seedKey) {
   return advisorGreeting(id, ruText, pool);
 }
 
-function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory, stats, turnNumber, hardcore, optimalMove }) {
+function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor, onSelectAdvice, onSelectCategory, stats, turnNumber, hardcore, optimalMove, onOpenMilitary }) {
   const badge = ACTION_MODE_BADGE[actionMode] || ACTION_MODE_BADGE.decree_fast;
   // Свой текст на каждого советника отдельно (не общий черновик указа) — можно спросить
   // конкретного министра о чём-то своём, а можно просто нажать "Получить совет" пустым полем.
@@ -4066,6 +4067,16 @@ function AdvisorsTab({ advisorState, actionMode, onSelectMode, onConsultAdvisor,
   const recTarget = rec ? findMinisterDomainForCategory(rec.category) : null;
   const goToRecommendation = () => {
     if (!rec || !recTarget) return;
+    // Военные категории больше не под карточкой министра (см. MILITARY_DOMAIN, "убрать у
+    // министра обороны военные операции") — рекомендация на военную категорию переключает на
+    // отдельную вкладку «Военные операции» вместо разворачивания карточки Белоева. Автовыбор
+    // конкретной карточки там не работает (jumpTo не прокинут в MilitaryTab) — игрок увидит
+    // список военных категорий и выберет сам, это приемлемый компромисс против переусложнения
+    // проброса jumpTo-стейта между вкладками.
+    if (recTarget.isMilitaryTab) {
+      onOpenMilitary?.();
+      return;
+    }
     setExpandedMinisterId(recTarget.ministerId);
     // computeOptimalMove отдаёт поле `mode` (не `tier`, как раньше computeKremlinRecommendation) —
     // MinisterCategoryBrowser ожидает tier только для указов (decree_fast/reform/program),
@@ -8161,9 +8172,15 @@ function domainOfCategory(catId) {
 // переехали сюда, в Кабинет министров, по одному министру на область (Петя, 2026-07-09:
 // "министры выполняют мои распоряжения, а элиты в башнях кремля пытаются на меня повлиять").
 // Каждый министр — 1-2 под-области (те же карточки, что раньше жили в доменах Башен Кремля).
+// Вынесен из MINISTER_DOMAINS.defense (Петя, 2026-07-19: "убрать у министра обороны военные
+// операции" — после появления отдельной вкладку «Военные операции» этот домен стал дублировать
+// её же внутри Кабинета министров). Сами данные (карточки категорий) остались нужны — их
+// переиспользует MilitaryTab через domainsOverride, только доступ к ним больше не идёт через
+// карточку Белоева.
+const MILITARY_DOMAIN = { id: "military", label: "⚔️ Военные операции", mode: "military", cards: KREMLIN_CATEGORIES.military };
+
 const MINISTER_DOMAINS = {
   defense: [
-    { id: "military", label: "⚔️ Военные операции", mode: "military", cards: KREMLIN_CATEGORIES.military },
     { id: "mil_admin", label: "🏛 Административные указы", mode: null, cards: KREMLIN_CATEGORIES.decrees.filter(c => c.domain === "Военно-административные") },
   ],
   foreign: [
@@ -8183,7 +8200,13 @@ const MINISTER_DOMAINS = {
 
 // Обратный поиск для баннера-рекомендации (optimalMove с бэкенда, см. AdvisorsTab) — какому
 // министру и под-домену принадлежит категория, чтобы кнопка "Перейти" знала, куда прыгать.
+// Военные категории больше не внутри MINISTER_DOMAINS (см. MILITARY_DOMAIN выше) — проверяем
+// отдельно, isMilitaryTab говорит вызывающей стороне переключиться на вкладку «Военные операции»,
+// а не разворачивать карточку министра.
 function findMinisterDomainForCategory(categoryId) {
+  if (MILITARY_DOMAIN.cards.some(c => c.id === categoryId)) {
+    return { ministerId: null, domainId: MILITARY_DOMAIN.id, isMilitaryTab: true };
+  }
   for (const [ministerId, domains] of Object.entries(MINISTER_DOMAINS)) {
     for (const domain of domains) {
       if (domain.cards.some(c => c.id === categoryId)) return { ministerId, domainId: domain.id };
@@ -8391,7 +8414,7 @@ function MilitaryTab({ onSelectCategory }) {
     <div>
       <MinisterCategoryBrowser
         ministerId="defense"
-        domainsOverride={[MINISTER_DOMAINS.defense[0]]}
+        domainsOverride={[MILITARY_DOMAIN]}
         onSelectCategory={onSelectCategory}
         jumpTo={null}
       />
