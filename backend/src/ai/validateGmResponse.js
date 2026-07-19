@@ -59,6 +59,23 @@ const COVERT_CATEGORIES = new Set(["covert_destabilize", "covert_sabotage", "cov
 const ALLOWED_DIRECTIONS = ["improve", "worsen", "neutral"];
 const ALLOWED_TONES = ["pos", "neutral", "neg"];
 
+// Настоящие названия СМИ/агентств, которых не должно быть в newsfeed_reactions.user (см. проверку
+// ниже) — не претендует на исчерпывающий список всех СМИ мира, ловит самые узнаваемые бренды,
+// которые ИИ реально использовал на практике (живой кейс, 2026-07-19). Проверяем без учёта
+// регистра/пробелов/подчёркиваний, чтобы ловить и "@BBC_World", и "@bbcworld", и "BBC News".
+const REAL_OUTLET_RE = new RegExp(
+  [
+    "bbc", "reuters", "tass", "тасс", "cnn", "al[ _]?jazeera", "washington[ _]?post", "new[ _]?york[ _]?times", "nyt",
+    "china[ _]?daily", "deutsche[ _]?welle", "\\bdw\\b", "associated[ _]?press", "\\bap\\b", "\\bafp\\b",
+    "fox[ _]?news", "\\bria[ _]?novosti\\b", "\\bria\\b", "риа[ _]?новости", "интерфакс", "interfax",
+    "sky[ _]?news", "bloomberg", "wall[ _]?street[ _]?journal", "\\bwsj\\b", "politico",
+    "financial[ _]?times", "\\bft\\b", "xinhua", "синьхуа", "al[ _]?arabiya", "\\bnbc\\b", "\\babc\\b",
+    "\\bcbs\\b", "the[ _]?guardian", "\\bguardian\\b", "\\brt\\b", "russia[ _]?today", "коммерсант",
+    "kommersant", "euronews", "евроньюс",
+  ].join("|"),
+  "i"
+);
+
 function validateGmResponse(raw) {
   if (!raw || typeof raw !== "object") {
     throw new Error("Response is not an object");
@@ -127,6 +144,14 @@ function validateGmResponse(raw) {
     }
     if (!reaction.user || !reaction.text) {
       throw new Error("newsfeed_reactions entry missing user or text");
+    }
+    // Реальные СМИ в user (2026-07-19, Петя — живой кейс: ИИ придумывал цитаты об "успешном"
+    // устранении реального политика от лица @Reuters/@WashingtonPost/@DeutscheWelle и т.п.) —
+    // просьба в system-prompt.txt одна не сработала на живом тесте (модель игнорировала), поэтому
+    // жёсткая проверка здесь — при совпадении бросаем ошибку, тот же retry-цикл в gamemaster.js
+    // (см. classifyTurn) заставит ИИ переформулировать с вымышленным брендом.
+    if (REAL_OUTLET_RE.test(reaction.user)) {
+      throw new Error(`newsfeed_reactions.user выглядит как настоящее СМИ ("${reaction.user}") — используй вымышленный бренд`);
     }
   }
 
