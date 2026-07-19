@@ -165,6 +165,7 @@ function fallbackResponse(reason) {
     secondary_category: null,
     severity: 1,
     affected_relations: [],
+    preview_narrative: "Штаб запрашивает уточнение формулировки решения — формальное распоряжение пока не зафиксировано.",
     narrative: "Штаб запросил уточнение формулировки решения — формальное распоряжение не зафиксировано на этом ходу.",
     advisor_objection: null,
     newsfeed_reactions: [],

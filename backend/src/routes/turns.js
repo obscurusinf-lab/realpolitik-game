@@ -1273,6 +1273,7 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
         "Начальник Генерального штаба: Господин Президент, это решение необратимо. Применение ядерного оружия повлечёт немедленный международный ответ и, вероятно, ядерный удар по нашей территории.";
       if (!gmClassification.narrative || gmClassification.narrative.includes("уточнение") || gmClassification.narrative.includes("не зафиксировано")) {
         gmClassification.narrative = `Приказ о применении ядерного оружия зафиксирован. Штаб Верховного Главнокомандующего переведён в режим боевого дежурства. Мир стоит на пороге ядерной катастрофы впервые с 1945 года.`;
+        gmClassification.preview_narrative = `Если этот приказ будет подписан, штаб Верховного Главнокомандующего перейдёт в режим боевого дежурства для применения ядерного оружия. Мир окажется на пороге ядерной катастрофы впервые с 1945 года.`;
       }
     }
 
@@ -1363,7 +1364,14 @@ async function registerTurnRoutes(fastify, { db, callClaudeApi, pendingTurnStore
 
     return reply.send({
       turnNumber: nextTurnNumber,
-      narrative: gmClassification.narrative,
+      // Пете, 2026-07-19: реальный игрок (Кэп) принял текст превью за уже случившееся действие
+      // и закрыл вкладку, не нажав подтверждение — сам текст был написан ИИ в прошедшем времени
+      // ("издал приказ", "наносят удары"), хотя технически это ещё черновик. preview_narrative —
+      // новое поле от ИИ (см. system-prompt.txt), та же классификация, условное/будущее
+      // наклонение ("если подпишете... приведёт к..."), не прошедшее. Фоллбэк на narrative —
+      // на случай кэшированных/старых ответов без нового поля (детерминизм preview→confirm не
+      // страдает: то, что реально применяется, всегда narrative, см. /confirm ниже).
+      narrative: gmClassification.preview_narrative || gmClassification.narrative,
       effectLogic: gmClassification.effect_logic || null,
       advisorObjection: gmClassification.advisor_objection,
       statDeltasPreview: statDeltas,

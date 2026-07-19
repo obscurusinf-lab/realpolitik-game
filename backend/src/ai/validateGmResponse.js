@@ -102,6 +102,15 @@ function validateGmResponse(raw) {
     throw new Error("narrative missing or too short");
   }
 
+  // preview_narrative (2026-07-19) — версия того же события в условном/будущем наклонении,
+  // показывается игроку ДО подписи указа (см. /turns/preview). Реальный игрок (Кэп) принял
+  // прошедшее-время narrative в превью за уже случившееся и закрыл вкладку, решив, что ход
+  // прошёл — хотя подтверждения не было. Валидируем так же строго, как narrative, иначе ИИ
+  // будет иногда пропускать поле и preview молча откатится на прошедшее время.
+  if (!raw.preview_narrative || typeof raw.preview_narrative !== "string" || raw.preview_narrative.length < 10) {
+    throw new Error("preview_narrative missing or too short");
+  }
+
   // Признак того, что ИИ попытался сам "посчитать" дельты в тексте —
   // это не блокирует ответ (не всегда ошибка — может быть дата, % инфляции
   // из контекста), но логируется для ручного аудита промпта.
