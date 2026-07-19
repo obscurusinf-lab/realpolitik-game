@@ -4816,7 +4816,7 @@ const COUNTRY_INFO = {
   "Папуа Новая Гвинея": { capital: "Порт-Морсби", gov: "Конституционная монархия", flag: "🇵🇬", desc: "Богатая ресурсами страна Тихоокеанского региона. США усиливают военное присутствие на фоне конкуренции с Китаем за влияние в регионе." },
 };
 
-function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, center = [20, 15], actionMarkers = [], nuclearStrike = null, oblastStats = null, projection = "geoEqualEarth", newsPins = [], onNewsPinClick = null }) {
+function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, relations = [], scale = 110, center = [20, 15], actionMarkers = [], nuclearStrike = null, oblastStats = null, projection = "geoEqualEarth", newsPins = [], onNewsPinClick = null, combatByOblast = null }) {
   const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
   // Пете, 2026-07-19: карта была "обрезана" — react-simple-maps без ZoomableGroup не даёт ни
@@ -5016,8 +5016,19 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
             const { key, name, centroid } = f.properties;
             const pct = oblastStats[key] ?? 0;
             const short = TERRITORIES.find(tr => tr.key === key)?.short || name;
+            // Обозначение боевых действий (Петя, 2026-07-19: "и обозначения боевых действий") —
+            // значок над меткой области, если по НЕЙ было заметное движение % в последний ход
+            // (combatByOblast считает TacticalFrontView из того же state.log, что уже строит
+            // текстовый журнал ниже — не новый источник данных, та же логика знака: рост = моё
+            // наступление, падение = контрудар ВСУ).
+            const combat = combatByOblast?.[key];
             return (
               <Marker key={"ob" + key} coordinates={centroid}>
+                {combat && (
+                  <text textAnchor="middle" y={-15} fontSize={10} style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 3 }}>
+                    {combat.gained ? "⚔️" : "🇺🇦"}
+                  </text>
+                )}
                 <text textAnchor="middle" y={-4} fontSize={8} fill="#ece7d8" fontWeight="bold" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 3 }}>
                   {short}
                 </text>
@@ -5894,6 +5905,26 @@ function buildTacticalEvents(log) {
   return events.sort((a, b) => b.turn - a.turn);
 }
 
+// Тот же source (state.log), что и buildTacticalEvents выше, но сжат до "последнее движение по
+// каждой области" — для значка ⚔️/🇺🇦 НА карте (см. GeoMap combatByOblast), не для текстового
+// журнала. maxTurnsAgo ограничивает "свежесть": без этого значок с хода 3 продолжал бы висеть
+// на карте до конца партии, даже если по области давно ничего не происходило.
+function buildRecentCombatByOblast(log, currentTurn, maxTurnsAgo = 2) {
+  const byOblast = {};
+  for (const entry of (log || [])) {
+    if (!entry.turn || currentTurn - entry.turn > maxTurnsAgo) continue;
+    for (const { key } of TERRITORIES) {
+      const delta = entry.statDeltas?.[key];
+      if (typeof delta !== "number" || Math.round(delta) === 0) continue;
+      const existing = byOblast[key];
+      if (!existing || entry.turn >= existing.turn) {
+        byOblast[key] = { turn: entry.turn, gained: delta > 0 };
+      }
+    }
+  }
+  return byOblast;
+}
+
 // Панель журнала под картой — легенда (только реально встречающиеся категории, не все 11 сразу)
 // + прокручиваемый список, новые ходы сверху (как и остальные ленты в приложении).
 function TacticalEventLog({ events }) {
@@ -5948,6 +5979,7 @@ function TacticalFrontView({ state, isMobile, nuclearStrike, hotspots }) {
   const RU_MIL_KEYS = ["army_morale", "equipment", "readiness", "veterans"];
   const escalation = state.stats?.war_escalation_counter ?? 0;
   const tacticalEvents = useMemo(() => buildTacticalEvents(state.log), [state.log]);
+  const combatByOblast = useMemo(() => buildRecentCombatByOblast(state.log, state.turn), [state.log, state.turn]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -5985,6 +6017,7 @@ function TacticalFrontView({ state, isMobile, nuclearStrike, hotspots }) {
             center={[36, 48.3]}
             oblastStats={stats}
             nuclearStrike={nuclearStrike}
+            combatByOblast={combatByOblast}
           />
         </div>
       </div>
