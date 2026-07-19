@@ -2801,7 +2801,12 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
       nuclearConfirmRef.current = false;
       setShowNuclearConfirm(false);
       const confirmedActionResult = {
-        narrative: preview?.narrative,
+        // Пете, 2026-07-19: было preview?.narrative — до сегодняшнего фикса (см. HANDOFF,
+        // "отзыв игрока Кэп") preview и confirm буквально присылали ОДИН И ТОТ ЖЕ текст, так что
+        // разницы не было видно. Теперь /turns/preview отдаёт условное наклонение ("приведёт к"),
+        // а /turns/confirm — прошедшее ("привело к"), и этот баннер ("РЕШЕНИЕ ПРИНЯТО") должен
+        // показывать РЕЗУЛЬТАТ, а не черновик — берём из confirmResult, не из preview.
+        narrative: confirmResult?.narrative,
         statDeltasPreview: preview?.statDeltasPreview,
         actionMode,
         gmActionType: preview?.gmActionType,
