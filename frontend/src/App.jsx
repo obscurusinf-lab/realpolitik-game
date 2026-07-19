@@ -1270,6 +1270,8 @@ const ALL_STAT_LABELS = {
   zaporizhzhia_control: "Контроль Запорожья", kherson_control: "Контроль Херсона", kharkiv_control: "Контроль Харькова",
   military_streak: "Воен. стрик",
   ua_army: "Армия ВСУ", ua_west_support: "Поддержка Запада", ua_morale: "Боевой дух ВСУ",
+  ua_stability: "Стабильность Украины",
+  ua_equipment: "Снаряжение ВСУ", ua_readiness: "Боеготовность ВСУ", ua_veterans: "Опыт войск ВСУ",
   // Башни Кремля — раньше в превью/итогах хода протекали сырыми ключами ("faction_siloviki +12"),
   // т.к. этих меток тут не было (Петя, 2026-07-10, скриншот с багом). Метки/цвета зеркалят
   // FACTION_META ниже по файлу (её саму сюда не переносим — определена позже, до неё не дотянуться).
@@ -1290,7 +1292,7 @@ const DELTA_GROUPS = [
   { key: "resources", label: "Ресурсы",    stats: ["initiative"] },
   // Прямая цена для Украины от военных/тайных операций игрока (Петя, 2026-07-09: "должно быть
   // понятно, как это повлияло на Украину") — см. UA_IMPACT_FROM_PLAYER в rules-engine.js.
-  { key: "ukraine",   label: "Украина",    stats: ["ua_army", "ua_morale", "ua_stability", "ua_west_support"] },
+  { key: "ukraine",   label: "Украина",    stats: ["ua_army", "ua_morale", "ua_stability", "ua_west_support", "ua_equipment", "ua_readiness", "ua_veterans"] },
   // Реакция башен Кремля — своя группа, а не общее "Прочее" (Петя, 2026-07-10: "надписи с башнями
   // по-английски + под них отдельно завести — реакция башен"). Раньше faction_* не входили ни в
   // одну группу, падали в leftover, и текстовый фоллбэк рендерил их сырыми ключами (не было меток
@@ -1312,9 +1314,16 @@ function partitionPrimarySecondary(deltas) {
 }
 // Полный рендер пункта дельты — бар для всего, включая казну (своя шкала −100..100, см.
 // PreviewStatBar min/max) — раньше казна была единственным исключением с плоским текстом.
-function renderStatDeltaItem(stat, delta, current) {
+// compact (Петя, 2026-07-19: "много метрик, внимание теряется" — раскрытые "Подробности" могли
+// вывалить разом ~30 полос по всем 7 группам + "Прочее"). Убирать бары или сворачивать группы
+// обратно в аккордеон нельзя — игрок уже отказался от аккордеона и явно просил бары "для всего"
+// (Петя, 2026-07-07). Вместо этого второстепенные статы (внутри "Подробностей") рендерятся более
+// плотной версией того же бара — тот же формат "метка / было→стало (дельта) / полоса", просто
+// меньше по размеру, так что в ряд помещается больше и сканировать взглядом быстрее. Основные 5
+// статов сверху (всегда на виду) остаются в полный размер — их немного, ужимать незачем.
+function renderStatDeltaItem(stat, delta, current, compact = false) {
   if (stat === "initiative") {
-    return <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={current?.initiative ?? 100} delta={delta} />;
+    return <PreviewStatBar key="initiative" statKey="initiative" label="Инициатива" color="#9c8347" current={current?.initiative ?? 100} delta={delta} compact={compact} />;
   }
   if (stat === "treasury") {
     // "Казна" тут — ОЧКИ (условная стата −100..100), не деньги — добавляем рублёвый эквивалент
@@ -1322,16 +1331,16 @@ function renderStatDeltaItem(stat, delta, current) {
     const rubHint = `${delta > 0 ? "+" : ""}₽${(delta * TREASURY_PER_TRILLION).toFixed(1)}${getLang() === "en" ? "T" : " трлн"}`;
     return (
       <div key="treasury">
-        <PreviewStatBar statKey="treasury" label="Казна" color="#9c8347" current={current?.treasury ?? 52} delta={delta} min={-100} max={100} />
-        <div className="mono-font" style={{ fontSize: 9, color: "#8a8fa0", marginTop: 2 }}>{rubHint}</div>
+        <PreviewStatBar statKey="treasury" label="Казна" color="#9c8347" current={current?.treasury ?? 52} delta={delta} min={-100} max={100} compact={compact} />
+        <div className="mono-font" style={{ fontSize: compact ? 8 : 9, color: "#8a8fa0", marginTop: 2 }}>{rubHint}</div>
       </div>
     );
   }
   if (statMeta[stat] || EXTRA_BAR_META[stat]) {
-    return <PreviewStatBar key={stat} statKey={stat} current={current?.[stat] ?? 50} delta={delta} />;
+    return <PreviewStatBar key={stat} statKey={stat} current={current?.[stat] ?? 50} delta={delta} compact={compact} />;
   }
   return (
-    <span key={stat} className="mono-font" style={{ fontSize: 12, color: deltaColor(stat, delta) }}>
+    <span key={stat} className="mono-font" style={{ fontSize: compact ? 10.5 : 12, color: deltaColor(stat, delta) }}>
       {statLabel(stat, ALL_STAT_LABELS[stat] ?? stat)} {delta > 0 ? `+${delta}` : delta}
     </span>
   );
@@ -1382,20 +1391,20 @@ function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondar
             <span style={{ color: "#6a7080", fontSize: 9, transform: showSecondary ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
           </button>
           {showSecondary && (
-            <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "grid", gap: 7 }}>
               {secondaryGroups.map(g => (
                 <div key={g.key}>
-                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{statLabel(g.key, g.label)}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                    {g.items.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>{statLabel(g.key, g.label)}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {g.items.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current, true))}
                   </div>
                 </div>
               ))}
               {secondaryLeftover.length > 0 && (
                 <div>
-                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{t("delta.other")}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                    {secondaryLeftover.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current))}
+                  <div className="mono-font" style={{ fontSize: 8, color: "#5a6070", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>{t("delta.other")}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {secondaryLeftover.map(([stat, delta]) => renderStatDeltaItem(stat, delta, current, true))}
                   </div>
                 </div>
               )}
@@ -1692,7 +1701,7 @@ function fmtEcoNote(note) {
 // полупрозрачной полосой поверх до проектной отметки (тонкая линия = где окажется стата
 // после подтверждения). Наглядно показывает "какие будут изменения" прямо на шкале,
 // а не только числом рядом.
-function PreviewStatBar({ statKey, current, delta, label, color, inverted: invertedProp, min = 0, max = 100 }) {
+function PreviewStatBar({ statKey, current, delta, label, color, inverted: invertedProp, min = 0, max = 100, compact = false }) {
   // label/color — необязательный оверрайд для ключей вне statMeta/EXTRA_BAR_META (напр.
   // "initiative" — та же шкала 0-100, что и у 5 базовых статов, но не входит в statMeta, чтобы не
   // попасть в основную сетку статов на вкладке «Показатели» — это расходуемый ресурс хода, а не
@@ -1710,17 +1719,17 @@ function PreviewStatBar({ statKey, current, delta, label, color, inverted: inver
   const lo = toPct(Math.min(current, projected));
   const hi = toPct(Math.max(current, projected));
   return (
-    <div style={{ minWidth: 130, flex: "1 1 130px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-        <span className="mono-font" style={{ fontSize: 9.5, color: "#8a8fa0" }}>{statLabel(statKey, meta.label)}</span>
-        <span className="mono-font" style={{ fontSize: 10.5, fontWeight: 700, color: good ? "#7fae93" : "#c47a7a" }}>
-          {current}→{projected} ({delta > 0 ? "+" : ""}{delta})
+    <div style={{ minWidth: compact ? 88 : 130, flex: compact ? "1 1 88px" : "1 1 130px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: compact ? 2 : 3, gap: 4 }}>
+        <span className="mono-font" style={{ fontSize: compact ? 8 : 9.5, color: "#8a8fa0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{statLabel(statKey, meta.label)}</span>
+        <span className="mono-font" style={{ fontSize: compact ? 9 : 10.5, fontWeight: 700, color: good ? "#7fae93" : "#c47a7a", whiteSpace: "nowrap" }}>
+          {compact ? `${delta > 0 ? "+" : ""}${delta}` : `${current}→${projected} (${delta > 0 ? "+" : ""}${delta})`}
         </span>
       </div>
-      <div style={{ position: "relative", height: 7, background: "#2a3040", borderRadius: 3, overflow: "hidden" }}>
+      <div style={{ position: "relative", height: compact ? 4 : 7, background: "#2a3040", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${lo}%`, background: meta.color }} />
         <div style={{ position: "absolute", left: `${lo}%`, top: 0, height: "100%", width: `${hi - lo}%`, background: good ? "#7fae9377" : "#c47a7a77" }} />
-        <div style={{ position: "absolute", left: `${toPct(projected)}%`, top: -1, width: 2, height: 9, background: "#ece7d8" }} />
+        {!compact && <div style={{ position: "absolute", left: `${toPct(projected)}%`, top: -1, width: 2, height: 9, background: "#ece7d8" }} />}
       </div>
     </div>
   );
@@ -3184,6 +3193,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   // tabs[].label, чтобы не удлинять сами кнопки таб-бара.
   const TAB_DESCRIPTIONS = {
     overview: t("tab.desc_overview"),
+    military: t("tab.desc_military"),
     kremlin: t("tab.desc_kremlin"),
     advisors: t("tab.desc_advisors"),
     treasury: t("tab.desc_treasury"),
@@ -3200,10 +3210,16 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   const GROUP_OF_TAB = Object.fromEntries(TAB_GROUPS.flatMap(g => g.tabIds.map(id => [id, g.id])));
   const activeGroupId = GROUP_OF_TAB[tab] || null;
 
-  // Верхний уровень таб-бара: "Обстановка" напрямую + 3 кнопки-группы. Клик по кнопке-группе,
-  // когда она уже активна, ничего не переключает — остаёмся на текущей под-вкладке.
+  // Верхний уровень таб-бара: "Обстановка" + "Военные операции" напрямую + 3 кнопки-группы.
+  // Клик по кнопке-группе, когда она уже активна, ничего не переключает — остаёмся на текущей
+  // под-вкладке. "Военные операции" (Петя, 2026-07-19: "неудобно давать боевые приказы через
+  // министра" — раньше единственный путь лежал через Управление → Кабинет министров → карточка
+  // Министра обороны → под-домен, три клика вглубь ради того, что в разгар хода должно быть
+  // быстрым) — отдельный листовой таб рядом с "Обстановка", не в группе "Управление", старый
+  // путь через Кабинет министров не убран (см. MilitaryTab ниже).
   const topLevelItems = [
     { id: "overview", label: t("tab.overview"), icon: Globe2, kind: "leaf" },
+    { id: "military", label: t("tab.military"), icon: Swords, kind: "leaf" },
     ...TAB_GROUPS.map(g => ({ id: `group:${g.id}`, label: g.label, icon: g.icon, kind: "group", groupId: g.id })),
   ];
 
@@ -3543,6 +3559,21 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             onRefresh={loadState}
             optimalMove={assistMode === "hardcore" ? null : optimalMove}
             onOpenAdvisors={() => setTab("advisors")}
+          />
+        )}
+        {tab === "military" && (
+          <MilitaryTab
+            onSelectCategory={(template, mode) => {
+              // Тот же обработчик, что и у карточек в Кабинете министров (см. AdvisorsTab
+              // onSelectCategory ниже) — форма подписи общая для всех вкладок, просто скроллим
+              // и фокусируем её.
+              setDraftInput(template);
+              if (["decree_fast","decree_reform","decree_program","intel","military","diplomacy_op"].includes(mode)) setActionMode(mode);
+              setTimeout(() => {
+                draftTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                draftTextareaRef.current?.focus();
+              }, 50);
+            }}
           />
         )}
         {tab === "kremlin" && (
@@ -5057,6 +5088,17 @@ function GeoMap({ hotspots, activeHotspotIdx, onMarkerClick, onCountryClick, rel
               </Marker>
             );
           })}
+          {/* Российские приграничные города (Петя, 2026-07-19: "нет русских городов на территории
+              старой России") — тот же кружок+подпись, что и у украинских НП выше, но цвет
+              нейтральный (не территория спора) и список короткий, прореживание не нужно. */}
+          {oblastStats && RU_BORDER_SETTLEMENTS.filter(s => zoomPos.zoom >= SETTLEMENT_TIER_MIN_ZOOM[s.tier]).map((s, i) => (
+            <Marker key={"rusettle" + i} coordinates={s.coords}>
+              <circle r={s.tier === 1 ? 2.2 : 1.4} fill="#6a7080" stroke="#0d1420" strokeWidth={0.4} />
+              <text textAnchor="middle" y={-4} fontSize={s.tier === 1 ? 6 : 5} fill="#ece7d8" style={{ paintOrder: "stroke", stroke: "#0d1420", strokeWidth: 2 }}>
+                {s.name}
+              </text>
+            </Marker>
+          ))}
           {oblastStats && UA_OBLASTS_GEO.features.filter(f => f.properties.tracked).map(f => {
             const { key, name, centroid } = f.properties;
             const pct = oblastStats[key] ?? 0;
@@ -5155,6 +5197,34 @@ function thinSettlementsForDisplay(settlements, zoom) {
 // Подписи стран на тактической карте — точки подобраны так, чтобы попадать В КАДР при базовом
 // масштабе (не centroid всей страны, как в REGION_COORDS ниже: например "россия" там [60,55] —
 // это Урал, далеко за пределами видимой на тактической карте части России).
+// Российские приграничные города/райцентры (Петя, 2026-07-19: "нет русских городов на территории
+// старой России" — на тактической карте были подписаны только украинские НП, российская сторона
+// карты пустая). Рукописный список (в разы меньше 1060 украинских — не нужна такая же плотность,
+// это не зона боевых действий с контролем территории, просто ориентиры на своей стороне границы),
+// координаты попадают в видимую область при дефолтном scale/center тактической карты (тот же
+// диапазон, где уже размещена подпись "РОССИЯ" в TACTICAL_COUNTRY_LABELS). Рендерится тем же
+// визуальным языком, что и UA_SETTLEMENTS (кружок+подпись, тиры под зум), но БЕЗ raionFills —
+// российская территория не подконтрольна оспариванию, как украинские области, поэтому цвет
+// нейтральный, не завязан на oblastControlColor.
+const RU_BORDER_SETTLEMENTS = [
+  { name: "Белгород", coords: [36.5983, 50.5997], tier: 1 },
+  { name: "Курск", coords: [36.1947, 51.7373], tier: 1 },
+  { name: "Воронеж", coords: [39.1919, 51.6720], tier: 1 },
+  { name: "Ростов-на-Дону", coords: [39.7015, 47.2357], tier: 1 },
+  { name: "Таганрог", coords: [38.9161, 47.2362], tier: 2 },
+  { name: "Старый Оскол", coords: [37.8375, 51.3000], tier: 2 },
+  { name: "Новошахтинск", coords: [39.9333, 47.7667], tier: 2 },
+  { name: "Каменск-Шахтинский", coords: [40.2467, 48.3181], tier: 2 },
+  { name: "Шебекино", coords: [36.8942, 50.4147], tier: 3 },
+  { name: "Валуйки", coords: [38.1103, 50.2094], tier: 3 },
+  { name: "Новый Оскол", coords: [37.8781, 50.7683], tier: 3 },
+  { name: "Суджа", coords: [35.2725, 51.1908], tier: 3 },
+  { name: "Льгов", coords: [35.2758, 51.6733], tier: 3 },
+  { name: "Миллерово", coords: [40.3944, 48.9186], tier: 3 },
+  { name: "Азов", coords: [39.4197, 47.1114], tier: 3 },
+  { name: "Грайворон", coords: [35.6667, 50.4833], tier: 3 },
+];
+
 const TACTICAL_COUNTRY_LABELS = [
   { name: "Россия", coords: [41, 51.5] },
   { name: "Украина", coords: [29.5, 49.8] },
@@ -6234,7 +6304,7 @@ EXTRA_BAR_META.peace_progress = { label: "Мирный трек", color: "#5b8c6
 // Прямая цена для Украины от указа игрока (UA_IMPACT_FROM_PLAYER, см. rules-engine.js) — те же
 // label/color, что уже используются в панели "Разведданные по Украине" (UA_STAT_META), просто
 // чтобы бар в превью/итогах хода выглядел так же, как и в StatsTab.
-for (const k of ["ua_army", "ua_morale", "ua_stability", "ua_west_support"]) {
+for (const k of ["ua_army", "ua_morale", "ua_stability", "ua_west_support", "ua_equipment", "ua_readiness", "ua_veterans"]) {
   EXTRA_BAR_META[k] = { label: UA_STAT_META[k].label, color: UA_STAT_META[k].color, inverted: false };
 }
 // Башни Кремля — те же 4 ключа, что и FACTION_META ниже по файлу (её саму сюда не поднять —
@@ -8127,8 +8197,8 @@ function findMinisterDomainForCategory(categoryId) {
 // советника (optimalMove с бэкенда) — единым баннером над списком министров в AdvisorsTab (не
 // per-министр — Петя, 2026-07-10: "система подсказок куда-то делась") — jumpTo ниже принимает
 // {domainId, categoryId, tier} от кнопки "Перейти" этого баннера.
-function MinisterCategoryBrowser({ ministerId, onSelectCategory, jumpTo }) {
-  const domains = MINISTER_DOMAINS[ministerId] || [];
+function MinisterCategoryBrowser({ ministerId, onSelectCategory, jumpTo, domainsOverride }) {
+  const domains = domainsOverride || MINISTER_DOMAINS[ministerId] || [];
   const [domainId, setDomainId] = useState(domains[0]?.id);
   const [tier, setTier] = useState("decree_fast");
   const [expandedCardId, setExpandedCardId] = useState(null);
@@ -8304,6 +8374,27 @@ function MinisterCategoryBrowser({ ministerId, onSelectCategory, jumpTo }) {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+// Отдельная вкладка «Военные операции» верхнего уровня (Петя, 2026-07-19: "неудобно давать
+// боевые приказы через министра" — единственный путь раньше лежал через Управление → Кабинет
+// министров → карточка Министра обороны → под-домен "Военные операции", три клика вглубь ради
+// того, что в разгар хода должно быть быстрым действием). Переиспользует тот же
+// MinisterCategoryBrowser, что и карточка Белоева, просто монтируется напрямую на верхнем уровне
+// и сужен до домена "military" через domainsOverride (без "Административные указы" — это не
+// боевой приказ, а бюджет/мобилизация/доктрина). Старый путь через Кабинет министров не убран —
+// он остаётся рабочим, тут просто более быстрый доступ к тому же самому.
+function MilitaryTab({ onSelectCategory }) {
+  return (
+    <div>
+      <MinisterCategoryBrowser
+        ministerId="defense"
+        domainsOverride={[MINISTER_DOMAINS.defense[0]]}
+        onSelectCategory={onSelectCategory}
+        jumpTo={null}
+      />
     </div>
   );
 }
@@ -10870,8 +10961,13 @@ function NewsfeedTab({ state, gameId, onRefresh, hideTicker = false }) {
         // запись {stat_delta} внутри массива reactions — отфильтровываем её из списка КОММЕНТАРИЕВ,
         // чтобы не рендерить как пустой комментарий без user/text.
         const newsStatDelta = x.newsStatDelta;
+        // БАГ (Петя, 2026-07-19, "нет никаких комментариев"): фильтр раньше пропускал любую
+        // запись без stat_delta — но у item_type "reaction"/"nuclear_reaction" (реакции стран,
+        // source = страна) тот же столбец reactions хранит [{options: [...]}] (варианты ответа
+        // для интерактивной реакции, см. turns.js) — без user/text это рендерилось как пустой
+        // цветной кружок без текста. Комментарий валиден только если реально есть user+text.
         const comments = (!isWorldMove && Array.isArray(item.reactions))
-          ? item.reactions.filter(r => !r.stat_delta)
+          ? item.reactions.filter(r => r && r.user && r.text)
           : [];
         return (
           <div key={`feed-${i}`} style={{
