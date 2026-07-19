@@ -487,12 +487,15 @@ export async function cbReplace(gameId, type) {
   return res.json();
 }
 
-export async function submitFeedback(message, contact, gameId) {
+export async function submitFeedback(message, contact, gameId, audio = null) {
   const res = await fetchWithTimeout(`${API_BASE}/feedback`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, contact, gameId, page: typeof window !== "undefined" ? window.location.pathname : "" }),
-  }, 15000);
+    body: JSON.stringify({
+      message, contact, gameId, page: typeof window !== "undefined" ? window.location.pathname : "",
+      audioBase64: audio?.base64 || undefined, audioMime: audio?.mime || undefined,
+    }),
+  }, 20000);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Не удалось отправить сообщение");
