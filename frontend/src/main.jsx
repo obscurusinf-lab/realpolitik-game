@@ -447,7 +447,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                               {g.assist_mode === "hardcore" ? (
                                 <span className="mono-font" title={t("start.mode_hardcore_title")} style={{ fontSize: 8, color: "#b06a6a", border: "1px solid #4a2020", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>🎖 {t("start.mode_hardcore_title").toUpperCase()}</span>
                               ) : g.assist_mode === "guided" ? (
-                                <span className="mono-font" title={t("start.mode_guided_title")} style={{ fontSize: 8, color: "#7ba8c8", border: "1px solid #244a5a", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>🎓 {t("start.mode_guided_title").toUpperCase()}</span>
+                                <span className="mono-font" title={t("start.mode_guided_title")} style={{ fontSize: 8, color: "#7ba8c8", border: "1px solid #244a5a", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>🐣 {t("start.mode_guided_title").toUpperCase()}</span>
                               ) : (
                                 <span className="mono-font" title={t("start.mode_advisor_title")} style={{ fontSize: 8, color: "#6a9c7a", border: "1px solid #244a30", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.04em" }}>💡 {t("start.mode_advisor_title").toUpperCase()}</span>
                               )}
@@ -509,7 +509,7 @@ function StartScreen({ authUser, onAuthSuccess, onNameChanged, onStart, myGames 
                     // ввод как основной способ играть, Кабинет министров — необязательная подсказка
                     // по запросу, а не обязательная навигация (Петя: "игроку пишут — пиши что
                     // думаешь... если чувствуешь что не понимаешь — подключается кабинет министров").
-                    { id: "guided", icon: "🎓", title: t("start.mode_guided_title"), desc: t("start.mode_guided_desc"), tint: "#1a2430", border: "#5b8ab0" },
+                    { id: "guided", icon: "🐣", title: t("start.mode_guided_title"), desc: t("start.mode_guided_desc"), tint: "#1a2430", border: "#5b8ab0" },
                     { id: "advisor", icon: "💡", title: t("start.mode_advisor_title"), desc: t("start.mode_advisor_desc"), tint: "#1a2a1a", border: "#9c8347" },
                     { id: "hardcore", icon: "🎖", title: t("start.mode_hardcore_title"), desc: t("start.mode_hardcore_desc"), tint: "#2a1a1a", border: "#a8313a" },
                   ].map(m => {
