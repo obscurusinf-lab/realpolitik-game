@@ -30,7 +30,7 @@ const ADVISOR_IDS = new Set(ADVISORS.map(a => a.id));
 // в computeOptimalMove). Раньше дублировался только внутри /consult.
 async function loadAdvisorContext(db, gameId) {
   const gameRes = await db.query(
-    `SELECT g.current_turn, g.language, gs.stats, gs.relations, gs.policies, gs.overview, g.admin_advisor_notes,
+    `SELECT g.current_turn, g.language, g.assist_mode, gs.stats, gs.relations, gs.policies, gs.overview, g.admin_advisor_notes,
             g.owner_user_id, c.name AS country_name, COALESCE(g.president_name, u.display_name) AS player_name
      FROM games g
      JOIN game_state gs ON gs.game_id = g.id
@@ -93,6 +93,11 @@ async function registerAdvisorRoutes(fastify, { db, callClaudeApi }) {
         playerDraft: playerDraft?.trim() || null,
         actionMode: actionMode || "decree_reform",
         language: game.language,
+        // "Обучение" (guided) — новый третий assist_mode, 2026-07-20 (Петя: "министр финансов
+        // рассказывает про казну простыми словами" — как отдельный режим для тех, кому основной
+        // интерфейс непонятен). Советник сохраняет персонажа, но обязан объяснять просто,
+        // без жаргона — см. инструкцию в buildAdvisorsUserMessage.
+        guided: game.assist_mode === "guided",
       },
       advisorId,
       callClaudeApi,

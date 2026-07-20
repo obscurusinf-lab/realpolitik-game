@@ -3568,6 +3568,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
             onRefresh={loadState}
             optimalMove={assistMode === "hardcore" ? null : optimalMove}
             onOpenAdvisors={() => setTab("advisors")}
+            assistMode={assistMode}
           />
         )}
         {tab === "military" && (
@@ -3868,7 +3869,8 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               value={draftInput}
               onChange={(e) => setDraftInput(e.target.value)}
               placeholder={
-                actionMode === "intel" ? "Опишите тайную операцию против противника (дестабилизация, диверсия, дезинформация)…"
+                assistMode === "guided" ? t("guided.placeholder")
+                : actionMode === "intel" ? "Опишите тайную операцию против противника (дестабилизация, диверсия, дезинформация)…"
                 : actionMode === "military" ? "Опишите военную операцию — от разведки и точечного удара до наступления…"
                 : actionMode === "decree_program" ? "Опишите крупную государственную программу (7–12 мес.)…"
                 : actionMode === "decree_reform" ? "Опишите реформу (3–6 мес.)…"
@@ -5570,12 +5572,30 @@ function NewsVideoPanel({ state }) { return <NewsLiveFeed state={state} />; }
 // парчментной светлой темы на тёмную — тем же принципом, что уже применялся к карточкам Ленты
 // (см. коммент у LogDeltaChip): единая карточная тема на одной вкладке выглядит собранно, смесь
 // светлого и тёмного — нет.
-function OverviewTab({ state, gameId, onRefresh, optimalMove, onOpenAdvisors }) {
+function OverviewTab({ state, gameId, onRefresh, optimalMove, onOpenAdvisors, assistMode }) {
   const [modal, setModal] = useState(null);
+  const [showGuidedBanner, setShowGuidedBanner] = useState(true);
   const hotspots = state.overview?.hotspots ?? [];
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      {/* Режим "Обучение" (guided, 2026-07-20) — Петя: "игроку пишут — пиши что думаешь, что бы
+          ты написал как президент. пиши что хочешь" — постоянное (но закрываемое) напоминание
+          прямо на первом экране, а не спрятанное в тексте описания режима на старте партии,
+          которое видно один раз при создании и забывается. */}
+      {assistMode === "guided" && showGuidedBanner && (
+        <div style={{ background: "#141f2a", border: "1px solid #2a4a5a", borderLeft: "4px solid #5b8ab0", borderRadius: 6, padding: "10px 13px", display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <div style={{ flex: 1 }}>
+            <div className="mono-font" style={{ fontSize: 9, color: "#7ba8c8", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4 }}>
+              {t("guided.banner_title")}
+            </div>
+            <div className="doc-font" style={{ fontSize: 12.5, color: "#c0d4e0", lineHeight: 1.5 }}>
+              {t("guided.banner_text")}
+            </div>
+          </div>
+          <button onClick={() => setShowGuidedBanner(false)} style={{ background: "none", border: "none", color: "#4a6a80", cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0, padding: "0 0 0 4px" }}>×</button>
+        </div>
+      )}
       {/* Тизер совета аппарата (Петя, 2026-07-18: "непонятно что делать" — сама рекомендация
           (см. AdvisorsTab) жива, но спрятана за Управление → Кабинет министров, а на Обстановке
           (первый экран после входа) не было вообще никакого намёка, что она есть и где искать.

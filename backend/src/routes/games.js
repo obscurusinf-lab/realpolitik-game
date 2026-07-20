@@ -175,8 +175,10 @@ async function registerGameRoutes(fastify, { db, callClaudeApi, verifyToken }) {
 
     const { countryId, assistMode, presidentName, showInLeaderboard, isPublic, language } = request.body || {};
     const userId = payload.userId;
-    // Режим закрепляется на старте: 'advisor' (по умолчанию) | 'hardcore'
-    const mode = assistMode === "hardcore" ? "hardcore" : "advisor";
+    // Режим закрепляется на старте: 'advisor' (по умолчанию) | 'hardcore' | 'guided' (2026-07-20,
+    // "Обучение" — свободный текст как основной ввод + советники объясняют простыми словами по
+    // запросу, см. advisors.js buildAdvisorsUserMessage guidedSection).
+    const mode = ["hardcore", "guided"].includes(assistMode) ? assistMode : "advisor";
     // Имя президента — своё на каждую партию, не путать с логином/аккаунтом.
     const president = (typeof presidentName === "string" ? presidentName.trim() : "").slice(0, 40) || null;
     if (president) {
