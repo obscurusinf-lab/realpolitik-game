@@ -50,7 +50,7 @@ function pickTerritoryCounterattack(actionsWithDeltas) {
 }
 
 // ---------- EndTurnScreen ----------
-function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
+function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn, assistMode }) {
   const [phase, setPhase] = useState(0); // 0=action, 1=stats, 2=world, 3=done
   const [worldItems, setWorldItems] = useState([]);
   const [worldMoves, setWorldMoves] = useState([]);
@@ -258,6 +258,22 @@ function EndTurnScreen({ prevState, turnResult, gameId, onDone, fromTurn }) {
                 ([s, d]) => d !== 0 && !statMeta[s] && !s.startsWith("_") && s !== "military_streak"
               );
               if (extraEntries.length === 0) return null;
+              // Режим "Новичок" (2026-07-20) — тот же паттерн, что в PreviewCard/баннере
+              // "РЕШЕНИЕ ПРИНЯТО": простыми словами по умолчанию, точные цифры за кнопкой.
+              if (assistMode === "guided" && !showSecondaryResults) {
+                return (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
+                    <PlainLanguageDeltaSummary deltas={extraEntries} />
+                    <button
+                      onClick={() => setShowSecondaryResults(true)}
+                      className="mono-font"
+                      style={{ background: "none", border: "none", color: "#6a8090", fontSize: 9, letterSpacing: "0.06em", cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" }}
+                    >
+                      Показать точные цифры
+                    </button>
+                  </div>
+                );
+              }
               return (
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #2a3040" }}>
                   <PrimarySecondaryDeltas deltas={extraEntries} current={prevStats} showSecondary={showSecondaryResults} toggleSecondary={() => setShowSecondaryResults(v => !v)} />
@@ -1363,6 +1379,39 @@ function groupSecondaryEntries(secondary) {
   const leftover = secondary.filter(([s]) => !groupedKeys.has(s));
   return { groups, leftover };
 }
+// Простыми словами (режим "Новичок", 2026-07-20) — вместо сетки из 5-30 цифр сразу после указа
+// (для новичка это стена данных, не ответ на вопрос "хорошо это или плохо") — два коротких списка
+// "стало лучше"/"стало хуже" по названиям статов, без самих цифр. INVERTED_STATS (коррупция,
+// инфляция, изоляция, эскалация) учитывается — рост там ухудшение, не улучшение. Точные цифры
+// никуда не делись — PrimarySecondaryDeltas по-прежнему доступен через toggle рядом (см. вызов).
+function PlainLanguageDeltaSummary({ deltas }) {
+  const nonZero = deltas.filter(([s, d]) => d !== 0 && !s.startsWith("_") && s !== "military_streak");
+  if (nonZero.length === 0) {
+    return <span className="doc-font" style={{ fontSize: 12.5, color: "#9a9484" }}>➖ Заметных изменений нет.</span>;
+  }
+  const improved = [], worsened = [];
+  for (const [stat, delta] of nonZero) {
+    const bad = INVERTED_STATS.has(stat) ? delta > 0 : delta < 0;
+    (bad ? worsened : improved).push([stat, Math.abs(delta)]);
+  }
+  const fmt = (list) => {
+    const sorted = [...list].sort((a, b) => b[1] - a[1]);
+    const shown = sorted.slice(0, 5).map(([s]) => statLabel(s, ALL_STAT_LABELS[s] ?? s));
+    const rest = sorted.length - shown.length;
+    return shown.join(", ") + (rest > 0 ? ` и ещё ${rest}` : "");
+  };
+  return (
+    <div style={{ display: "grid", gap: 4 }}>
+      {improved.length > 0 && (
+        <div className="doc-font" style={{ fontSize: 12.5, color: "#a0c090" }}>📈 Стало лучше: {fmt(improved)}</div>
+      )}
+      {worsened.length > 0 && (
+        <div className="doc-font" style={{ fontSize: 12.5, color: "#d0a0a0" }}>📉 Стало хуже: {fmt(worsened)}</div>
+      )}
+    </div>
+  );
+}
+
 function PrimarySecondaryDeltas({ deltas, current, showSecondary, toggleSecondary }) {
   const { primary, secondary } = partitionPrimarySecondary(deltas);
   if (primary.length === 0 && secondary.length === 0) {
@@ -1735,7 +1784,7 @@ function PreviewStatBar({ statKey, current, delta, label, color, inverted: inver
   );
 }
 
-function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, gameId, onObjectionWithdrawn }) {
+function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, gameId, onObjectionWithdrawn, assistMode }) {
   if (!preview) return null;
 
   const [objection, setObjection] = useState(preview.advisorObjection || null);
@@ -1905,7 +1954,22 @@ function PreviewCard({ preview, currentStats, onConfirm, onCancel, confirming, g
         {/* Пояснение про лаг ("на экономику подействует не сразу...") сказано один раз выше
             (econNotes.total) — не повторяется под каждым статом ниже, это и было главным
             источником "перегруженности" (Петя, 2026-07-07). */}
-        <PrimarySecondaryDeltas deltas={deltas} current={currentStats} showSecondary={showSecondary} toggleSecondary={() => setShowSecondary(v => !v)} />
+        {/* Режим "Новичок" (2026-07-20) — та же логика, что в баннере "РЕШЕНИЕ ПРИНЯТО": простыми
+            словами по умолчанию, точные цифры доступны за отдельной кнопкой. */}
+        {assistMode === "guided" && !showSecondary && deltas.length > 0 ? (
+          <div>
+            <PlainLanguageDeltaSummary deltas={deltas} />
+            <button
+              onClick={() => setShowSecondary(true)}
+              className="mono-font"
+              style={{ background: "none", border: "none", color: "#6a8090", fontSize: 9, letterSpacing: "0.06em", cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" }}
+            >
+              Показать точные цифры
+            </button>
+          </div>
+        ) : (
+          <PrimarySecondaryDeltas deltas={deltas} current={currentStats} showSecondary={showSecondary} toggleSecondary={() => setShowSecondary(v => !v)} />
+        )}
         {/* Часть эффекта Реформы/Программы приходит не сразу (см. TIER_SPLIT, rules-engine.js) —
             игрок видит это ДО подтверждения, а не узнаёт постфактум из Ленты (Петя, 2026-07-18:
             "буду ли получать плюшки в процессе, или в конце?"). */}
@@ -2591,6 +2655,24 @@ function FinanceMinisterWarningModal({ summary, onClose }) {
   );
 }
 
+// Идеи для первого указа в режиме "Новичок" (2026-07-20, Петя: "сделай анализ игры, как
+// сторонний человек... как максимально упростить игру для нового игрока" — свободное поле
+// хорошо звучит в теории, но пустое поле "пиши что хочешь" для игрока с нулевым опытом — это
+// паралич выбора, не свобода: "а что вообще МОЖНО написать?"). Статичный, всегда безопасный
+// набор — не привязан к конкретной партии (в отличие от optimalMove, который считается из
+// реальных статов и добавляется первым пунктом в UI отдельно, см. ниже). Формулировки нарочно
+// нейтральные и не экстремальные — годятся для любого стартового состояния игры.
+const GUIDED_STARTER_IDEAS = [
+  { id: "econ", icon: "💰", label: "Поддержать бизнес", mode: "decree_fast",
+    text: "Разработать пакет мер по поддержке малого и среднего бизнеса и стимулированию экономики." },
+  { id: "diplo", icon: "🤝", label: "Начать переговоры", mode: "diplomacy_op",
+    text: "Поручить министерству иностранных дел начать переговоры с соседними странами о снижении напряжённости." },
+  { id: "defense", icon: "🛡", label: "Укрепить оборону", mode: "decree_fast",
+    text: "Поручить министерству обороны нарастить военный бюджет и укрепить снабжение действующей армии." },
+  { id: "social", icon: "📢", label: "Поднять настроение народа", mode: "decree_fast",
+    text: "Запустить социальную программу поддержки семей военнослужащих и обычных граждан." },
+];
+
 export default function App({ gameId, playerName, onNewGame, showWelcome: initialShowWelcome = false, readOnly = false, fetchStateFn = fetchGameState }) {
   // Режим просмотра (2026-07-12) — переиспользует ВЕСЬ обычный игровой интерфейс (те же вкладки,
   // те же карточки), а не отдельный упрощённый компонент, как раньше (SpectatorView). Два пропа:
@@ -3156,7 +3238,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
   }
 
   if (endTurnResult) {
-    return <EndTurnScreen prevState={state} turnResult={endTurnResult} gameId={gameId} onDone={handleEndTurnDone} fromTurn={sessionTurnStart} />;
+    return <EndTurnScreen prevState={state} turnResult={endTurnResult} gameId={gameId} onDone={handleEndTurnDone} fromTurn={sessionTurnStart} assistMode={assistMode} />;
   }
 
   if (ukraineReactions) {
@@ -3435,6 +3517,15 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <LangToggle />
+              {/* Значок режима "Новичок" (2026-07-20, Петя: "этот режим должен быть виден
+                  везде — щас я его нигде не увидел") — баннер-подсказка на Обстановке жил только
+                  внутри OverviewTab, на остальных вкладках не было НИЧЕГО, что напоминало бы
+                  игроку, в каком он режиме. Этот значок — в шапке, рендерится на уровне App, не
+                  внутри конкретной вкладки, поэтому виден всегда, независимо от того, какая
+                  вкладка открыта. */}
+              {assistMode === "guided" && (
+                <span title={t("start.mode_guided_title")} style={{ fontSize: 8, color: "#7ba8c8", background: "#141f2a", border: "1px solid #244a5a", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>🐣 {t("start.mode_guided_title").toUpperCase()}</span>
+              )}
               <span style={{ fontSize: 8, color: "#c8a857", background: "#2a2010", border: "1px solid #5a4520", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace", letterSpacing: "0.08em" }}>{t("app.alpha_badge")}</span>
             </div>
             {/* Ликбез виден в ОБОИХ режимах (Петя, 2026-07-10: "в хардкоре нужно только ликбез
@@ -3642,7 +3733,7 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
           <span className="mono-font" style={{ fontSize: 10, color: "#9c8347", letterSpacing: "0.1em" }}>РЕЖИМ ПРОСМОТРА · ДЕЙСТВИЯ НЕДОСТУПНЫ</span>
         </div>
       ) : preview ? (
-        <PreviewCard preview={preview} currentStats={state?.stats} onConfirm={handleConfirmClick} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} />
+        <PreviewCard preview={preview} currentStats={state?.stats} onConfirm={handleConfirmClick} onCancel={handleCancel} confirming={confirming} gameId={gameId} onObjectionWithdrawn={() => {}} assistMode={assistMode} />
       ) : (
         <div style={{ background: NK.footerBg, borderTop: `2px solid ${NK.footerBorder}`, padding: "14px 16px" }}>
 
@@ -3665,6 +3756,22 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
                 {(() => {
                   const deltas = Object.entries(lastActionResult.statDeltasPreview || {}).filter(([, d]) => d !== 0);
                   if (deltas.length === 0) return null;
+                  // Режим "Новичок" (2026-07-20) — по умолчанию простыми словами вместо сетки
+                  // цифр, точные цифры остаются доступны за одной кнопкой, никуда не пропали.
+                  if (assistMode === "guided" && !showLastActionDetails) {
+                    return (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #1a3020" }}>
+                        <PlainLanguageDeltaSummary deltas={deltas} />
+                        <button
+                          onClick={() => setShowLastActionDetails(true)}
+                          className="mono-font"
+                          style={{ background: "none", border: "none", color: "#5a8070", fontSize: 9, letterSpacing: "0.06em", cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" }}
+                        >
+                          Показать точные цифры
+                        </button>
+                      </div>
+                    );
+                  }
                   return (
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #1a3020" }}>
                       <PrimarySecondaryDeltas
@@ -3837,6 +3944,38 @@ export default function App({ gameId, playerName, onNewGame, showWelcome: initia
               </>
             );
           })()}
+
+          {/* Идеи для первого указа (режим "Новичок", 2026-07-20) — только пока поле пустое и
+              ничего не в процессе: пустое поле "пиши что хочешь" само по себе не решает паралич
+              выбора у игрока без опыта. Рекомендация аппарата (optimalMove, тот же расчёт, что
+              питает баннер на Обстановке) — первая и выделена цветом, дальше статичные безопасные
+              идеи. Клик — просто заполняет поле, ничего не отправляет, можно передумать/дописать. */}
+          {assistMode === "guided" && !draftInput.trim() && !lastActionResult && !preview && (
+            <div style={{ marginBottom: 10 }}>
+              <div className="mono-font" style={{ fontSize: 9, color: "#7ba8c8", letterSpacing: "0.06em", marginBottom: 6 }}>
+                🐣 НЕ ЗНАЕТЕ, С ЧЕГО НАЧАТЬ? ВЫБЕРИТЕ ИДЕЮ:
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {optimalMove?.decree && (
+                  <button
+                    onClick={() => { setDraftInput(optimalMove.decree); setActionMode("decree_fast"); setTimeout(() => draftTextareaRef.current?.focus(), 50); }}
+                    style={{ background: "#12241a", border: "1px solid #3a8a5a", borderRadius: 4, padding: "6px 11px", fontFamily: "'PT Serif',serif", fontSize: 12.5, color: "#cfeeda", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                  >
+                    💡 {optimalMove.title} <span style={{ fontSize: 9, color: "#5fbf85" }}>(совет аппарата)</span>
+                  </button>
+                )}
+                {GUIDED_STARTER_IDEAS.map(idea => (
+                  <button
+                    key={idea.id}
+                    onClick={() => { setDraftInput(idea.text); setActionMode(idea.mode); setTimeout(() => draftTextareaRef.current?.focus(), 50); }}
+                    style={{ background: "#1c2230", border: "1px solid #2a3040", borderRadius: 4, padding: "6px 11px", fontFamily: "'PT Serif',serif", fontSize: 12.5, color: "#cdd3e0", cursor: "pointer" }}
+                  >
+                    {idea.icon} {idea.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Тип действия: обычный выбор (указ/реформа/программа/разведка/военная/дипломатия)
               переехал во вкладку «Кремль» — там теперь и категория, и формулировка выбираются
